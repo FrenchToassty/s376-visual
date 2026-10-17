@@ -1,0 +1,41 @@
+#include "s376/config.hpp"
+#include "s376/diagnostics.hpp"
+#include "s376/log.hpp"
+#include "s376/version.hpp"
+
+#include <fstream>
+#include <iostream>
+
+int main(int argc, char** argv) {
+    std::string config_path;
+    for (int i = 1; i < argc; ++i) {
+        const std::string a = argv[i];
+        if ((a == "-c" || a == "--config") && i + 1 < argc)
+            config_path = argv[++i];
+        else if (a == "-h" || a == "--help") {
+            std::cout << "s376-doctor — local environment checks (never sends off-box)\n";
+            return 0;
+        }
+    }
+    s376::AppConfig cfg = s376::default_config();
+    if (config_path.empty()) {
+        std::ifstream probe("config/s376-visual.toml");
+        if (probe)
+            config_path = "config/s376-visual.toml";
+    }
+    if (!config_path.empty()) {
+        try {
+            cfg = s376::load_config(config_path);
+        } catch (const std::exception& ex) {
+            std::cerr << ex.what() << "\n";
+            return 2;
+        }
+    }
+    s376::log::Options lo;
+    lo.no_file = true;
+    s376::log::setup(lo, "doctor");
+    auto r = s376::run_doctor(cfg, config_path, true);
+    std::cout << s376::format_report(r);
+    s376::log::shutdown();
+    return r.fails ? 1 : 0;
+}
