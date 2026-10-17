@@ -3,6 +3,9 @@
 A coworker (human or agent) can pick up from here. Cursor usage on this
 account may stop mid-run — treat this file as the source of truth.
 
+**PR:** https://github.com/joeylawell/s376-visual/pull/1
+**Branch:** `cursor/s376-visual-v1-6852`
+
 ## Verified in this run
 
 - `s376-tests`: **796 passed, 0 failed** (VAX floats, all 4 wire encodings, golden
