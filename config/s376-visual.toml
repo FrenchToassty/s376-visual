@@ -27,8 +27,10 @@ debug = false
 dir = "logs"
 
 # Three RSI Raster XT4 channels from the 737-300 site file.
-# v0.1 opens one window (--channel front|left|right). All three are described
-# so a later CompositeViewer pass can open them together.
+# Default: open every enabled channel (CompositeViewer). Laptop with one
+# display tiles left|front|right. Three monitors use `monitor` 0/1/2.
+# Single-window fallback: --channel front|left|right
+# Optional window_x / window_y pin a channel on a laptop desktop.
 
 [[channels]]
 name = "front"

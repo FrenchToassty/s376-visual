@@ -20,6 +20,18 @@ struct ChannelConfig {
     int height = 1080;
     bool fullscreen = false;
     bool enabled = true;
+    int window_x = -1; // -1 = auto (monitor or tiled)
+    int window_y = -1;
+};
+
+struct WindowPlacement {
+    std::string name;
+    int screen = 0;
+    int x = 80;
+    int y = 80;
+    int w = 1920;
+    int h = 1080;
+    bool fullscreen = false;
 };
 
 struct HostConfig {
@@ -57,6 +69,14 @@ struct AppConfig {
 AppConfig default_config();
 AppConfig load_config(const std::string& path); // throws std::runtime_error
 std::string dump_config(const AppConfig& cfg);
+
+// name empty or "all" → every enabled channel; otherwise the named one.
+std::vector<ChannelConfig> select_channels(const AppConfig& cfg, const std::string& name);
+
+// Place windows: explicit window_x/y win; else one channel per monitor when
+// num_screens > 1; else tile left|front|right on a single display (scaled to fit).
+std::vector<WindowPlacement> layout_channels(const std::vector<ChannelConfig>& channels,
+                                             int num_screens, int screen_w, int screen_h);
 
 xt4::WordOrder parse_word_order(const std::string& s);
 xt4::FloatFmt parse_float_fmt(const std::string& s);

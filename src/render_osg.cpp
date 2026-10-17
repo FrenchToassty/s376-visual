@@ -7,24 +7,22 @@
 #include <osg/Fog>
 #include <osg/Geode>
 #include <osg/Geometry>
+#include <osg/GraphicsContext>
 #include <osg/Light>
 #include <osg/LightSource>
-#include <osg/LineWidth>
 #include <osg/Material>
-#include <osg/MatrixTransform>
-#include <osg/ShapeDrawable>
 #include <osg/Texture2D>
+#include <osg/Viewport>
 #include <osgDB/ReadFile>
-#include <osgGA/GUIEventHandler>
+#include <osgViewer/CompositeViewer>
 #include <osgViewer/Viewer>
 
 #ifdef S376_HAS_OSGEARTH
-#include <osgEarth/EarthManipulator>
 #include <osgEarth/MapNode>
 #endif
 
+#include <algorithm>
 #include <cmath>
-#include <cstring>
 
 namespace s376 {
 namespace {
@@ -41,24 +39,23 @@ osg::Image* make_globe_image(int w, int h) {
         const double lat = 90.0 - 180.0 * (y + 0.5) / h;
         for (int x = 0; x < w; ++x) {
             const double lon = -180.0 + 360.0 * (x + 0.5) / w;
-            // Cheap land/water: a few rectangles covering the 17 airports' continents.
             bool land = false;
             if (lat > -60 && lat < 75) {
                 if (lon > -130 && lon < -50 && lat > 15)
-                    land = true; // N America
+                    land = true;
                 if (lon > -90 && lon < -30 && lat > -55 && lat < 15)
-                    land = true; // S America
+                    land = true;
                 if (lon > -15 && lon < 50 && lat > 35)
-                    land = true; // Europe
+                    land = true;
                 if (lon > -20 && lon < 55 && lat > -35 && lat < 37)
-                    land = true; // Africa
+                    land = true;
                 if (lon > 40 && lon < 150 && lat > 5)
-                    land = true; // Asia
+                    land = true;
                 if (lon > 110 && lon < 155 && lat > -40 && lat < -10)
-                    land = true; // Australia
+                    land = true;
             }
             if (lat > 70 || lat < -60)
-                land = true; // ice
+                land = true;
             const bool grid = (std::fmod(std::fabs(lat), 10.0) < 0.25) ||
                               (std::fmod(std::fabs(lon), 10.0) < 0.25);
             unsigned char r, g, b;
@@ -86,7 +83,6 @@ osg::Image* make_globe_image(int w, int h) {
 
 osg::Node* make_procedural_globe() {
     auto* geode = new osg::Geode;
-    // Tessellated ellipsoid. 96x48 is plenty for a hangar demo.
     constexpr int nlon = 96, nlat = 48;
     auto* geom = new osg::Geometry;
     auto* verts = new osg::Vec3Array;
@@ -140,13 +136,33 @@ osg::Node* make_procedural_globe() {
     return geode;
 }
 
+void apply_view_camera(osg::Camera* cam, const ChannelConfig& ch, const HostState& host) {
+    if (!cam || !host.have_eyepoint)
+        return;
+    const auto v = geo::make_channel_view(
+        host.eye.lat_deg, host.eye.lon_deg, host.eye.alt_ft * geo::kFtToM,
+        host.eye.true_heading_deg(), host.eye.pitch_deg, host.eye.roll_deg, ch.heading_offset_deg,
+        ch.pitch_offset_deg, ch.roll_offset_deg, ch.hfov_deg, ch.vfov_deg, ch.width, ch.height);
+    const osg::Vec3d epos = ecef_to_osg(v.eye);
+    const osg::Vec3d center =
+        epos + osg::Vec3d(v.forward.x, v.forward.y, v.forward.z) * 100.0;
+    const osg::Vec3d upv(v.up.x, v.up.y, v.up.z);
+    cam->setProjectionMatrixAsPerspective(v.vfov_deg, v.aspect, v.near_m, v.far_m);
+    cam->setViewMatrixAsLookAt(epos, center, upv);
+}
+
 class OsgRenderer final : public Renderer {
   public:
-    bool begin(const AppConfig& cfg, const ChannelConfig& channel) override {
+    bool begin(const AppConfig& cfg, const std::vector<ChannelConfig>& channels) override {
         cfg_ = cfg;
-        ch_ = channel;
-        viewer_ = std::make_unique<osgViewer::Viewer>();
-        viewer_->setThreadingModel(osgViewer::Viewer::SingleThreaded);
+        channels_ = channels;
+        if (channels_.empty()) {
+            S376_LOG_ERROR("render", "no channels to open");
+            return false;
+        }
+
+        viewer_ = std::make_unique<osgViewer::CompositeViewer>();
+        viewer_->setThreadingModel(osgViewer::ViewerBase::SingleThreaded);
 
         osg::ref_ptr<osg::Group> root = new osg::Group;
 #ifdef S376_HAS_OSGEARTH
@@ -161,7 +177,6 @@ class OsgRenderer final : public Renderer {
             root->addChild(make_procedural_globe());
         }
 #else
-        (void)cfg;
         root->addChild(make_procedural_globe());
 #endif
         light_ = new osg::LightSource;
@@ -180,81 +195,87 @@ class OsgRenderer final : public Renderer {
         fog_->setDensity(1e-6f);
         root->getOrCreateStateSet()->setAttributeAndModes(fog_);
         root->getOrCreateStateSet()->setMode(GL_FOG, osg::StateAttribute::ON);
+        root_ = root;
 
-        viewer_->setSceneData(root);
-        viewer_->setUpViewInWindow(80, 80, channel.width, channel.height);
-        viewer_->realize();
-        if (auto* cam = viewer_->getCamera()) {
-            cam->setClearColor(osg::Vec4(0.35f, 0.50f, 0.72f, 1));
-            cam->setNearFarRatio(0.0001);
+        int nscr = 1, sw = 1920, sh = 1080;
+        if (auto* wsi = osg::GraphicsContext::getWindowingSystemInterface()) {
+            nscr = static_cast<int>(std::max(1u, wsi->getNumScreens()));
+            osg::GraphicsContext::ScreenSettings ss;
+            wsi->getScreenSettings(osg::GraphicsContext::ScreenIdentifier(0), ss);
+            if (ss.width > 0)
+                sw = ss.width;
+            if (ss.height > 0)
+                sh = ss.height;
         }
-        viewer_->getEventQueue()->keyPress(' '); // no-op to create queue
-        S376_LOG_INFO("render", "OSG window %s %dx%d fov %.1fx%.1f hdg-off %.3f",
-                      channel.name.c_str(), channel.width, channel.height, channel.hfov_deg,
-                      channel.vfov_deg, channel.heading_offset_deg);
+        const auto places = layout_channels(channels_, nscr, sw, sh);
+
+        for (std::size_t i = 0; i < channels_.size(); ++i) {
+            const auto& ch = channels_[i];
+            WindowPlacement place = places[i];
+            for (const auto& p : places) {
+                if (p.name == ch.name)
+                    place = p;
+            }
+
+            osg::ref_ptr<osgViewer::View> view = new osgViewer::View;
+            view->setSceneData(root);
+            // setUpViewInWindow handles X11 DISPLAY / pixel format; raw Traits
+            // often fail under Xvfb.
+            if (place.fullscreen)
+                view->setUpViewOnSingleScreen(static_cast<unsigned>(place.screen));
+            else
+                view->setUpViewInWindow(place.x, place.y, place.w, place.h,
+                                        static_cast<unsigned>(place.screen));
+            if (auto* cam = view->getCamera()) {
+                cam->setClearColor(osg::Vec4(0.35f, 0.50f, 0.72f, 1));
+                cam->setNearFarRatio(0.0001);
+                if (auto* vp = cam->getViewport()) {
+                    place.w = static_cast<int>(vp->width());
+                    place.h = static_cast<int>(vp->height());
+                }
+            }
+            viewer_->addView(view);
+            views_.push_back(view);
+
+            S376_LOG_INFO("render",
+                          "channel %s  %dx%d at %d,%d screen %d  fov %.1fx%.1f  hdg-off %.3f%s",
+                          ch.name.c_str(), place.w, place.h, place.x, place.y, place.screen,
+                          ch.hfov_deg, ch.vfov_deg, ch.heading_offset_deg,
+                          channels_.size() == 1 ? " (single-window)" : "");
+        }
+
+        viewer_->realize();
+        S376_LOG_INFO("render", "opened %zu channel window(s)  screens=%d  %dx%d", views_.size(),
+                      nscr, sw, sh);
         return true;
     }
 
     void frame(const HostState& host) override {
         if (!viewer_)
             return;
-        apply_camera(host);
+        for (std::size_t i = 0; i < views_.size() && i < channels_.size(); ++i)
+            apply_view_camera(views_[i]->getCamera(), channels_[i], host);
         apply_env(host);
         viewer_->frame();
     }
 
     bool done() const override { return viewer_ && viewer_->done(); }
-    void end() override { viewer_.reset(); }
+    void end() override {
+        views_.clear();
+        viewer_.reset();
+        root_ = nullptr;
+    }
     std::string name() const override { return used_earth_ ? "osgearth" : "osg"; }
+    std::size_t view_count() const override { return views_.size(); }
 
   private:
-    void apply_camera(const HostState& host) {
-        if (!host.have_eyepoint)
-            return;
-        const double lat = host.eye.lat_deg;
-        const double lon = host.eye.lon_deg;
-        const double alt_m = host.eye.alt_ft * geo::kFtToM;
-        const double hdg = host.eye.true_heading_deg() + ch_.heading_offset_deg;
-        const double pitch = host.eye.pitch_deg + ch_.pitch_offset_deg;
-        const double roll = host.eye.roll_deg + ch_.roll_offset_deg;
-
-        const geo::Ecef eye = geo::lla_to_ecef(lat, lon, alt_m);
-        geo::Enu fwd, right, down;
-        geo::body_to_enu(hdg, pitch, roll, fwd, right, down);
-        geo::Ecef east, north, up;
-        geo::ecef_to_enu_axes(lat, lon, east, north, up);
-
-        auto to_ecef = [&](const geo::Enu& b) {
-            geo::Ecef o;
-            o.x = b.e * east.x + b.n * north.x + b.u * up.x;
-            o.y = b.e * east.y + b.n * north.y + b.u * up.y;
-            o.z = b.e * east.z + b.n * north.z + b.u * up.z;
-            return o;
-        };
-        const geo::Ecef f = to_ecef(fwd);
-        const geo::Ecef d = to_ecef(down);
-        // OSG camera looks down -Z, up is +Y. We look along +fwd, up is -down.
-        const osg::Vec3d epos = ecef_to_osg(eye);
-        const osg::Vec3d center = epos + osg::Vec3d(f.x, f.y, f.z) * 100.0;
-        const osg::Vec3d upv(-d.x, -d.y, -d.z);
-
-        auto* cam = viewer_->getCamera();
-        const double aspect = static_cast<double>(ch_.width) / std::max(1, ch_.height);
-        const double near_m = std::max(3.0, alt_m * 0.02);
-        const double far_m = 2.0e7;
-        cam->setProjectionMatrixAsPerspective(ch_.vfov_deg, aspect, near_m, far_m);
-        cam->setViewMatrixAsLookAt(epos, center, upv);
-    }
-
     void apply_env(const HostState& host) {
         float vis_ft = host.have_env ? host.env.visible_range_ft : 528000.f;
         if (host.have_fog && host.fog.select >= 0 && host.fog.rvr_ft > 0)
             vis_ft = std::min(vis_ft, host.fog.rvr_ft);
         vis_ft = std::max(200.f, std::min(vis_ft, xt4::kMaxVisibilityFt));
         const float vis_m = vis_ft * static_cast<float>(geo::kFtToM);
-        // exp2: remaining ≈ exp(-(d/vis)^2 * 3) so ~5 % at the reported range.
-        const float density = 1.7f / vis_m;
-        fog_->setDensity(density);
+        fog_->setDensity(1.7f / vis_m);
 
         const float tod = host.have_env ? host.env.tod_hours : 14.5f;
         const int month = host.have_env ? host.env.month : 6;
@@ -270,16 +291,19 @@ class OsgRenderer final : public Renderer {
         L->setDiffuse(osg::Vec4(1.0f, 0.95f, 0.85f, 1) * (0.15f + 0.85f * dayf));
         L->setAmbient(
             osg::Vec4(0.04f + 0.12f * dayf, 0.04f + 0.12f * dayf, 0.06f + 0.12f * dayf, 1));
-        if (auto* cam = viewer_->getCamera()) {
-            const float t = 0.25f + 0.55f * dayf;
-            cam->setClearColor(
-                osg::Vec4(0.15f + 0.25f * t, 0.22f + 0.35f * t, 0.35f + 0.40f * t, 1));
+        const float t = 0.25f + 0.55f * dayf;
+        const osg::Vec4 sky(0.15f + 0.25f * t, 0.22f + 0.35f * t, 0.35f + 0.40f * t, 1);
+        for (auto& view : views_) {
+            if (auto* cam = view->getCamera())
+                cam->setClearColor(sky);
         }
     }
 
     AppConfig cfg_;
-    ChannelConfig ch_;
-    std::unique_ptr<osgViewer::Viewer> viewer_;
+    std::vector<ChannelConfig> channels_;
+    std::unique_ptr<osgViewer::CompositeViewer> viewer_;
+    std::vector<osg::ref_ptr<osgViewer::View>> views_;
+    osg::ref_ptr<osg::Group> root_;
     osg::ref_ptr<osg::LightSource> light_;
     osg::ref_ptr<osg::Fog> fog_;
     bool used_earth_ = false;

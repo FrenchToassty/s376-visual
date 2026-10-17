@@ -78,6 +78,7 @@ add_executable(s376-tests
     tests/test_config.cpp
     tests/test_geo.cpp
     tests/test_synth_loop.cpp
+    tests/test_channels.cpp
 )
 target_link_libraries(s376-tests PRIVATE s376_core)
 

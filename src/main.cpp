@@ -30,7 +30,7 @@ void usage() {
            "usage: s376-visual [options]\n"
            "  -c, --config PATH     TOML config (default config/s376-visual.toml if present)\n"
            "  --bind HOST:PORT      override host.bind (default 0.0.0.0:2300)\n"
-           "  --channel NAME        window channel: front|left|right (default first enabled)\n"
+           "  --channel NAME        front|left|right|all  (default: all enabled channels)\n"
            "  --headless            run the host receiver with no GL window\n"
            "  --demo                in-process synth to 127.0.0.1 (no VAX needed)\n"
            "  --duration SEC        exit after SEC seconds (tests)\n"
@@ -40,21 +40,6 @@ void usage() {
            "  --doctor              environment checks and exit\n"
            "  --version             print version\n"
            "  -h, --help\n";
-}
-
-const s376::ChannelConfig* pick_channel(const s376::AppConfig& cfg, const std::string& name) {
-    if (!name.empty()) {
-        for (const auto& ch : cfg.channels) {
-            if (ch.name == name)
-                return &ch;
-        }
-        return nullptr;
-    }
-    for (const auto& ch : cfg.channels) {
-        if (ch.enabled)
-            return &ch;
-    }
-    return cfg.channels.empty() ? nullptr : &cfg.channels.front();
 }
 
 } // namespace
@@ -159,9 +144,10 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    const s376::ChannelConfig* ch = pick_channel(cfg, channel_name);
-    if (!ch) {
-        S376_LOG_ERROR("ig", "no channel named '%s'", channel_name.c_str());
+    const auto channels = s376::select_channels(cfg, channel_name);
+    if (channels.empty()) {
+        S376_LOG_ERROR("ig", "no channel matched '%s'",
+                       channel_name.empty() ? "all" : channel_name.c_str());
         return 2;
     }
 
@@ -197,11 +183,11 @@ int main(int argc, char** argv) {
         rend = std::make_unique<s376::NullRenderer>();
     else
         rend = s376::make_renderer(cfg.render.engine);
-    if (!rend->begin(cfg, *ch)) {
+    if (!rend->begin(cfg, channels)) {
         S376_LOG_ERROR("ig", "renderer %s failed to start", rend->name().c_str());
         g_stop = true;
     } else {
-        S376_LOG_INFO("ig", "renderer=%s channel=%s", rend->name().c_str(), ch->name.c_str());
+        S376_LOG_INFO("ig", "renderer=%s views=%zu", rend->name().c_str(), rend->view_count());
     }
 
     const auto t0 = std::chrono::steady_clock::now();

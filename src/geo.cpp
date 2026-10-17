@@ -1,5 +1,6 @@
 #include "s376/geo.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace s376::geo {
@@ -104,6 +105,38 @@ Ecef sun_ecef(double lat_deg, double lon_deg, double tod_hours, int month, int d
         dir.z /= mag;
     }
     return dir;
+}
+
+ChannelView make_channel_view(double lat_deg, double lon_deg, double alt_m, double true_hdg_deg,
+                              double pitch_deg, double roll_deg, double heading_offset_deg,
+                              double pitch_offset_deg, double roll_offset_deg, double hfov_deg,
+                              double vfov_deg, int width, int height) {
+    ChannelView v;
+    v.eye = lla_to_ecef(lat_deg, lon_deg, alt_m);
+    const double hdg = true_hdg_deg + heading_offset_deg;
+    const double pit = pitch_deg + pitch_offset_deg;
+    const double rol = roll_deg + roll_offset_deg;
+    v.heading_deg = hdg;
+    Enu fwd, right, down;
+    body_to_enu(hdg, pit, rol, fwd, right, down);
+    Ecef east, north, up;
+    ecef_to_enu_axes(lat_deg, lon_deg, east, north, up);
+    auto to_ecef = [&](const Enu& b) {
+        Ecef o;
+        o.x = b.e * east.x + b.n * north.x + b.u * up.x;
+        o.y = b.e * east.y + b.n * north.y + b.u * up.y;
+        o.z = b.e * east.z + b.n * north.z + b.u * up.z;
+        return o;
+    };
+    v.forward = to_ecef(fwd);
+    const Ecef d = to_ecef(down);
+    v.up = {-d.x, -d.y, -d.z};
+    v.hfov_deg = hfov_deg;
+    v.vfov_deg = vfov_deg;
+    v.aspect = static_cast<double>(std::max(1, width)) / static_cast<double>(std::max(1, height));
+    v.near_m = std::max(3.0, alt_m * 0.02);
+    v.far_m = 2.0e7;
+    return v;
 }
 
 } // namespace s376::geo

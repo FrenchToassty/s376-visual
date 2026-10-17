@@ -39,6 +39,7 @@ void test_safety();
 void test_config();
 void test_geo();
 void test_synth_loop();
+void test_channels();
 
 int main() {
     test_vaxfloat();
@@ -47,6 +48,7 @@ int main() {
     test_config();
     test_geo();
     test_synth_loop();
+    test_channels();
     std::cout << g_passes << " passed, " << g_fails << " failed\n";
     return g_fails ? 1 : 0;
 }

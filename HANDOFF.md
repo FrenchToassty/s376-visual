@@ -19,6 +19,15 @@ account may stop mid-run — treat this file as the source of truth.
 - `s376-doctor`: 0 fail, 1 warn (osgEarth not packaged on Ubuntu 24.04).
 - GitHub Actions `ci / linux` on this branch: **green** (ubuntu-24.04 build, 796 tests, doctor, headless demo, sim-LAN refusal).
 
+## Milestone: three channels (2026-10-17)
+
+CompositeViewer opens every enabled `[[channels]]` entry. One display tiles
+left|front|right (verified under Xvfb 1920×1080: three 640×360 windows at
+x=0/640/1280, heading offsets 35.515 / 0 / −35.25). `--channel front|left|right`
+is the single-window fallback. Shared eyepoint; each view rotates by the
+TOML heading offset (RSI ViewAngles). `select_channels` / `layout_channels`
+are unit-tested (822 passed).
+
 ## What's done and working
 
 - Engine choice documented: **osgEarth on OSG 3.6**, with a procedural OSG
@@ -48,7 +57,6 @@ account may stop mid-run — treat this file as the source of truth.
 
 | Item | Path | What's left |
 |---|---|---|
-| Three channel windows | `src/render_osg.cpp`, `src/main.cpp` | CompositeViewer / three `osgViewer::View`s from the TOML list |
 | osgEarth tiles | `data/earth/s376.earth` | Build osgEarth on the hangar box; add a Copernicus elevation layer |
 | Real HAT | `src/host.cpp` (`HostReceiver::loop`) | Sample osgEarth elevation instead of `hat = alt_ft` |
 | Airport meshes | `docs/AIRPORTS.md` | Generator not started. Start with KSEA |
@@ -58,19 +66,12 @@ account may stop mid-run — treat this file as the source of truth.
 
 ## Next 5 concrete steps (in order)
 
-1. **Build and run the unit tests on Linux Mint** (commands below). Fix
-   anything CI flags.
-2. **Open the globe.** `./build/s376-visual --demo --channel front` on a
-   machine with a display. Confirm the camera lifts off KSEA and the
-   lighting changes if you later inject an env packet with night TOD.
-3. **Build osgEarth from source** (README) and re-cmake so
-   `S376_HAS_OSGEARTH` is set. Confirm `s376.earth` drapes imagery.
-4. **Three windows.** Drive all enabled `[[channels]]` from one process
-   (CompositeViewer). Keep one `--channel` override for laptops.
-5. **KSEA airport v0.** OurAirports runways + OSM taxiways + standard
-   edge/threshold lights, switch numbers in a committed
-   `data/airports/KSEA/airport.toml`. Use the private `.nx3` only as a
-   local audit of switch numbers.
+1. **Local DEM + imagery.** GDAL GeoTIFF path, BC/DXT compressed textures,
+   `s376-cache` offline tile tool. Document osgEarth-from-source on Mint 22.
+2. **KSEA airport v0.** OurAirports runways + generated taxi/approach lights.
+3. **Real HAT** from the DEM under the eyepoint.
+4. **Build osgEarth** on the hangar box and confirm `s376.earth` drapes.
+5. **Light-point GPU pass** driven by packet-112 intensity steps.
 
 ## How to build / run / test (Linux Mint 22)
 
@@ -82,7 +83,8 @@ unset S376_ALLOW_SIM_LAN S376_ALLOW_LAN
 ctest --test-dir build --output-on-failure
 ./build/s376-doctor -c config/s376-visual.toml
 ./build/s376-visual --headless --demo --duration 3 --bind 127.0.0.1:2300
-# with a display:
+# three tiled windows (one display) or --channel front for a single view:
+./build/s376-visual --demo
 ./build/s376-visual --demo --channel front
 ```
 

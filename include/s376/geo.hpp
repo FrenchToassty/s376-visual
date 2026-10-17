@@ -38,4 +38,24 @@ Ecef sun_ecef(double lat_deg, double lon_deg, double tod_hours, int month, int d
 
 int day_of_year(int year, int month, int day);
 
+// Shared-eyepoint channel view: the same geodetic eye, camera rotated by the
+// channel heading/pitch/roll offsets (RSI ViewAngles model). Symmetric
+// perspective; overlap comes from the 50° FOV vs ~35° heading split.
+struct ChannelView {
+    Ecef eye;
+    Ecef forward;
+    Ecef up;
+    double heading_deg = 0;
+    double vfov_deg = 32.5;
+    double hfov_deg = 50.0;
+    double aspect = 16.0 / 9.0;
+    double near_m = 3.0;
+    double far_m = 2.0e7;
+};
+
+ChannelView make_channel_view(double lat_deg, double lon_deg, double alt_m, double true_hdg_deg,
+                              double pitch_deg, double roll_deg, double heading_offset_deg,
+                              double pitch_offset_deg, double roll_offset_deg, double hfov_deg,
+                              double vfov_deg, int width, int height);
+
 } // namespace s376::geo

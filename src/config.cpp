@@ -1,5 +1,6 @@
 #include "s376/config.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <fstream>
 #include <sstream>
@@ -110,11 +111,15 @@ xt4::FloatFmt parse_float_fmt(const std::string& s) {
 
 AppConfig default_config() {
     AppConfig c;
-    c.channels = {
-        {"front", 0.0, 0.0, 0.0, 50.0, 32.5, 0, 1920, 1080, false, true},
-        {"left", 35.515, 0.0, 0.0, 50.0, 32.5, 1, 1920, 1080, false, true},
-        {"right", -35.25, 0.0, 0.0, 50.0, 32.5, 2, 1920, 1080, false, true},
-    };
+    ChannelConfig front, left, right;
+    front.name = "front";
+    left.name = "left";
+    left.heading_offset_deg = 35.515;
+    left.monitor = 1;
+    right.name = "right";
+    right.heading_offset_deg = -35.25;
+    right.monitor = 2;
+    c.channels = {front, left, right};
     return c;
 }
 
@@ -170,6 +175,8 @@ static ChannelConfig fill_channel(const std::unordered_map<std::string, std::str
     inum("monitor", c.monitor);
     inum("width", c.width);
     inum("height", c.height);
+    inum("window_x", c.window_x);
+    inum("window_y", c.window_y);
     if (kv.count("fullscreen"))
         parse_bool(kv.at("fullscreen"), c.fullscreen);
     if (kv.count("enabled"))
@@ -218,6 +225,92 @@ std::string dump_config(const AppConfig& cfg) {
           << (ch.enabled ? "" : " disabled") << "\n";
     }
     return o.str();
+}
+
+std::vector<ChannelConfig> select_channels(const AppConfig& cfg, const std::string& name) {
+    std::vector<ChannelConfig> out;
+    if (name.empty() || name == "all") {
+        for (const auto& ch : cfg.channels) {
+            if (ch.enabled)
+                out.push_back(ch);
+        }
+        if (out.empty() && !cfg.channels.empty())
+            out.push_back(cfg.channels.front());
+        return out;
+    }
+    for (const auto& ch : cfg.channels) {
+        if (ch.name == name)
+            out.push_back(ch);
+    }
+    return out;
+}
+
+std::vector<WindowPlacement> layout_channels(const std::vector<ChannelConfig>& channels,
+                                             int num_screens, int screen_w, int screen_h) {
+    std::vector<WindowPlacement> out;
+    if (channels.empty())
+        return out;
+    const int ns = std::max(1, num_screens);
+    const int sw = std::max(320, screen_w);
+    const int sh = std::max(240, screen_h);
+
+    bool any_explicit = false;
+    for (const auto& ch : channels) {
+        if (ch.window_x >= 0 && ch.window_y >= 0)
+            any_explicit = true;
+    }
+
+    const bool tile = !any_explicit && ns <= 1 && channels.size() > 1;
+    std::vector<ChannelConfig> ordered = channels;
+    if (tile) {
+        std::stable_sort(ordered.begin(), ordered.end(), [](const ChannelConfig& a, const ChannelConfig& b) {
+            return a.heading_offset_deg > b.heading_offset_deg; // left, front, right
+        });
+    }
+
+    const int n = static_cast<int>(ordered.size());
+    int cell_w = sw / n;
+    int cell_h = sh;
+    if (tile) {
+        // Keep the configured aspect, shrink to fit the tile.
+        const double aspect =
+            static_cast<double>(ordered[0].width) / static_cast<double>(std::max(1, ordered[0].height));
+        cell_w = sw / n;
+        cell_h = static_cast<int>(cell_w / std::max(aspect, 0.1));
+        if (cell_h > sh) {
+            cell_h = sh;
+            cell_w = static_cast<int>(cell_h * aspect);
+        }
+    }
+
+    for (int i = 0; i < n; ++i) {
+        const auto& ch = ordered[static_cast<std::size_t>(i)];
+        WindowPlacement p;
+        p.name = ch.name;
+        p.fullscreen = ch.fullscreen && !tile;
+        if (ch.window_x >= 0 && ch.window_y >= 0) {
+            p.screen = std::max(0, std::min(ch.monitor, ns - 1));
+            p.x = ch.window_x;
+            p.y = ch.window_y;
+            p.w = ch.width;
+            p.h = ch.height;
+        } else if (tile) {
+            p.screen = 0;
+            p.x = i * (sw / n);
+            p.y = 0;
+            p.w = cell_w;
+            p.h = cell_h;
+            p.fullscreen = false;
+        } else {
+            p.screen = std::max(0, std::min(ch.monitor, ns - 1));
+            p.x = 0;
+            p.y = 0;
+            p.w = ch.width;
+            p.h = ch.height;
+        }
+        out.push_back(p);
+    }
+    return out;
 }
 
 } // namespace s376
