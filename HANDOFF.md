@@ -17,6 +17,7 @@ account may stop mid-run — treat this file as the source of truth.
   procedural globe, camera on the eyepoint.
 - `s376-synth --dest 10.1.95.1:2300` and `192.168.173.10:2300`: refused.
 - `s376-doctor`: 0 fail, 1 warn (osgEarth not packaged on Ubuntu 24.04).
+- GitHub Actions `ci / linux` on this branch: **green** (ubuntu-24.04 build, 796 tests, doctor, headless demo, sim-LAN refusal).
 
 ## What's done and working
 
