@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake g++ libopenscenegraph-dev libgl-dev libglew-dev xvfb
+      - name: configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
+      - name: build
+        run: cmake --build build -j $(nproc)
+      - name: unit tests
+        run: |
+          unset S376_ALLOW_SIM_LAN
+          unset S376_ALLOW_LAN
+          ctest --test-dir build --output-on-failure
+      - name: doctor
+        run: ./build/s376-doctor -c config/s376-visual.toml
+      - name: headless demo (loopback only)
+        run: |
+          ./build/s376-visual --headless --demo --duration 2 --bind 127.0.0.1:2300 -c config/s376-visual.toml
+      - name: refuse sim LAN
+        run: |
+          if ./build/s376-synth --dest 10.1.95.1:2300 --duration 0.1; then
+            echo "synth must refuse the sim LAN" >&2
+            exit 1
+          fi
+          if ./build/s376-synth --dest 192.168.173.10:2300 --duration 0.1; then
+            echo "synth must refuse the visual LAN" >&2
+            exit 1
+          fi

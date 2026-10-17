@@ -1,0 +1,120 @@
+# HANDOFF
+
+A coworker (human or agent) can pick up from here. Cursor usage on this
+account may stop mid-run — treat this file as the source of truth.
+
+## Verified in this run
+
+- `s376-tests`: **796 passed, 0 failed** (VAX floats, all 4 wire encodings, golden
+  Python-builder hex, HAT host-side decode, safety refusals, TOML, sun/ECEF,
+  200-step synth stream, live UDP 127.0.0.1).
+- `s376-visual --headless --demo --duration 2`: 40 datagrams / 40 eyepoints,
+  KSEA 16L, env TOD 14.5 / vis 60760 ft.
+- `s376-visual --demo` under Xvfb: OSG window "front" 1920×1080, 50×32.5 FOV,
+  procedural globe, camera on the eyepoint.
+- `s376-synth --dest 10.1.95.1:2300` and `192.168.173.10:2300`: refused.
+- `s376-doctor`: 0 fail, 1 warn (osgEarth not packaged on Ubuntu 24.04).
+
+## What's done and working
+
+- Engine choice documented: **osgEarth on OSG 3.6**, with a procedural OSG
+  globe until osgEarth is built from source. See `docs/DESIGN.md`.
+- Repo skeleton: CMake, MIT license, clang-format, GitHub Actions CI on
+  `ubuntu-24.04`, `.gitignore` that blocks RSI/CAE/captures.
+- Clean-room xT4 decoder in `include/s376/xt4.hpp` + `src/xt4.cpp`.
+  Autodetects word order (le/be) and float format (VAX F/D vs IEEE).
+  Decodes eyepoint, environment (TOD + visibility), fog, light-switch
+  steps 0–5, ownship lights, display control, HAT query.
+- HAT reply (`xt4::build_hat_response`) matches what the S376 host reads
+  (64-byte big-endian IEEE). Host-side conversion is unit-tested.
+- `s376-synth` sends a KSEA 16L takeoff to a destination that must pass
+  the safety check.
+- Host socket binds `0.0.0.0:2300` by default (overridable). Replies on
+  2301. Built into the IG (no bridge process).
+- TOML config with the three RSI channels (`config/s376-visual.toml`).
+- Logging (`-v`, `--debug`, rotating file under `logs/`).
+- `s376-doctor` / `--diagnostics`.
+- Minimal OSG renderer: WGS84 globe, host-driven camera, exp2 fog, sun
+  from TOD. osgEarth earth file is loaded when the lib is present.
+- Airport rebuild plan: `docs/AIRPORTS.md`. Terrain sources: `docs/SOURCES.md`.
+- Safety: `10.1.95.0/24` and `192.168.173.0/24` refused unless
+  `host.allow_sim_lan` / `S376_ALLOW_SIM_LAN=1`. Tests never set that.
+
+## Half-done
+
+| Item | Path | What's left |
+|---|---|---|
+| Three channel windows | `src/render_osg.cpp`, `src/main.cpp` | CompositeViewer / three `osgViewer::View`s from the TOML list |
+| osgEarth tiles | `data/earth/s376.earth` | Build osgEarth on the hangar box; add a Copernicus elevation layer |
+| Real HAT | `src/host.cpp` (`HostReceiver::loop`) | Sample osgEarth elevation instead of `hat = alt_ft` |
+| Airport meshes | `docs/AIRPORTS.md` | Generator not started. Start with KSEA |
+| Light points | decoder stores `light_steps[256]` in `HostState` | No GPU pass yet |
+| Off-axis frustum | camera is rotated by heading offset | Shared eyepoint + asymmetric projection later |
+| `--demo` Ctrl+C | `src/synth.cpp` `run_synth_sender` | Synth thread ignores SIGINT; use `--duration` |
+
+## Next 5 concrete steps (in order)
+
+1. **Build and run the unit tests on Linux Mint** (commands below). Fix
+   anything CI flags.
+2. **Open the globe.** `./build/s376-visual --demo --channel front` on a
+   machine with a display. Confirm the camera lifts off KSEA and the
+   lighting changes if you later inject an env packet with night TOD.
+3. **Build osgEarth from source** (README) and re-cmake so
+   `S376_HAS_OSGEARTH` is set. Confirm `s376.earth` drapes imagery.
+4. **Three windows.** Drive all enabled `[[channels]]` from one process
+   (CompositeViewer). Keep one `--channel` override for laptops.
+5. **KSEA airport v0.** OurAirports runways + OSM taxiways + standard
+   edge/threshold lights, switch numbers in a committed
+   `data/airports/KSEA/airport.toml`. Use the private `.nx3` only as a
+   local audit of switch numbers.
+
+## How to build / run / test (Linux Mint 22)
+
+```bash
+sudo apt install -y git cmake g++ libopenscenegraph-dev libgl-dev libglew-dev
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j"$(nproc)"
+unset S376_ALLOW_SIM_LAN S376_ALLOW_LAN
+ctest --test-dir build --output-on-failure
+./build/s376-doctor -c config/s376-visual.toml
+./build/s376-visual --headless --demo --duration 3 --bind 127.0.0.1:2300
+# with a display:
+./build/s376-visual --demo --channel front
+```
+
+Windows: see README (CMake + optional vcpkg OSG). `--headless` and the
+tests do not need OSG.
+
+## Known issues
+
+- osgEarth is **not** in Ubuntu 24.04 apt. v0.1 is useful without it.
+- IEEE packers assume a little-endian CPU (every hangar box we have).
+- HAT elevation is a stand-in (MSL altitude) until a DEM is sampled.
+- `s376-doctor` tries to bind `127.0.0.1:2300`; if the IG is already
+  running that check WARNs.
+- No capture/replay yet (the old bridge had it). Add a pcap writer only
+  for loopback, and never commit the files.
+- Do not copy `nxHostPacket.h` or any RSI path into this tree.
+
+## Design decisions
+
+- **C++17 / CMake**, not Python. The IG is the realtime process.
+- **Clean-room decoder.** Field layouts are in `docs/PROTOCOL.md` in our
+  own words. Test vectors are synthetic packets we built, including
+  golden hex dumped from the s376bridge Python builders (also synthetic).
+- **osgEarth is the engine of record**; OSG 3.6 from apt is the v0.1
+  renderer so CI and a Mint box work the same day.
+- **One process.** Decoder + socket + renderer. Synth is a tiny extra
+  binary for bench work.
+- **Safety by default.** Production sets `allow_sim_lan` explicitly.
+
+## Layout
+
+```
+include/s376/     public headers
+src/              core + s376-visual / s376-synth / s376-doctor
+tests/            assert-style unit tests (no Catch2)
+config/           default TOML
+data/earth/       osgEarth earth file
+docs/             DESIGN PROTOCOL AIRPORTS SOURCES
+```

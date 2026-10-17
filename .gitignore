@@ -1,0 +1,76 @@
+# Build
+/build/
+/build-*/
+/out/
+/cmake-build-*/
+CMakeUserPresets.json
+compile_commands.json
+
+# IDE
+.idea/
+.vscode/
+*.user
+*.suo
+*.sdf
+*.opensdf
+.vs/
+
+# Runtime
+/logs/
+/recordings/
+*.jsonl
+
+# Local overrides (may contain LAN addresses)
+config/local*.toml
+
+# Licensed / proprietary reference — never commit
+uploads/
+reference/
+737-drive/
+nxHostPacket.h
+**/nxHostPacket.h
+RasterXT*
+CERTS*
+*.nxb
+*.nxt
+*.nxs
+*.nxo
+*.nx3
+*.pfx
+*.ddc
+*.cc
+*.wpp
+
+# Captures and host dumps
+*.pcap
+*.pcapng
+*.img
+*.imgc
+*.dld
+*.DLD
+*.pkl
+*.FOR
+*.INC
+*.CDB
+*.XSL
+
+# Objects / binaries we do not ship
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.so
+*.dylib
+*.exe
+*.pdb
+
+# Python leftovers (this repo is C++)
+__pycache__/
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
