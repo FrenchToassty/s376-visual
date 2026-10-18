@@ -102,6 +102,18 @@ void test_terrain() {
     CHECK(again.dem.w == region.dem.w);
     CHECK(!again.imagery_dds.empty());
 
+    const auto hat = s376::sample_hat(&src, 47.463684, -122.307751, 447.0);
+    CHECK(hat.covered);
+    CHECK_NEAR(hat.elev_ft, 433.0, 8.0);
+    CHECK_NEAR(hat.hat_ft, 447.0 - hat.elev_ft, 0.05);
+    const auto miss = s376::sample_hat(&src, 0.0, 0.0, 1000.0);
+    CHECK(!miss.covered);
+    CHECK_NEAR(miss.hat_ft, 1000.0, 0.01);
+    CHECK_NEAR(miss.elev_ft, 0.0, 0.01);
+    const auto standin = s376::sample_hat(nullptr, 47.46, -122.31, 500.0);
+    CHECK(!standin.covered);
+    CHECK_NEAR(standin.hat_ft, 500.0, 0.01);
+
 #ifdef S376_HAS_GDAL
     CHECK(s376::gdal_available());
     const auto tif = (tmp / "ksea.tif").string();

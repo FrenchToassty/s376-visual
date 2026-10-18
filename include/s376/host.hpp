@@ -2,10 +2,12 @@
 
 #include "s376/config.hpp"
 #include "s376/state.hpp"
+#include "s376/terrain.hpp"
 #include "s376/xt4.hpp"
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -49,6 +51,8 @@ class HostReceiver {
     void start();
     void stop();
 
+    void set_heights(std::shared_ptr<HeightSource> h) { heights_ = std::move(h); }
+
     xt4::Decoder& decoder() { return dec_; }
     const xt4::Decoder& decoder() const { return dec_; }
 
@@ -61,6 +65,7 @@ class HostReceiver {
     HostSocket sock_;
     std::thread th_;
     std::atomic<bool> run_{false};
+    std::shared_ptr<HeightSource> heights_;
 };
 
 } // namespace s376

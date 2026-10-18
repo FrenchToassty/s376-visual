@@ -322,6 +322,31 @@ void write_cache(const CacheRegion& r, const std::string& dir) {
     t << "# packed " << packed << " bytes vs raw " << raw << " (plus RSI CERTS was 857 GB uncompressed)\n";
 }
 
+HatSample sample_hat(const HeightSource* src, double lat_deg, double lon_deg, double alt_ft) {
+    HatSample s;
+    double z = 0;
+    if (src && src->sample_ft(lat_deg, lon_deg, z)) {
+        s.covered = true;
+        s.elev_ft = static_cast<float>(z);
+        s.hat_ft = static_cast<float>(alt_ft - z);
+        return s;
+    }
+    s.covered = false;
+    s.elev_ft = 0;
+    s.hat_ft = static_cast<float>(alt_ft);
+    return s;
+}
+
+std::shared_ptr<DemGrid> load_or_synth_dem(const std::string& cache_dir) {
+    if (!cache_dir.empty()) {
+        try {
+            return std::make_shared<DemGrid>(DemGrid::load(cache_dir + "/elev.s376dem"));
+        } catch (const std::exception&) {
+        }
+    }
+    return std::make_shared<DemGrid>(DemGrid::synth_ksea());
+}
+
 CacheRegion load_cache(const std::string& dir) {
     CacheRegion r;
     r.dir = dir;

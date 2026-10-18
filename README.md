@@ -176,7 +176,7 @@ the hangar NVIDIA box runs the compatibility profile that apt OSG uses.
 ## What is in the box
 
 - Clean-room xT4 decoder (eyepoint, TOD, visibility, fog, light steps, lights)
-- HAT / status reply the S376 host already knows how to read
+- HAT / HOT reply sampled from the local DEM (host-compatible 64-byte BE IEEE)
 - Channel TOML (Front 0°, Left +35.515°, Right −35.25°, 50° × 32.5°)
 - Three CompositeViewer windows, or `--channel front` on a laptop
 - Logging, `--debug`, `--doctor`, `--diagnostics`

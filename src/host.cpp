@@ -217,15 +217,15 @@ void HostReceiver::loop() {
                     continue;
                 float elev = 0.f;
                 float hat = 0.f;
-                if (snap.have_eyepoint) {
-                    elev = static_cast<float>(snap.eye.alt_ft > 0 ? 0.0 : snap.eye.alt_ft);
-                    hat = static_cast<float>(snap.eye.alt_ft - elev);
-                    // Spherical stand-in until osgEarth samples the DEM.
-                    elev = 0.f;
-                    hat = static_cast<float>(snap.eye.alt_ft);
+                bool valid = snap.have_eyepoint;
+                if (valid) {
+                    const HatSample hs = sample_hat(heights_.get(), snap.eye.lat_deg,
+                                                    snap.eye.lon_deg, snap.eye.alt_ft);
+                    hat = hs.hat_ft;
+                    elev = hs.elev_ft;
                 }
                 try {
-                    sock_.send_hat(peer, cfg_.reply_port, hat, elev, snap.have_eyepoint);
+                    sock_.send_hat(peer, cfg_.reply_port, hat, elev, valid);
                 } catch (const safety::UnsafeEndpoint& ex) {
                     log::limited(log::Warn, "visual", "hat-unsafe", "%s", ex.what());
                 }

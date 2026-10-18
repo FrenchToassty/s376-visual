@@ -8,9 +8,9 @@ account may stop mid-run — treat this file as the source of truth.
 
 ## Verified in this run
 
-- `s376-tests`: **856 passed, 0 failed** (VAX floats, all 4 wire encodings, golden
-  Python-builder hex, HAT host-side decode, safety refusals, TOML, sun/ECEF,
-  200-step synth stream, live UDP 127.0.0.1, channel layout, DEM/BC1/GDAL).
+- `s376-tests`: **1984 passed, 0 failed** (VAX floats, encodings, HAT host-side
+  decode, live DEM-sampled HAT on loopback ≈433 ft / 14 ft AGL, safety, TOML,
+  channels, DEM/BC1/GDAL, KSEA runways + light groups).
 - `s376-visual --headless --demo --duration 2`: 40 datagrams / 40 eyepoints,
   KSEA 16L, env TOD 14.5 / vis 60760 ft.
 - `s376-visual --demo` under Xvfb: OSG window "front" 1920×1080, 50×32.5 FOV,
@@ -23,6 +23,23 @@ account may stop mid-run — treat this file as the source of truth.
   GDAL 3.8.4 PASSes.
 - GitHub Actions `ci / linux` on this branch: **green** on the three-channel
   commit; this terrain commit adds `libgdal-dev` + an `s376-cache` smoke.
+
+## Milestone: real HAT / HOT (2026-10-18)
+
+`HostReceiver` samples `DemHeightSource` at the eyepoint. On the synth
+KSEA pad, elev ≈ 433 ft and HAT ≈ 14 ft (eye height). Off the DEM the
+old stand-in (elev=0, hat=alt) is still sent so the host is never
+starved. Live loopback test builds a type-113 query and reads the
+64-byte type-200 reply.
+
+## Milestone: KSEA airport + GPU lights (2026-10-18)
+
+`s376::ksea_public()` builds three OurAirports runways (16L threshold
+matches the synth takeoff) plus schematic taxi connectors. Edge,
+centreline, threshold, and ALSF-2/MALSR approach points are placed from
+published FAA/ICAO spacing. A GPU `GL_POINTS` pass scales colour/alpha
+by packet-112 steps 0–5 on switches 1–4 (ours, not RSI's). Synth sends
+those switches at step 5 so the demo is lit.
 
 ## Milestone: local DEM + cache (2026-10-18)
 
@@ -75,19 +92,18 @@ are unit-tested.
 | Item | Path | What's left |
 |---|---|---|
 | osgEarth tiles | `data/earth/s376.earth` | Build osgEarth on the hangar box; add a Copernicus elevation layer |
-| Real HAT | `src/host.cpp` (`HostReceiver::loop`) | Sample the DEM (`HeightSource`) instead of `hat = alt_ft` |
-| Airport meshes | `docs/AIRPORTS.md` | Generator not started. Start with KSEA |
-| Light points | decoder stores `light_steps[256]` in `HostState` | No GPU pass yet |
+| HAT off-DEM | `sample_hat` | Stand-in elev=0 when the point is outside the packed region |
+| More airports | `docs/AIRPORTS.md` | KSEA is in. Next: KSFO / KLAS |
 | Off-axis frustum | camera is rotated by heading offset | Shared eyepoint + asymmetric projection later |
 | `--demo` Ctrl+C | `src/synth.cpp` `run_synth_sender` | Synth thread ignores SIGINT; use `--duration` |
 
 ## Next 5 concrete steps (in order)
 
-1. **KSEA airport v0.** OurAirports runways + generated taxi/approach lights.
-2. **Real HAT** from the DEM under the eyepoint (`DemHeightSource` is ready).
-3. **Light-point GPU pass** driven by packet-112 intensity steps.
-4. **Build osgEarth** on the hangar box and confirm `s376.earth` drapes.
-5. **Asymmetric / off-axis projection** if ViewAngles overlap is not enough.
+1. **Build osgEarth** on the hangar box and confirm `s376.earth` drapes.
+2. **KSFO / KLAS** airport meshes using the same generator.
+3. **Asymmetric / off-axis projection** if ViewAngles overlap is not enough.
+4. **NLIM / edge blend** — later.
+5. **Capture/replay** on loopback only; never commit pcaps.
 
 ## How to build / run / test (Linux Mint 22)
 
@@ -113,8 +129,8 @@ tests do not need OSG.
 - osgEarth is **not** in Ubuntu 24.04 apt. v0.1 is useful without it
   (procedural globe + local DEM). Source-build recipe is in the README.
 - IEEE packers assume a little-endian CPU (every hangar box we have).
-- HAT elevation is still a stand-in (`hat = alt_ft`). `DemHeightSource`
-  is ready; wire it in `HostReceiver::loop` next.
+- HAT is sampled from the local DEM when the eyepoint is on it.
+  Off-grid replies still use elev=0 / hat=alt.
 - `s376-doctor` tries to bind `127.0.0.1:2300`; if the IG is already
   running that check WARNs.
 - No capture/replay yet (the old bridge had it). Add a pcap writer only
@@ -141,5 +157,6 @@ src/              core + s376-visual / s376-synth / s376-doctor / s376-cache
 tests/            assert-style unit tests (no Catch2)
 config/           default TOML
 data/earth/       osgEarth earth file
+data/airports/    public KSEA TOML (OurAirports numbers)
 docs/             DESIGN PROTOCOL AIRPORTS SOURCES
 ```

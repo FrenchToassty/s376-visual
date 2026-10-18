@@ -110,6 +110,7 @@ add_executable(s376-tests
     tests/test_channels.cpp
     tests/test_terrain.cpp
     tests/test_airport.cpp
+    tests/test_hat.cpp
 )
 target_link_libraries(s376-tests PRIVATE s376_core)
 

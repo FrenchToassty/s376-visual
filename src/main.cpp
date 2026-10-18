@@ -5,6 +5,7 @@
 #include "s376/render.hpp"
 #include "s376/safety.hpp"
 #include "s376/synth.hpp"
+#include "s376/terrain.hpp"
 #include "s376/version.hpp"
 
 #include <atomic>
@@ -13,6 +14,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <thread>
 
 namespace {
@@ -162,6 +164,10 @@ int main(int argc, char** argv) {
 
     s376::SharedState state;
     s376::HostReceiver rx(state, cfg.host);
+    auto dem = s376::load_or_synth_dem(cfg.render.cache_dir);
+    rx.set_heights(std::make_shared<s376::DemHeightSource>(dem));
+    S376_LOG_INFO("ig", "HAT DEM %dx%d  %.3f,%.3f .. %.3f,%.3f", dem->w, dem->h, dem->west,
+                  dem->south, dem->east, dem->north);
     std::thread synth_th;
     try {
         rx.start();

@@ -140,9 +140,10 @@ The host then byte-swaps each 16-bit word and adds 2 to the IEEE
 exponent to recover a VAX F value. `tests/test_xt4.cpp` rebuilds that
 host-side conversion so a reply the IG emits is proven readable.
 
-v0.1 answers with a constant or last-known terrain elevation (the
-procedural globe uses a spherical WGS84 radius; osgEarth can sample
-HAT once elevation tiles are wired).
+The IG samples the loaded DEM (`DemHeightSource` / `.s376dem` or a
+synth KSEA box) at the eyepoint. HAT is MSL altitude minus terrain
+elevation; HOT is that elevation. Off the DEM the reply is still
+valid with elev = 0 and hat = altitude (the old spherical stand-in).
 
 ## Display control (type 131)
 

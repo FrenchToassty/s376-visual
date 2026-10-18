@@ -69,4 +69,15 @@ void write_cache(const CacheRegion& r, const std::string& dir);
 CacheRegion load_cache(const std::string& dir);
 bool gdal_available();
 
+// HAT = eyepoint MSL − terrain MSL. HOT is the terrain elevation.
+// If src is null or the point is off the DEM, elev=0 and hat=alt (stand-in).
+struct HatSample {
+    bool covered = false;
+    float hat_ft = 0;
+    float elev_ft = 0;
+};
+HatSample sample_hat(const HeightSource* src, double lat_deg, double lon_deg, double alt_ft);
+
+std::shared_ptr<DemGrid> load_or_synth_dem(const std::string& cache_dir);
+
 } // namespace s376
