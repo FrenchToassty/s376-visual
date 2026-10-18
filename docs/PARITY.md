@@ -129,16 +129,18 @@ or deep it is. Expensive levers are TOML toggles; `render.quality =
 | Anisotropic filter (`render.aniso`, default 16) | **ok** — DEM / globe drapes |
 | Mipmapped drapes | **ok** |
 | FAA AC 150/5340-1 markings | **ok** — geometry (threshold, 5×7 numbers/LRC, aiming, TDZ, CL, edge, hold-short). Stays sharp at grazing angles; no committed textures |
-| Asphalt / rubber / grass detail | **partial** — generated 128² atlas (grass/asphalt/dirt/concrete) blended over ortho with distance fade + hash noise. Optional CC0 Poly Haven / ambientCG via `scripts/fetch-textures.sh` (never committed) |
-| OSM buildings | **partial** — extruded footprints + schematic terminals. Mesh nearest 800 full / 2500 far. Collision = every footprint (`solids.bin`) |
-| Analytic sky + aerial perspective | **partial** — Preetham-like dome, sun disc, moon+stars at night, EXP2 + altitude haze (`uHaze`). Not a full Bruneton LUT |
-| Water / coastlines | **partial** — soft land mask + 40 km local patches at each airport, Fresnel + stable waves + sun glint. OSM water/coastline queried, not meshed yet |
+| Asphalt / rubber / grass detail | **ok** — generated 128² atlas (grass/asphalt/dirt/concrete) blended by land cover under the ortho; distance fade (strong <2.2 km). Runway PBR + wet from type-124 `runway_condition`. Optional CC0 Poly Haven / ambientCG via `scripts/fetch-textures.sh` (never committed) |
+| OSM buildings | **partial** — extruded official footprints (unchanged) + facade/roof palette by OSM `building=*` / schematic role, night window emissive. Mesh nearest 800 full / 2500 far. Collision = every footprint (`solids.bin`) |
+| Analytic sky + aerial perspective | **ok** — Rayleigh/Mie sky (Nishita-lite, GLSL 120), visual sun from host type-124 TOD buckets (dusk is dusk at any airport/date; `render.solar_astronomy` keeps `sun_ecef`), aerial haze from host visibility, dawn/dusk/night. Toggle `render.atmosphere`. Not a full Bruneton LUT |
+| Water / coastlines | **ok** — Jamaica Bay / ocean from land mask: sky reflection, Fresnel, sun glint, normal-map wave scroll, shoreline foam. Toggle `render.water` |
 | Oblique mip / aniso | **ok** — 2048×1024 globe + local patches, trilinear, aniso 16, LOD bias −0.35 |
 | Horizon seam / haze | **partial** — altitude `uHaze` + grazing fade; sky mixes to fog at the horizon. Not a Bruneton LUT |
 | Cloud soft edge / lighting | **partial** — hash edge + sun wrap on the weather-round decks |
-| HDR + ACES | **ok** — filmic in every forward shader; `render.exposure` |
+| HDR + ACES | **ok** — ACES in every forward shader; optional filmic lift/gamma/gain (`render.filmic`); `render.exposure` |
+| Bloom / night glow | **ok** — Raster-style fog halo on point lights (`render.bloom`) + city-glow emissive on terrain at night |
+| FXAA | **partial** — window POST_RENDER pass (`render.fxaa`); screenshot/record FBO stays MSAA-off |
 | SSAO | **partial** — cheap wall darkening; on for both `gtx980ti` (one channel) and `rtx`. No depth post-pass |
-| Sun shadows | **gap** — `render.shadows` toggle only; CSM not drawn (980 Ti budget) |
+| Sun shadows | **ok** — one-cascade 1024 sun CSM when `render.shadows` (on `rtx`, off `gtx980ti`) |
 | GPU point sprites for lights | **ok** — GLSL 120 points (no PointSprite / POINT_SMOOTH); still step 0–5 |
 | GL compatibility (not Core) | **ok** — Linux leaves the context version unset (NVIDIA 4.6 compat). Elsewhere 3.3 + `COMPATIBILITY_PROFILE_BIT`. Scene lighting/fog/points are shaders so a CORE context does not emit `invalid enumerant` |
 | `--screenshot PATH --at ICAO[:RWY[:nm]]` | **ok** — offscreen RGBA8 FBO at the channel's WxH (not the decorated window), `GL_PACK_ALIGNMENT` 1, vertical flip, PPM+PNG via stb. Warm-up until pager idle or `--screenshot-wait` (default 3 s). `--at` does not open a host socket |

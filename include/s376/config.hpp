@@ -92,7 +92,11 @@ struct RenderConfig {
     bool detail_textures = true;  // procedural / CC0 asphalt+grass
     bool buildings = true;        // OSM extruded footprints
     bool ssao = true;             // cheap baked AO; one 980 Ti channel can afford it
-    bool shadows = false;         // CSM toggle; still not drawn
+    bool shadows = false;         // one-cascade sun CSM (off on gtx980ti)
+    bool bloom = true;            // Raster-style fog halo + city glow
+    bool fxaa = true;             // fullscreen FXAA (MSAA stays on the window)
+    bool filmic = true;           // lift/gamma/gain after ACES
+    bool solar_astronomy = false; // date/lon sun_ecef; default = visual TOD buckets
     float exposure = 1.0f;
     bool sync_to_host = true;     // draw only on a new type-100 eyepoint
     int ram_mb = 2048;            // CPU resident budget (gtx980ti: 2 GB)
@@ -101,6 +105,17 @@ struct RenderConfig {
 };
 
 void apply_quality_preset(RenderConfig& r, const std::string& name);
+
+// GTX 980 Ti / 1920×1200 / one channel. 16.67 ms is 60 Hz. Shadows are
+// extra and stay off on the default preset. Values are Maxwell ALU
+// budgets (hangar 980 Ti not on this box); llvmpipe is a relative proxy.
+struct QualityGpuBudget {
+    const char* name;
+    const char* toggle;
+    float gpu_ms;
+};
+const QualityGpuBudget* quality_gpu_budgets(int& n);
+float quality_gpu_budget_total_ms(bool shadows_on);
 
 struct LogConfig {
     bool verbose = false;

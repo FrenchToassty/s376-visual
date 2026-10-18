@@ -75,6 +75,10 @@ void usage() {
            "  --bank DEG            override shot roll (right-wing-down)\n"
            "  --hdg DEG             override shot true heading\n"
            "  --pitch DEG           override shot pitch\n"
+           "  --tod HOURS           shot time-of-day 0..24 (host type 124; default 14.5)\n"
+           "                        visual sun: 8–16 day, 16–20 dusk, 20–5 night, 5–8 dawn\n"
+           "  --solar-astronomy     date/lon sun_ecef instead of visual TOD buckets\n"
+           "  --rwy-cond N          shot runway condition 0 dry / 1 damp / 2 wet / ≥3 flooded\n"
            "  --era current|classic session-only NYC skyline easter egg (not saved)\n"
            "  --control HOST:PORT   local operator control (default 127.0.0.1:2376; not xT4)\n"
            "  --no-control          do not listen for s376-wizard\n"
@@ -147,6 +151,11 @@ int main(int argc, char** argv) {
     std::string era_override;
     std::string control_override;
     bool no_control = false;
+    float shot_tod = 14.5f;
+    bool have_shot_tod = false;
+    bool solar_astronomy = false;
+    int shot_rwy_cond = 0;
+    bool have_shot_rwy = false;
 
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -233,6 +242,14 @@ int main(int argc, char** argv) {
         } else if (a == "--pitch") {
             shot_over.have_pitch = true;
             shot_over.pitch_deg = std::stod(need(a.c_str()));
+        } else if (a == "--tod") {
+            have_shot_tod = true;
+            shot_tod = std::stof(need(a.c_str()));
+        } else if (a == "--solar-astronomy") {
+            solar_astronomy = true;
+        } else if (a == "--rwy-cond") {
+            have_shot_rwy = true;
+            shot_rwy_cond = std::stoi(need(a.c_str()));
         } else if (a == "--diagnostics")
             do_diag = true;
         else if (a == "--doctor")
@@ -278,6 +295,8 @@ int main(int argc, char** argv) {
         if (quality_override != "custom")
             s376::apply_quality_preset(cfg.render, quality_override);
     }
+    if (solar_astronomy)
+        cfg.render.solar_astronomy = true;
     if (!reply_master_override.empty())
         cfg.host.reply_master = reply_master_override;
     if (no_hat)
@@ -382,8 +401,17 @@ int main(int argc, char** argv) {
             return 2;
         }
     }
+    auto apply_shot_env = [&](s376::HostState& h) {
+        if (have_shot_tod) {
+            h.env.tod_hours = shot_tod;
+            h.env.tod_select = -1;
+        }
+        if (have_shot_rwy)
+            h.env.runway_condition = shot_rwy_cond;
+    };
     if (have_shot) {
         shot_host = host_from_shot(shot);
+        apply_shot_env(shot_host);
         if (!screenshot_path.empty())
             shot_host.script_dt = 1.f / 60.f;
         S376_LOG_INFO("ig",
@@ -581,6 +609,7 @@ int main(int argc, char** argv) {
                           static_cast<double>(s376::current_rss_bytes()) / (1024.0 * 1024.0));
             s376::RgbImage im;
             shot_host = host_from_shot(s376::approach_sample(approach, 0));
+            apply_shot_env(shot_host);
             shot_host.script_dt = dt;
             const auto t_warm = std::chrono::steady_clock::now();
             for (int warm = 0; !g_stop && !rend->done(); ++warm) {
@@ -596,6 +625,7 @@ int main(int argc, char** argv) {
                 const double t = static_cast<double>(i) / std::max(1.0, approach.fps);
                 const auto pose = s376::approach_sample(approach, t);
                 shot_host = host_from_shot(pose);
+                apply_shot_env(shot_host);
                 shot_host.script_dt = dt;
                 rend->frame(shot_host);
                 ++frames;

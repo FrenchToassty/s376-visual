@@ -85,7 +85,18 @@ bool needs_gpu_pass(const DisplayCorrection& c);
 DisplayPattern parse_display_pattern(const std::string& s);
 const char* display_pattern_name(DisplayPattern p);
 TodBucket tod_bucket(float tod_hours, int tod_select);
+// Type-124: tod_select 0/1/2/3 snaps to day/dusk/dawn/night hours;
+// −1 keeps the continuous clock (wrapped 0..24).
+float effective_tod_hours(float tod_hours, int tod_select);
+// Visual sun elevation / azimuth from the host TOD. Independent of date
+// and longitude so operator "dusk" is dusk at any airport. Astronomy
+// (sun_ecef + month/day/lon) is opt-in via render.solar_astronomy.
+float visual_sun_elev_deg(float tod_hours, int tod_select);
+float visual_sun_az_deg(float tod_hours, int tod_select, double lat_deg);
 const ColorSet& color_for_tod(const DisplayCorrection& c, TodBucket b);
+
+// Host type-124 runway_condition → wetness 0..1 (dry / damp / wet / flooded).
+float runway_wetness(int runway_condition);
 
 RgbImage make_pattern_rgb(int w, int h, DisplayPattern p, float hfov_deg, float vfov_deg);
 RgbImage apply_correction(const RgbImage& src, const DisplayCorrection& c, TodBucket bucket);

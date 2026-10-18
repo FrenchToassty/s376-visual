@@ -55,6 +55,20 @@ void test_geo() {
     CHECK(el > 70); // noon at equator around equinox
     const double mag = std::sqrt(s.x * s.x + s.y * s.y + s.z * s.z);
     CHECK_NEAR(mag, 1.0, 1e-9);
+    {
+        // Astronomy at KJFK June --tod 19 is still day (the defect). Visual
+        // TOD maps 19 → dusk and 3 → night regardless of date/lon.
+        double jfk_el = 0;
+        s376::geo::sun_ecef(40.64, -73.78, 19.0, 6, 21, &jfk_el);
+        CHECK(jfk_el > 20.0);
+        auto vis = s376::geo::sun_from_elev_az(40.64, -73.78, -1.5, 285.0);
+        const double vmag = std::sqrt(vis.x * vis.x + vis.y * vis.y + vis.z * vis.z);
+        CHECK_NEAR(vmag, 1.0, 1e-9);
+        s376::geo::Ecef ee, nn, uu;
+        s376::geo::ecef_to_enu_axes(40.64, -73.78, ee, nn, uu);
+        const double vis_el = vis.x * uu.x + vis.y * uu.y + vis.z * uu.z;
+        CHECK(vis_el < 0.0);
+    }
 
     // Soft US coasts: airports are land, nearby ocean / bays are water.
     CHECK(s376::geo::land_coverage(40.6399, -73.7787) > 0.55); // KJFK

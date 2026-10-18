@@ -35,6 +35,7 @@ constexpr std::array<float, kIntensitySteps> kEdge = {0.35f, 0.55f, 0.68f, 0.92f
 
 constexpr float kBaseSizePx = 2.5f;
 constexpr float kNoonSizePx = 2.8f;
+constexpr float kNightFarSizePx = 5.5f; // Raster halo disc at night; day stays 2.5
 constexpr float kSizeMultNear = 12.f; // at 0 ft HAT, *near* lights only
 constexpr float kSizeMultFar = 1.f;   // by 500 ft HAT
 constexpr float kSizeEaseFt = 500.f;
@@ -59,6 +60,8 @@ float intensity(LightKind kind, int step); // 0 if step <= 0
 // 1 at night; daytime edge/taxi/night-layer barely visible (~0.04).
 // Approach / TDZ / PAPI stay readable in daylight (Raster step curve).
 float tod_visibility(LightKind kind, float tod_hours);
+// 0 until 18:00/06:00; 1 by 21:00/03:00. Drives night halo size.
+float night_weight(float tod_hours);
 float size_mult_hat(float hat_ft);
 float base_size_px(float tod_hours);
 // HAT boost applies only inside kSizeNearM. `range_m <= 0` is the near

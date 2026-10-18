@@ -231,6 +231,84 @@ TodBucket tod_bucket(float tod_hours, int tod_select) {
     return TodBucket::Night;
 }
 
+float wrap_tod_hours(float h) {
+    if (!std::isfinite(h))
+        h = 12.f;
+    while (h < 0.f)
+        h += 24.f;
+    while (h >= 24.f)
+        h -= 24.f;
+    return h;
+}
+
+float effective_tod_hours(float tod_hours, int tod_select) {
+    if (tod_select >= 0) {
+        switch (tod_select) {
+        case 0:
+            return 14.5f;
+        case 1:
+            return 19.0f;
+        case 2:
+            return 6.0f;
+        case 3:
+            return 0.5f;
+        default:
+            break;
+        }
+    }
+    return wrap_tod_hours(tod_hours);
+}
+
+float visual_sun_elev_deg(float tod_hours, int tod_select) {
+    if (tod_select >= 0) {
+        switch (tod_select) {
+        case 0:
+            return 52.f;
+        case 1:
+            return -1.5f;
+        case 2:
+            return 2.f;
+        case 3:
+            return -55.f;
+        default:
+            break;
+        }
+    }
+    const float h = wrap_tod_hours(tod_hours);
+    if (h >= 8.f && h < 16.f) {
+        const float t = (h - 8.f) / 8.f;
+        const float mid = 1.f - std::fabs(t - 0.5f) * 2.f;
+        return 18.f + 37.f * mid;
+    }
+    if (h >= 5.f && h < 8.f)
+        return -8.f + 26.f * (h - 5.f) / 3.f;
+    if (h >= 16.f && h < 20.f)
+        return 18.f - 26.f * (h - 16.f) / 4.f;
+    return -55.f;
+}
+
+float visual_sun_az_deg(float tod_hours, int tod_select, double lat_deg) {
+    const float h = effective_tod_hours(tod_hours, tod_select);
+    float az = 180.f + (h - 12.f) * 15.f;
+    if (lat_deg < 0.0)
+        az += 180.f;
+    while (az < 0.f)
+        az += 360.f;
+    while (az >= 360.f)
+        az -= 360.f;
+    return az;
+}
+
+float runway_wetness(int runway_condition) {
+    if (runway_condition <= 0)
+        return 0.f;
+    if (runway_condition == 1)
+        return 0.35f;
+    if (runway_condition == 2)
+        return 0.75f;
+    return 1.f;
+}
+
 const ColorSet& color_for_tod(const DisplayCorrection& c, TodBucket b) {
     switch (b) {
     case TodBucket::Dawn:

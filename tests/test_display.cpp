@@ -72,6 +72,21 @@ void test_display() {
     CHECK(s376::tod_bucket(1.0f, -1) == s376::TodBucket::Night);
     CHECK(s376::tod_bucket(0.f, 0) == s376::TodBucket::Day);
     CHECK(s376::tod_bucket(0.f, 3) == s376::TodBucket::Night);
+    CHECK_NEAR(s376::effective_tod_hours(12.f, 1), 19.0, 1e-4);
+    CHECK_NEAR(s376::effective_tod_hours(19.f, -1), 19.0, 1e-4);
+    CHECK(s376::visual_sun_elev_deg(12.0f, -1) > 50.f);
+    CHECK(s376::visual_sun_elev_deg(14.5f, -1) > 25.f);
+    CHECK(s376::visual_sun_elev_deg(19.f, -1) < 5.f && s376::visual_sun_elev_deg(19.f, -1) > -8.f);
+    CHECK(s376::visual_sun_elev_deg(3.f, -1) < -40.f);
+    CHECK_NEAR(s376::visual_sun_elev_deg(0.f, 1), -1.5, 1e-3);
+    CHECK_NEAR(s376::visual_sun_elev_deg(0.f, 3), -55.0, 1e-3);
+    CHECK(s376::visual_sun_az_deg(12.f, -1, 40.64) > 170.f &&
+          s376::visual_sun_az_deg(12.f, -1, 40.64) < 190.f);
+    CHECK_NEAR(s376::runway_wetness(0), 0.0, 1e-6);
+    CHECK_NEAR(s376::runway_wetness(1), 0.35, 1e-6);
+    CHECK_NEAR(s376::runway_wetness(2), 0.75, 1e-6);
+    CHECK_NEAR(s376::runway_wetness(3), 1.0, 1e-6);
+    CHECK_NEAR(s376::runway_wetness(5), 1.0, 1e-6);
 
     s376::DisplayCorrection warped = id;
     warped.warp[2][3].src_h_deg = 5.f;

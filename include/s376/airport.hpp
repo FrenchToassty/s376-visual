@@ -145,6 +145,7 @@ struct Building {
     std::vector<std::pair<double, double>> ring;
     float height_m = 12;
     BuildingKind kind = BuildingKind::Osm;
+    std::string type; // OSM building=* or schematic role (hangar/cargo/…)
 };
 
 struct AirportSign {

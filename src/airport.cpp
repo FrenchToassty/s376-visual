@@ -603,6 +603,69 @@ void building_centroid(const Building& b, double& lat, double& lon) {
     lon /= static_cast<double>(b.ring.size());
 }
 
+void building_palette(const Building& b, float& wr, float& wg, float& wb, float& rr, float& rg,
+                      float& rb) {
+    wr = 0.62f;
+    wg = 0.58f;
+    wb = 0.52f;
+    rr = 0.28f;
+    rg = 0.30f;
+    rb = 0.32f;
+    const std::string key = b.type + " " + b.name;
+    auto has = [&](const char* s) { return key.find(s) != std::string::npos; };
+    if (has("hangar")) {
+        wr = 0.48f;
+        wg = 0.50f;
+        wb = 0.54f;
+        rr = 0.22f;
+        rg = 0.23f;
+        rb = 0.25f;
+    } else if (has("cargo") || has("industrial") || has("warehouse")) {
+        wr = 0.55f;
+        wg = 0.50f;
+        wb = 0.42f;
+        rr = 0.34f;
+        rg = 0.28f;
+        rb = 0.20f;
+    } else if (has("tower") || has("control_tower")) {
+        wr = 0.72f;
+        wg = 0.74f;
+        wb = 0.78f;
+        rr = 0.40f;
+        rg = 0.42f;
+        rb = 0.45f;
+    } else if (has("residential") || has("house") || has("apartments") || has("detached")) {
+        wr = 0.58f;
+        wg = 0.42f;
+        wb = 0.36f;
+        rr = 0.32f;
+        rg = 0.22f;
+        rb = 0.18f;
+    } else if (has("commercial") || has("retail") || has("office") || has("hotel")) {
+        wr = 0.52f;
+        wg = 0.56f;
+        wb = 0.60f;
+        rr = 0.24f;
+        rg = 0.26f;
+        rb = 0.28f;
+    } else if (has("terminal") || has("T1") || has("T4") || has("T5") || has("T7") || has("T8") ||
+               has("ITB") || has("TBIT") || has("main-term")) {
+        wr = 0.64f;
+        wg = 0.62f;
+        wb = 0.58f;
+        rr = 0.26f;
+        rg = 0.28f;
+        rb = 0.30f;
+    }
+    float h = 0.f;
+    for (unsigned char c : key)
+        h = std::fmod(h * 31.f + static_cast<float>(c), 997.f);
+    const float j = (h / 997.f - 0.5f) * 0.06f;
+    wr = std::max(0.12f, wr + j);
+    wg = std::max(0.12f, wg + j * 0.6f);
+    wb = std::max(0.12f, wb + j * 0.4f);
+}
+
 Building jetbridge_building(const Jetbridge& j) {
     Building b;
     b.name = j.gate.empty() ? "jetbridge" : j.gate;
@@ -1189,10 +1252,29 @@ int merge_osm_json(Airport& a, const std::string& json) {
                            std::strtod(geom.c_str() + lon_colon + 1, nullptr)});
             p = std::max(latp, lonp) + 5;
         }
+        auto tag_str = [&](const char* key) -> std::string {
+            const std::string k = std::string("\"") + key + "\"";
+            auto at = tags.find(k);
+            if (at == std::string::npos)
+                return {};
+            auto colon = tags.find(':', at + k.size());
+            if (colon == std::string::npos)
+                return {};
+            auto q1 = tags.find('"', colon);
+            if (q1 == std::string::npos)
+                return {};
+            auto q2 = tags.find('"', q1 + 1);
+            if (q2 == std::string::npos)
+                return {};
+            return tags.substr(q1 + 1, q2 - q1 - 1);
+        };
         if (pts.size() >= 2 && kind != "skip") {
             if (kind == "building") {
                 Building b;
                 b.name = "osm";
+                b.type = tag_str("building");
+                if (b.type == "yes" || b.type == "no")
+                    b.type.clear();
                 b.ring = std::move(pts);
                 b.height_m = bldg_h;
                 a.buildings.push_back(std::move(b));
@@ -1745,9 +1827,11 @@ AirportMesh build_airport_mesh(const Airport& a, bool buildings, bool markings) 
             const geo::Ecef D = geo::lla_to_ecef(p0.first, p0.second, z1);
             geo::Ecef wn{B.x - A.x, B.y - A.y, B.z - A.z};
             geo::Ecef nn{wn.y * u.z - wn.z * u.y, wn.z * u.x - wn.x * u.z, wn.x * u.y - wn.y * u.x};
-            add_tri(mesh, A, B, C, nn, 0.62f, 0.58f, 0.52f, 3.f);
-            add_tri(mesh, A, C, D, nn, 0.62f, 0.58f, 0.52f, 3.f);
-            add_tri(mesh, roof_c, D, C, u, 0.28f, 0.30f, 0.32f, 4.f);
+            float wr = 0.62f, wg = 0.58f, wb = 0.52f, rr = 0.28f, rg = 0.30f, rb = 0.32f;
+            building_palette(b, wr, wg, wb, rr, rg, rb);
+            add_tri(mesh, A, B, C, nn, wr, wg, wb, 3.f);
+            add_tri(mesh, A, C, D, nn, wr, wg, wb, 3.f);
+            add_tri(mesh, roof_c, D, C, u, rr, rg, rb, 4.f);
         }
         ++nb;
     }
@@ -1757,21 +1841,9 @@ AirportMesh build_airport_mesh(const Airport& a, bool buildings, bool markings) 
         strip_quad(mesh, t.lat, t.lon, t.lat + 0.00004, t.lon, 0.0, 1.6, a.elev_m, a.elev_m + t.height_m,
                    0.18f, 0.32f, 0.14f, 4.f);
     }
-    for (const auto& L : a.lights) {
-        if (L.kind != LightKind::Approach && L.kind != LightKind::Flasher &&
-            L.kind != LightKind::Threshold)
-            continue;
-        if (geo::land_coverage(L.lat, L.lon) >= 0.35f)
-            continue;
-        const double z0 = 0.15;
-        if (L.alt_m - z0 < 0.8)
-            continue;
-        // Crossed pier legs so ALS over Jamaica Bay sits above the water.
-        strip_quad(mesh, L.lat, L.lon, L.lat + 1.2e-6, L.lon, 0.0, 0.11, z0, L.alt_m, 0.48f, 0.48f,
-                   0.46f, 2.f);
-        strip_quad(mesh, L.lat, L.lon, L.lat, L.lon + 1.2e-6, 90.0, 0.11, z0, L.alt_m, 0.48f, 0.48f,
-                   0.46f, 2.f);
-    }
+    // ALS over water already sits at official light_alt_m. Crossed 0.11 m
+    // pier legs merged into a black pier/bridge on a 0.6 nm 04R short-final
+    // (04L ALS seen edge-on) — do not emit that mesh.
     for (const auto& p : a.parked) {
         double nlat, nlon;
         offset_m(p.lat, p.lon, p.hdg_deg, 18.0, nlat, nlon);
