@@ -80,6 +80,9 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#ifdef __linux__
+#include <unistd.h>
+#endif
 #include <string>
 #include <filesystem>
 #include <fstream>
@@ -798,12 +801,24 @@ osg::Texture2D* shared_detail_atlas() {
     return t.get();
 }
 
+bool have_nvidia_device() {
+#ifdef __linux__
+    return access("/dev/nvidiactl", F_OK) == 0 || access("/dev/nvidia0", F_OK) == 0;
+#else
+    return false;
+#endif
+}
+
 bool prefer_rgb_textures() {
     const char* sw = std::getenv("LIBGL_ALWAYS_SOFTWARE");
     if (sw && sw[0] && std::strcmp(sw, "0") != 0)
         return true;
     const char* g = std::getenv("GALLIUM_DRIVER");
     if (g && (std::strstr(g, "llvmpipe") || std::strstr(g, "softpipe") || std::strstr(g, "swrast")))
+        return true;
+    // CI xvfb / this box: Mesa llvmpipe with neither env set. Hangar 980 Ti
+    // / 5060 Ti have /dev/nvidiactl and keep the NVIDIA 4.6 compat path.
+    if (!have_nvidia_device())
         return true;
     return false;
 }
@@ -2242,7 +2257,10 @@ osg::ref_ptr<osg::GraphicsContext> make_gl_context(int x, int y, int w, int h) {
         tr->sampleBuffers = 0;
         tr->vsync = false;
         tr->pbuffer = pbuffer;
-        if (prefer_rgb_textures()) {
+        // 3.3 + COMPAT mask: Mesa/CI get a legal profile (unset version can
+        // be CORE and then FF leftover is `invalid enumerant`). NVIDIA 595
+        // with a mask stays compat; 3.3 without a mask is Core on that driver.
+        if (prefer_rgb_textures() || !have_nvidia_device()) {
             tr->glContextVersion = "3.3";
             tr->glContextProfileMask = kGlCompatProfileBit;
         }
@@ -2738,7 +2756,7 @@ class OsgRenderer final : public Renderer {
                         color->setResizeNonPowerOfTwoHint(false);
                         auto* depth = new osg::Texture2D;
                         depth->setTextureSize(win_w, win_h);
-                        depth->setInternalFormat(GL_DEPTH_COMPONENT24);
+                        depth->setInternalFormat(GL_DEPTH_COMPONENT);
                         depth->setFilter(osg::Texture::MIN_FILTER, osg::Texture::NEAREST);
                         depth->setFilter(osg::Texture::MAG_FILTER, osg::Texture::NEAREST);
                         depth->setResizeNonPowerOfTwoHint(false);
