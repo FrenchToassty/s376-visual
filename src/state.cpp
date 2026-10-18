@@ -50,4 +50,11 @@ void SharedState::apply(const xt4::Datagram& dg, xt4::Decoder& dec, const std::s
     out_snapshot = s_;
 }
 
+void SharedState::set_hat(float hat_ft, float elev_ft) {
+    std::lock_guard<std::mutex> g(mu_);
+    s_.have_hat = true;
+    s_.hat_ft = hat_ft;
+    s_.terrain_elev_ft = elev_ft;
+}
+
 } // namespace s376

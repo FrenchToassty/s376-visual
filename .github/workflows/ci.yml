@@ -35,6 +35,7 @@ jobs:
       - name: headless demo (loopback only)
         run: |
           ./build/s376-visual --headless --demo --duration 2 --bind 127.0.0.1:2300 -c config/s376-visual.toml
+          ./build/s376-visual --headless --demo-weather --duration 2 --bind 127.0.0.1:2300 -c config/s376-visual.toml
       - name: refuse sim LAN
         run: |
           if ./build/s376-synth --dest 10.1.95.1:2300 --duration 0.1; then

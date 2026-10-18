@@ -36,6 +36,7 @@ void usage() {
            "  --cache-dir PATH      packed DEM/imagery from s376-cache\n"
            "  --headless            run the host receiver with no GL window\n"
            "  --demo                in-process synth to 127.0.0.1 (no VAX needed)\n"
+           "  --demo-weather        demo plus type-124 rain / type-128 fog\n"
            "  --duration SEC        exit after SEC seconds (tests)\n"
            "  -v, --verbose         console DEBUG\n"
            "  --debug               packet dumps + DEBUG\n"
@@ -54,6 +55,7 @@ int main(int argc, char** argv) {
     std::string cache_override;
     bool headless = false;
     bool demo = false;
+    bool demo_weather = false;
     bool verbose = false;
     bool debug = false;
     bool do_diag = false;
@@ -89,6 +91,10 @@ int main(int argc, char** argv) {
             headless = true;
         else if (a == "--demo")
             demo = true;
+        else if (a == "--demo-weather") {
+            demo = true;
+            demo_weather = true;
+        }
         else if (a == "--duration")
             duration = std::stod(need(a.c_str()));
         else if (a == "-v" || a == "--verbose")
@@ -178,6 +184,7 @@ int main(int argc, char** argv) {
     }
 
     s376::SynthConfig demo_cfg;
+    demo_cfg.weather = demo_weather;
     const double demo_duration = duration < 0 ? 3600.0 : duration;
     if (demo) {
         S376_LOG_INFO("ig", "demo: in-process synth -> 127.0.0.1:2300 for %.1fs", demo_duration);

@@ -18,6 +18,9 @@ struct HostState {
     std::array<int, xt4::kMaxLightSwitches> light_steps{};
     bool have_env = false;
     bool have_fog = false;
+    bool have_hat = false;
+    float hat_ft = 0;
+    float terrain_elev_ft = 0;
     std::uint64_t datagrams = 0;
     std::uint64_t eyepoints = 0;
     std::uint64_t last_rx_ns = 0;
@@ -40,6 +43,7 @@ class SharedState {
     }
     void apply(const xt4::Datagram& dg, xt4::Decoder& dec, const std::string& peer,
                std::uint64_t now_ns, HostState& out_snapshot);
+    void set_hat(float hat_ft, float elev_ft);
 
   private:
     mutable std::mutex mu_;

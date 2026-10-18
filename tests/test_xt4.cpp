@@ -80,6 +80,32 @@ void test_xt4() {
     CHECK(build_fog(200.f, 1200.f, FloatFmt::Vax).size() * 2 == 36);
     CHECK(build_light_switch(3, 5).size() * 2 == 24);
 
+    {
+        auto pk = build_env(14.5f, 4000.f, 6, 21, 2016, FloatFmt::Ieee, -1, 1, 7, 42, 12.f, 270.f);
+        auto bytes = build_datagram({pk}, WordOrder::Le);
+        Decoder dec;
+        auto parsed = dec.parse(bytes.data(), bytes.size());
+        CHECK(parsed.has_value());
+        CHECK(!parsed->packets.empty());
+        auto e = decode_env(parsed->packets[0], FloatFmt::Ieee);
+        CHECK(e.tod_select == -1);
+        CHECK(e.precip_type == 1);
+        CHECK(e.precip_intensity == 7);
+        CHECK(e.lightning_trigger == 42);
+        CHECK_NEAR(e.tod_hours, 14.5, 0.05);
+        CHECK_NEAR(e.visible_range_ft, 4000.0, 2.0);
+        CHECK_NEAR(e.wind_speed_mph, 12.0, 0.2);
+        CHECK_NEAR(e.wind_dir_deg, 270.0, 0.5);
+        Packet fp;
+        fp.type = kTypeFog;
+        fp.words = build_fog(400.f, 2400.f, FloatFmt::Ieee, -1, 0);
+        auto f = decode_fog(fp, FloatFmt::Ieee);
+        CHECK(f.region == -1);
+        CHECK(f.select == 0);
+        CHECK_NEAR(f.height_ft, 400.0, 1.0);
+        CHECK_NEAR(f.rvr_ft, 2400.0, 2.0);
+    }
+
     struct Enc {
         WordOrder o;
         FloatFmt f;

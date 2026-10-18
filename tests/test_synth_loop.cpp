@@ -55,6 +55,44 @@ void test_synth_loop() {
     CHECK(dec.stats().implausible == 0);
     CHECK(ok == 200);
 
+    {
+        SynthConfig wx;
+        wx.word_order = xt4::WordOrder::Le;
+        wx.float_fmt = xt4::FloatFmt::Ieee;
+        wx.weather = true;
+        SyntheticFlight fw(wx);
+        xt4::Decoder wdec;
+        SharedState st;
+        bool saw_precip = false;
+        bool saw_fog = false;
+        bool saw_flash = false;
+        int last_bolt = 0;
+        for (int i = 0; i < 220; ++i) {
+            auto pose = fw.step(0.05);
+            auto bytes = fw.datagram(pose);
+            auto parsed = wdec.parse(bytes.data(), bytes.size());
+            CHECK(parsed.has_value());
+            HostState snap;
+            st.apply(*parsed, wdec, "loop", 0, snap);
+            if (snap.have_env && snap.env.precip_type == 1 && snap.env.precip_intensity == 6) {
+                saw_precip = true;
+                CHECK_NEAR(snap.env.wind_speed_mph, 18.0, 0.5);
+                CHECK_NEAR(snap.env.visible_range_ft, 4000.0, 4.0);
+                if (last_bolt != 0 && snap.env.lightning_trigger != last_bolt)
+                    saw_flash = true;
+                last_bolt = snap.env.lightning_trigger;
+            }
+            if (snap.have_fog && snap.fog.select == 0 && snap.fog.rvr_ft > 2000.f)
+                saw_fog = true;
+        }
+        CHECK(saw_precip);
+        CHECK(saw_fog);
+        CHECK(saw_flash);
+        const auto loaded = st.load();
+        CHECK(loaded.have_env && loaded.env.precip_type == 1);
+        CHECK(loaded.have_fog && loaded.fog.select == 0);
+    }
+
     // Live UDP: bind loopback, send one synth datagram, decode.
     HostConfig hc;
     hc.bind = "127.0.0.1:18765";

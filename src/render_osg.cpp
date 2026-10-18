@@ -319,6 +319,101 @@ LightGpu make_light_gpu(const Airport& apt) {
     return g;
 }
 
+struct PrecipGpu {
+    osg::ref_ptr<osg::Geometry> geom;
+    osg::ref_ptr<osg::Vec3Array> verts;
+    osg::ref_ptr<osg::Vec4Array> colors;
+    std::vector<osg::Vec3> seed;
+};
+
+PrecipGpu make_precip_gpu() {
+    PrecipGpu g;
+    constexpr int n = 360;
+    g.geom = new osg::Geometry;
+    g.verts = new osg::Vec3Array;
+    g.colors = new osg::Vec4Array;
+    g.verts->resize(n);
+    g.colors->resize(n);
+    g.seed.resize(n);
+    for (int i = 0; i < n; ++i) {
+        g.seed[static_cast<std::size_t>(i)] =
+            osg::Vec3(static_cast<float>((i * 37) % 80 - 40), static_cast<float>((i * 19) % 80 - 40),
+                      static_cast<float>((i * 13) % 55));
+        (*g.verts)[static_cast<unsigned>(i)] = osg::Vec3(0, 0, 0);
+        (*g.colors)[static_cast<unsigned>(i)] = osg::Vec4(0, 0, 0, 0);
+    }
+    g.geom->setVertexArray(g.verts);
+    g.geom->setColorArray(g.colors, osg::Array::BIND_PER_VERTEX);
+    g.geom->addPrimitiveSet(new osg::DrawArrays(GL_POINTS, 0, n));
+    g.geom->setUseDisplayList(false);
+    g.geom->setUseVertexBufferObjects(true);
+    auto* ss = g.geom->getOrCreateStateSet();
+    ss->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+    ss->setMode(GL_BLEND, osg::StateAttribute::ON);
+    ss->setAttributeAndModes(new osg::BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
+    ss->setAttributeAndModes(new osg::Point(2.2f));
+    ss->setMode(GL_POINT_SMOOTH, osg::StateAttribute::ON);
+    ss->setRenderBinDetails(25, "DepthSortedBin");
+    return g;
+}
+
+void update_precip(PrecipGpu& g, const HostState& host, float dt) {
+    if (!g.verts || g.verts->empty())
+        return;
+    const bool on =
+        host.have_env && host.env.precip_type > 0 && host.env.precip_intensity > 0 && host.have_eyepoint;
+    const float k = on ? std::min(1.f, host.env.precip_intensity / 10.f) : 0.f;
+    if (!on || k <= 0.f) {
+        for (unsigned i = 0; i < g.colors->size(); ++i)
+            (*g.colors)[i] = osg::Vec4(0, 0, 0, 0);
+        g.colors->dirty();
+        return;
+    }
+    const bool snow = host.env.precip_type == 2;
+    const bool hail = host.env.precip_type == 3;
+    const float fall = (snow ? 9.f : hail ? 40.f : 32.f) * dt;
+    // Wind FROM dir (deg, 0=N): particles drift with the flow.
+    const float wrad = static_cast<float>(geo::deg2rad(host.env.wind_dir_deg));
+    const float wspd = host.env.wind_speed_mph * 0.15f;
+    const float we = -std::sin(wrad) * wspd;
+    const float wn = -std::cos(wrad) * wspd;
+    const geo::Ecef eye =
+        geo::lla_to_ecef(host.eye.lat_deg, host.eye.lon_deg, host.eye.alt_ft * geo::kFtToM);
+    geo::Ecef e, n, u;
+    geo::ecef_to_enu_axes(host.eye.lat_deg, host.eye.lon_deg, e, n, u);
+    const osg::Vec4 col = snow ? osg::Vec4(0.92f, 0.94f, 0.98f, 0.55f * k)
+                               : hail ? osg::Vec4(0.86f, 0.88f, 0.92f, 0.45f * k)
+                                      : osg::Vec4(0.70f, 0.76f, 0.84f, 0.35f * k);
+    if (auto* pt = dynamic_cast<osg::Point*>(
+            g.geom->getOrCreateStateSet()->getAttribute(osg::StateAttribute::POINT)))
+        pt->setSize(snow ? 3.4f : hail ? 3.8f : 2.2f);
+    for (std::size_t i = 0; i < g.seed.size(); ++i) {
+        osg::Vec3& s = g.seed[i];
+        s.z() -= fall;
+        s.x() += we * dt;
+        s.y() += wn * dt;
+        if (s.z() < -8.f)
+            s.z() += 55.f;
+        if (s.x() > 40.f)
+            s.x() -= 80.f;
+        if (s.x() < -40.f)
+            s.x() += 80.f;
+        if (s.y() > 40.f)
+            s.y() -= 80.f;
+        if (s.y() < -40.f)
+            s.y() += 80.f;
+        const geo::Ecef p{eye.x + e.x * s.x() + n.x * s.y() + u.x * s.z(),
+                          eye.y + e.y * s.x() + n.y * s.y() + u.y * s.z(),
+                          eye.z + e.z * s.x() + n.z * s.y() + u.z * s.z()};
+        (*g.verts)[static_cast<unsigned>(i)] =
+            osg::Vec3(static_cast<float>(p.x), static_cast<float>(p.y), static_cast<float>(p.z));
+        (*g.colors)[static_cast<unsigned>(i)] = col;
+    }
+    g.verts->dirty();
+    g.colors->dirty();
+    g.geom->dirtyBound();
+}
+
 void apply_light_steps(LightGpu& g, const HostState& host) {
     if (!g.colors || g.colors->empty())
         return;
@@ -455,6 +550,12 @@ class OsgRenderer final : public Renderer {
                 geode->addDrawable(lights_gpu_.geom);
                 root->addChild(geode);
             }
+            precip_gpu_ = make_precip_gpu();
+            if (precip_gpu_.geom) {
+                auto* geode = new osg::Geode;
+                geode->addDrawable(precip_gpu_.geom);
+                root->addChild(geode);
+            }
         }
         light_ = new osg::LightSource;
         auto* L = light_->getLight();
@@ -534,6 +635,7 @@ class OsgRenderer final : public Renderer {
             apply_view_camera(views_[i]->getCamera(), channels_[i], host);
         apply_env(host);
         apply_light_steps(lights_gpu_, host);
+        update_precip(precip_gpu_, host, 1.f / 60.f);
         viewer_->frame();
     }
 
@@ -553,7 +655,14 @@ class OsgRenderer final : public Renderer {
             vis_ft = std::min(vis_ft, host.fog.rvr_ft);
         vis_ft = std::max(200.f, std::min(vis_ft, xt4::kMaxVisibilityFt));
         const float vis_m = vis_ft * static_cast<float>(geo::kFtToM);
-        fog_->setDensity(1.7f / vis_m);
+        float dens = 1.7f / vis_m;
+        if (host.have_env && host.env.precip_type > 0)
+            dens *= 1.f + 0.12f * std::min(10, host.env.precip_intensity);
+        // Fog height is AGL. Use last HAT sample so we do not treat MSL as AGL.
+        if (host.have_fog && host.fog.select >= 0 && host.have_hat &&
+            host.hat_ft < host.fog.height_ft + 200.f)
+            dens *= 1.35f;
+        fog_->setDensity(dens);
 
         float tod = host.have_env ? host.env.tod_hours : 14.5f;
         // Type-124 tod_select: −1 = continuous hours; 0 day / 1 dusk / 2 dawn / 3 night.
@@ -585,11 +694,23 @@ class OsgRenderer final : public Renderer {
         L->setPosition(osg::Vec4(static_cast<float>(s.x), static_cast<float>(s.y),
                                  static_cast<float>(s.z), 0));
         const float dayf = static_cast<float>(std::max(0.0, std::sin(geo::deg2rad(el))));
-        L->setDiffuse(osg::Vec4(1.0f, 0.95f, 0.85f, 1) * (0.15f + 0.85f * dayf));
-        L->setAmbient(
-            osg::Vec4(0.04f + 0.12f * dayf, 0.04f + 0.12f * dayf, 0.06f + 0.12f * dayf, 1));
+        float flash = 0.f;
+        if (host.have_env && host.env.lightning_trigger != 0) {
+            if (host.env.lightning_trigger != last_lightning_)
+                flash_left_ = 4;
+            last_lightning_ = host.env.lightning_trigger;
+        }
+        if (flash_left_ > 0) {
+            flash = 0.65f;
+            --flash_left_;
+        }
+        L->setDiffuse(osg::Vec4(1.0f, 0.95f, 0.85f, 1) * (0.15f + 0.85f * dayf + flash));
+        L->setAmbient(osg::Vec4(0.04f + 0.12f * dayf + flash * 0.4f,
+                                0.04f + 0.12f * dayf + flash * 0.4f,
+                                0.06f + 0.12f * dayf + flash * 0.5f, 1));
         const float t = 0.25f + 0.55f * dayf;
-        const osg::Vec4 sky(0.15f + 0.25f * t, 0.22f + 0.35f * t, 0.35f + 0.40f * t, 1);
+        const osg::Vec4 sky(0.15f + 0.25f * t + flash * 0.4f, 0.22f + 0.35f * t + flash * 0.4f,
+                            0.35f + 0.40f * t + flash * 0.3f, 1);
         for (auto& view : views_) {
             if (auto* cam = view->getCamera())
                 cam->setClearColor(sky);
@@ -604,6 +725,9 @@ class OsgRenderer final : public Renderer {
     osg::ref_ptr<osg::LightSource> light_;
     osg::ref_ptr<osg::Fog> fog_;
     LightGpu lights_gpu_;
+    PrecipGpu precip_gpu_;
+    int last_lightning_ = 0;
+    int flash_left_ = 0;
     bool used_earth_ = false;
 };
 

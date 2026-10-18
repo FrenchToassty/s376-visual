@@ -16,6 +16,7 @@ static void usage() {
            "  --rate HZ          default 20\n"
            "  --encoding ORDER/FMT   le/vax | be/vax | le/ieee | be/ieee\n"
            "  --duration SEC     default 30; negative = until killed\n"
+           "  --weather          type-124 rain + type-128 fog (host weather fields)\n"
            "  -v, --verbose\n";
 }
 
@@ -50,7 +51,9 @@ int main(int argc, char** argv) {
                 s376::parse_word_order(slash == std::string::npos ? e : e.substr(0, slash));
             cfg.float_fmt =
                 s376::parse_float_fmt(slash == std::string::npos ? "vax" : e.substr(slash + 1));
-        } else if (a == "-v" || a == "--verbose")
+        } else if (a == "--weather")
+            cfg.weather = true;
+        else if (a == "-v" || a == "--verbose")
             verbose = true;
         else {
             std::cerr << "unknown option " << a << "\n";

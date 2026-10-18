@@ -126,8 +126,17 @@ std::vector<std::uint8_t> SyntheticFlight::datagram(const SynthPose& s) const {
         const std::uint16_t mask = s.alt_ft < elev_ + 2500 ? 0x0F : 0;
         pk.push_back(xt4::build_lights(true, !s.on_ground, mask, cfg_.float_fmt));
     }
-    if (s.count % 100 == 1)
-        pk.push_back(xt4::build_env(14.5f, 10 * 6076.f, 5, 4, 2016, cfg_.float_fmt));
+    if (s.count % 100 == 1) {
+        if (cfg_.weather)
+            // Rain + wind + a changing lightning trigger so the IG flashes
+            // on the type-124 edge, same field the host uses.
+            pk.push_back(xt4::build_env(14.5f, 4000.f, 5, 4, 2016, cfg_.float_fmt, -1, 1, 6,
+                                        1 + static_cast<int>(s.count / 100), 18.f, 200.f));
+        else
+            pk.push_back(xt4::build_env(14.5f, 10 * 6076.f, 5, 4, 2016, cfg_.float_fmt));
+    }
+    if (cfg_.weather && (s.count == 1 || s.count % 100 == 3))
+        pk.push_back(xt4::build_fog(400.f, 2400.f, cfg_.float_fmt, -1, 0));
     if (s.count == 1)
         pk.push_back(xt4::build_display(true));
     if (s.count == 1 || s.count % 100 == 2) {

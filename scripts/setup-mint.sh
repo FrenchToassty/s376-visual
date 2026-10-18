@@ -133,6 +133,10 @@ if [[ "$NO_DESKTOP" -eq 0 ]]; then
             "s376-visual 4-monitor desk" \
             "$BIN --demo --cache-dir $ROOT/cache/ksea -c $ROOT/config/desk-4monitor.toml" \
             "IOS on DP-4, L/F/R on DP-3 / HDMI-0 / DP-0"
+        write_desktop "$APPDIR/s376-visual-weather.desktop" \
+            "s376-visual weather demo" \
+            "$BIN --demo-weather --channel front --cache-dir $ROOT/cache/ksea -c $ROOT/config/s376-visual.toml" \
+            "Type-124 rain / type-128 fog (host fields only)"
         if [[ -d "$HOME/Desktop" ]]; then
             write_desktop "$HOME/Desktop/s376-visual-demo.desktop" \
                 "s376-visual demo" "$DEMO_EXEC" \

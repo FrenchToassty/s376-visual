@@ -47,7 +47,10 @@ A 20-byte preamble starts every packet:
 | 200 | HAT / IG status reply | 64 bytes as the S376 host reads it |
 
 Other type numbers exist on the wire (clouds, traffic, switches, …).
-v0.1 counts them and ignores the body.
+Those bodies are **not** invented here. Cloud-layer and storm-cell
+layouts stay undocumented until they are clean-roomed from the hangar
+reference header (never committed). The decoder counts unknown types
+and ignores the body.
 
 ## Eyepoint (type 100)
 

@@ -92,6 +92,7 @@ struct Env {
     int day = 1;
     int year = 2000;
     int runway_condition = 0;
+    int lightning_trigger = 0;
     float tod_hours = 12.f;
     float visible_range_ft = 528000.f;
     float wind_speed_mph = 0.f;
@@ -186,7 +187,9 @@ std::vector<std::uint16_t> build_dcs(double lat, double lon, double alt_ft, doub
 std::vector<std::uint16_t> build_lights(bool beacon, bool strobe, std::uint16_t landing_mask,
                                         FloatFmt fmt);
 std::vector<std::uint16_t> build_env(float tod_hours, float visible_range_ft, int month, int day,
-                                     int year, FloatFmt fmt);
+                                     int year, FloatFmt fmt, int tod_select = -1, int precip_type = 0,
+                                     int precip_intensity = 0, int lightning = 0,
+                                     float wind_mph = 0, float wind_dir = 0);
 std::vector<std::uint16_t> build_fog(float height_ft, float rvr_ft, FloatFmt fmt, int region = -1,
                                      int select = 0);
 std::vector<std::uint16_t> build_light_switch(int switch_num, int step);

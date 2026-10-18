@@ -354,6 +354,8 @@ Env decode_env(const Packet& p, FloatFmt fmt) {
     e.day = s16(b[5]);
     e.year = s16(b[6]);
     e.runway_condition = s16(b[7]);
+    if (p.body_words() >= 12)
+        e.lightning_trigger = get_i32(b, 10);
     e.tod_hours = get_f32(b, 12, fmt);
     e.visible_range_ft = get_f32(b, 14, fmt);
     if (p.body_words() >= 22) {
@@ -537,17 +539,21 @@ std::vector<std::uint16_t> build_lights(bool beacon, bool strobe, std::uint16_t 
 }
 
 std::vector<std::uint16_t> build_env(float tod_hours, float visible_range_ft, int month, int day,
-                                     int year, FloatFmt fmt) {
+                                     int year, FloatFmt fmt, int tod_select, int precip_type,
+                                     int precip_intensity, int lightning, float wind_mph,
+                                     float wind_dir) {
     std::uint16_t body[27] = {};
-    body[0] = 1;
-    body[3] = 5;
+    body[0] = static_cast<std::uint16_t>(tod_select);
+    body[2] = static_cast<std::uint16_t>(precip_type);
+    body[3] = static_cast<std::uint16_t>(precip_intensity);
     body[4] = static_cast<std::uint16_t>(month);
     body[5] = static_cast<std::uint16_t>(day);
     body[6] = static_cast<std::uint16_t>(year);
-    body[9] = 5;
+    put_i32(body + 10, lightning);
     put_f32(body + 12, tod_hours, fmt);
     put_f32(body + 14, visible_range_ft, fmt);
-    put_f32(body + 16, 5.f, fmt);
+    put_f32(body + 18, wind_mph, fmt);
+    put_f32(body + 20, wind_dir, fmt);
     return build_packet(kTypeEnv, body, 27);
 }
 

@@ -451,7 +451,13 @@ std::string diagnostics_dump(const AppConfig& cfg, const HostState* host) {
         if (host->have_env) {
             o << "env tod=" << host->env.tod_hours << " vis_ft=" << host->env.visible_range_ft
               << " date=" << host->env.year << "-" << host->env.month << "-" << host->env.day
-              << "\n";
+              << " precip=" << host->env.precip_type << "/" << host->env.precip_intensity
+              << " wind=" << host->env.wind_speed_mph << "@" << host->env.wind_dir_deg
+              << " lightning=" << host->env.lightning_trigger << "\n";
+        }
+        if (host->have_fog) {
+            o << "fog select=" << host->fog.select << " rvr_ft=" << host->fog.rvr_ft
+              << " height_ft=" << host->fog.height_ft << "\n";
         }
         o << "peer=" << host->last_peer << "\n";
     }

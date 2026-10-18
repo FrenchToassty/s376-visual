@@ -223,6 +223,7 @@ void HostReceiver::loop() {
                                                     snap.eye.lon_deg, snap.eye.alt_ft);
                     hat = hs.hat_ft;
                     elev = hs.elev_ft;
+                    state_.set_hat(hat, elev);
                 }
                 try {
                     sock_.send_hat(peer, cfg_.reply_port, hat, elev, valid);

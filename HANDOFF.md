@@ -8,13 +8,17 @@ account may stop mid-run — treat this file as the source of truth.
 
 ## Verified in this run
 
-- `s376-tests`: **5119 passed, 0 failed** (KSFO / KLAS, OSM merge,
-  doctor cache-size / frame-time, previous fetch / HAT / channel suite).
+- `s376-tests`: **9088 passed, 0 failed** (weather env/fog decode,
+  synth `--weather` precip + lightning-edge + SharedState apply,
+  plus the previous airport / cache / HAT / channel suite).
 - `s376-doctor`: 0 fail, 1 warn (osgEarth). Reports `cache-ksea` 4.9 KiB,
   SKIP for unpacked KSFO/KLAS, `mesh-build` 0.17 ms / 4096 lights,
   `frame-{front,left,right}` CPU view + GPU share when DISPLAY works.
 - `s376-visual --headless --demo --duration 2`: 40 datagrams / 40 eyepoints,
   KSEA 16L, env TOD 14.5 / vis 60760 ft.
+- `s376-visual --headless --demo-weather --duration 2`: 40 datagrams,
+  env precip=1/6 wind=18@200 lightning=1 vis=4000, fog select=0
+  RVR 2400 / height 400. No invented cloud or storm-cell packets.
 - `s376-visual --demo` under Xvfb: OSG window "front" 1920×1080, 50×32.5 FOV,
   procedural globe, camera on the eyepoint.
 - `s376-synth --dest 10.1.95.1:2300` and `192.168.173.10:2300`: refused.
@@ -40,6 +44,24 @@ scenery or weather the host does not send. Checklist:
 front 3840 (HDMI-0), right 5760 (DP-0). Same ViewAngles as Raster.
 `render.msaa=4` and `render.aniso=16` (GL 3.3 / Maxwell). Type-124
 `tod_select` 0–3 now snaps sun/sky to day/dusk/dawn/night.
+
+## Milestone: type-124 / 128 weather (2026-10-18)
+
+Honor the **already-decoded** Raster weather fields. Do not invent
+cloud or storm-cell layouts (`nxHostPacket.h` is gitignored and is
+not on this agent box).
+
+- Type 124 `precip_type` 1/2/3 + `precip_intensity` 0–10 → 360 GPU
+  points around the eyepoint (rain / snow / hail), GL 3.3.
+- Type 124 wind speed/dir → precip drift (FROM convention).
+- Type 124 lightning trigger (words 10–11) → 4-frame sun/sky flash
+  on edge change.
+- Type 128 RVR still caps vis; fog height thickens EXP2 when last
+  HAT is below the deck + 200 ft.
+- `--demo-weather` / `s376-synth --weather` emit those packets only.
+- 3 cloud layers and the 30-cell storm array stay **PARITY gaps**.
+
+See [docs/PARITY.md](docs/PARITY.md).
 
 ## Milestone: KLAX / KJFK layouts (2026-10-18)
 
@@ -140,8 +162,8 @@ are unit-tested.
   `ubuntu-24.04`, `.gitignore` that blocks RSI/CAE/captures.
 - Clean-room xT4 decoder in `include/s376/xt4.hpp` + `src/xt4.cpp`.
   Autodetects word order (le/be) and float format (VAX F/D vs IEEE).
-  Decodes eyepoint, environment (TOD + visibility), fog, light-switch
-  steps 0–5, ownship lights, display control, HAT query.
+  Decodes eyepoint, environment (TOD, vis, precip, wind, lightning),
+  fog, light-switch steps 0–5, ownship lights, display control, HAT query.
 - HAT reply (`xt4::build_hat_response`) matches what the S376 host reads
   (64-byte big-endian IEEE). Host-side conversion is unit-tested.
 - `s376-synth` sends a KSEA 16L takeoff to a destination that must pass
@@ -153,8 +175,9 @@ are unit-tested.
 - `s376-doctor` / `--diagnostics` (cache bytes per airport, frame time
   per channel).
 - Minimal OSG renderer: WGS84 globe, host-driven camera, exp2 fog, sun
-  from TOD. Local DEM patch + BC1 drape. osgEarth earth file is loaded
-  when the lib is present.
+  from TOD, precip points + lightning flash from type 124/128. Local
+  DEM patch + BC1 drape. osgEarth earth file is loaded when the lib
+  is present.
 - `s376-cache`: `fetch` / `synth-ksea --lods` / `from-geotiff` / `info`.
   Real 3DEP+NAIP or GLO-30+S2; LOD pyramid with BC1/BC7 mips.
 - Airport rebuild plan: `docs/AIRPORTS.md`. Terrain sources: `docs/SOURCES.md`.
@@ -166,6 +189,7 @@ are unit-tested.
 | Item | Path | What's left |
 |---|---|---|
 | osgEarth tiles | `data/earth/ksea.earth` | File is in. Build osgEarth on the hangar box (`scripts/build-osgearth.sh`) and confirm the cache GeoTIFFs drape |
+| Cloud / storm packets | `docs/PARITY.md` | Type 124/128 weather is drawn. Layer and cell arrays need the hangar header (never commit it) |
 | HAT off-DEM | `sample_hat` | Stand-in elev=0 when the point is outside the packed region |
 | More airports | `docs/AIRPORTS.md` | KSEA / KSFO / KLAS / KLAX / KJFK are in. Next: EGLL / EDDF |
 | Off-axis frustum | camera is rotated by heading offset | Shared eyepoint + asymmetric projection later |
@@ -173,8 +197,11 @@ are unit-tested.
 
 ## Next 5 concrete steps (in order)
 
-1. **Weather** (queued): precip, 3 cloud layers, storm cells, --demo-weather.
-2. **Close PARITY gaps**: 109 beams, 131 display, 128 fog deck, PAPI/taxi.
+1. **Cloud / storm packets** — clean-room the hangar header locally
+   (never commit it). Then 3 cloud layers + ≤3 of 30 storm cells.
+   Do not guess type numbers.
+2. **Close remaining PARITY gaps**: 109 beams, 131 display, 128
+   patchy/speed-cue, 124 runway condition, PAPI/taxi.
 3. **Asymmetric / off-axis projection** if ViewAngles overlap is not enough.
 4. **EGLL / EDDF** layouts.
 5. **NLIM / edge blend** — later.
@@ -190,8 +217,10 @@ ctest --test-dir build --output-on-failure
 ./build/s376-cache synth-ksea --out cache/ksea
 ./build/s376-doctor -c config/s376-visual.toml
 ./build/s376-visual --headless --demo --duration 3 --bind 127.0.0.1:2300
+./build/s376-visual --headless --demo-weather --duration 3 --bind 127.0.0.1:2300
 # three tiled windows (one display) or --channel front for a single view:
 ./build/s376-visual --demo --cache-dir cache/ksea
+./build/s376-visual --demo-weather --channel front
 ./build/s376-visual --demo --channel front
 ```
 

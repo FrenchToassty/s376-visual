@@ -67,6 +67,8 @@ A synthetic 737 takes off from KSEA 16L. Default is three channel windows
 (Front / Left +35.515° / Right −35.25°), tiled on a single display or
 placed on `monitor` 0/1/2. `--channel front` is the laptop single-window
 fallback. `--headless` runs the same path with no GL.
+`--demo-weather` adds type-124 rain/wind/lightning and type-128 fog
+(the host fields already on the wire — no invented cloud packets).
 
 ### Run against SIMH (emulated host)
 
@@ -90,6 +92,8 @@ contact `10.1.95.0/24` or `192.168.173.0/24`.
 ./build/s376-visual --bind 127.0.0.1:2300 --channel front
 # other terminal
 ./build/s376-synth --dest 127.0.0.1:2300 --rate 20 --encoding le/vax
+# same plus type-124 rain and type-128 fog:
+./build/s376-synth --dest 127.0.0.1:2300 --weather
 ```
 
 ### Flags
@@ -102,6 +106,7 @@ contact `10.1.95.0/24` or `192.168.173.0/24`.
 | `--cache-dir PATH` | packed DEM/imagery from `s376-cache` |
 | `--headless` | decoder + socket, no GL |
 | `--demo` | in-process synth to loopback |
+| `--demo-weather` | demo plus type-124 rain / type-128 fog |
 | `-v` / `--debug` | verbose / per-packet hex |
 | `--diagnostics` | dump config and build options |
 | `--doctor` | environment checks (local only) |
