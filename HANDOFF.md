@@ -52,6 +52,14 @@ coordinates unchanged. Hangar 1 m pack still not on this box
 asphalt sheen **+0.05 ms** in existing markings pass. Net **−0.10**.
 Budgeted total stays **12.20 ms** shadows-off.
 
+**CI linux xvfb:** 7516bea failed `no OpenGL error spam` —
+`invalid enumerant` at `Before Renderer::compile` on windowed
+`--demo`. Headless was clean. Cause: GitHub Mesa has no
+`LIBGL_ALWAYS_SOFTWARE` / `GALLIUM_DRIVER`, so the quality-pass FXAA
+FBO (`GL_DEPTH_COMPONENT24`) ran on a context that can be CORE.
+No `/dev/nvidiactl` now takes the software/compat path (hangar 980 Ti
+keeps NVIDIA 4.6 compat). FXAA depth uses `GL_DEPTH_COMPONENT`.
+
 Before (reviewed lattice): `kjfk_04r_0.6nm_night.png`,
 `kjfk_04r_0.6nm_dusk.png`. After: `kjfk_04r_0.6nm_night_after.png`,
 `kjfk_04r_0.6nm_dusk_after.png`.
