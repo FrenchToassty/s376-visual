@@ -94,6 +94,10 @@ void test_terrain() {
     CHECK(std::filesystem::exists(cdir + "/elev.s376dem"));
     CHECK(std::filesystem::exists(cdir + "/imagery.dds"));
     CHECK(std::filesystem::exists(cdir + "/region.toml"));
+#ifdef S376_HAS_GDAL
+    CHECK(std::filesystem::exists(cdir + "/elev.tif"));
+    CHECK(std::filesystem::exists(cdir + "/imagery.tif"));
+#endif
     const auto packed = std::filesystem::file_size(cdir + "/elev.s376dem") +
                         std::filesystem::file_size(cdir + "/imagery.dds");
     CHECK(packed < 200000);          // hundreds of KiB, not 857 GB

@@ -37,6 +37,8 @@ struct ImageRgb {
 
     static ImageRgb hillshade(const DemGrid& dem);
     static ImageRgb load_jpeg_or_png(const std::string& path); // OSG/GDAL later; unused if empty
+    // Georeferenced RGB GeoTIFF for osgEarth. Bounds come from `georef`.
+    void save_geotiff(const std::string& path, const DemGrid& georef) const;
 };
 
 class HeightSource {

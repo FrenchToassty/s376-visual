@@ -9,6 +9,7 @@
 
 #include <osg/BlendFunc>
 #include <osg/Depth>
+#include <osg/DisplaySettings>
 #include <osg/Fog>
 #include <osg/Geode>
 #include <osg/Geometry>
@@ -377,6 +378,11 @@ class OsgRenderer final : public Renderer {
 
         viewer_ = std::make_unique<osgViewer::CompositeViewer>();
         viewer_->setThreadingModel(osgViewer::ViewerBase::SingleThreaded);
+        // Apt OSG 3.6 is a compatibility-profile stack. Ask for 3.3 so a
+        // Maxwell GTX 980 Ti (GL 4.6 max) and the hangar RTX 5060 Ti share
+        // the same path. Do not request a Core profile.
+        if (osg::ref_ptr<osg::DisplaySettings> ds = osg::DisplaySettings::instance())
+            ds->setGLContextVersion("3.3");
 
         osg::ref_ptr<osg::Group> root = new osg::Group;
 #ifdef S376_HAS_OSGEARTH
@@ -393,7 +399,7 @@ class OsgRenderer final : public Renderer {
 #else
         root->addChild(make_procedural_globe());
 #endif
-        {
+        if (!used_earth_) {
             const std::string dir = cfg.render.cache_dir;
             bool any_lod = false;
             if (!dir.empty()) {

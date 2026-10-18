@@ -26,6 +26,26 @@ account may stop mid-run — treat this file as the source of truth.
   (ubuntu-24.04, 1984 tests, doctor, headless demo, sim-LAN refusal,
   `s376-cache` smoke). Optional osgEarth job is `workflow_dispatch` only.
 
+## Milestone: KSEA earth file (2026-10-18)
+
+`data/earth/ksea.earth` is the osgEarth path: GDAL elevation and imagery
+from `s376-cache` (`cache/ksea/elev.tif`, `imagery.tif`) plus an OGR
+`feature_geom` layer on `osm.geojson`. `write_cache` now emits those
+GeoTIFF sidecars when GDAL is present. If osgEarth is missing or the
+earth file fails to load, the IG uses the procedural globe + local DEM
+drape. `data/earth/s376.earth` stays the Esri-dev globe. GL context
+request is 3.3 compatibility (not Core).
+
+## Milestone: Mint setup + osgEarth scripts (2026-10-18)
+
+`scripts/setup-mint.sh` installs apt deps, builds with g++, runs tests,
+packs a synth KSEA cache, and writes `s376-visual-demo` /
+`s376-visual-3ch` desktop launchers. `scripts/build-osgearth.sh` builds
+osgEarth 3.7.2 into `/opt/osgearth` (no FASTDXT) and re-cmakes the IG
+so `S376_HAS_OSGEARTH` turns on. Renderer stays GL 3.3-compatible
+(Maxwell GTX 980 Ti + hangar RTX 5060 Ti). `s376-cache geojson ICAO`
+writes a FeatureCollection for the earth-file airport layer.
+
 ## Milestone: doctor size / perf (2026-10-18)
 
 `s376-doctor` lists on-disk `cache/<icao>` bytes for each public
@@ -131,7 +151,7 @@ are unit-tested.
 
 ## Next 5 concrete steps (in order)
 
-1. **Build osgEarth** on the hangar box and confirm `s376.earth` drapes.
+1. **KLAX / KJFK** layouts the same way as KSEA / KSFO / KLAS.
 2. **Asymmetric / off-axis projection** if ViewAngles overlap is not enough.
 3. **KLAX / KJFK** layouts the same way as KSEA / KSFO / KLAS.
 4. **NLIM / edge blend** — later.

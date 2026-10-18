@@ -14,6 +14,7 @@
 #ifdef S376_HAS_GDAL
 #include <gdal_priv.h>
 #include <cpl_conv.h>
+#include <cpl_string.h>
 #endif
 
 namespace s376 {
@@ -183,6 +184,39 @@ void DemGrid::save_geotiff(const std::string& path) const {
     if (we != CE_None)
         throw std::runtime_error("GDAL write failed for " + path);
 }
+
+void ImageRgb::save_geotiff(const std::string& path, const DemGrid& georef) const {
+    if (rgb.empty() || w < 1 || h < 1)
+        throw std::runtime_error("empty imagery, cannot write " + path);
+    GDALAllRegister();
+    GDALDriver* drv = GetGDALDriverManager()->GetDriverByName("GTiff");
+    if (!drv)
+        throw std::runtime_error("GDAL has no GTiff driver");
+    ensure_parent(path);
+    char** opts = nullptr;
+    opts = CSLSetNameValue(opts, "COMPRESS", "DEFLATE");
+    GDALDataset* ds = drv->Create(path.c_str(), w, h, 3, GDT_Byte, opts);
+    CSLDestroy(opts);
+    if (!ds)
+        throw std::runtime_error("GDAL could not create " + path);
+    const double west = georef.west, east = georef.east, south = georef.south, north = georef.north;
+    double gt[6] = {west, (east - west) / w, 0, north, 0, -(north - south) / h};
+    ds->SetGeoTransform(gt);
+    ds->SetProjection("GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],"
+                      "PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]");
+    std::vector<std::uint8_t> band(static_cast<std::size_t>(w * h));
+    for (int b = 0; b < 3; ++b) {
+        for (int i = 0; i < w * h; ++i)
+            band[static_cast<std::size_t>(i)] = rgb[static_cast<std::size_t>(i) * 3 + b];
+        CPLErr we = ds->GetRasterBand(b + 1)->RasterIO(GF_Write, 0, 0, w, h, band.data(), w, h,
+                                                       GDT_Byte, 0, 0);
+        if (we != CE_None) {
+            GDALClose(ds);
+            throw std::runtime_error("GDAL imagery write failed for " + path);
+        }
+    }
+    GDALClose(ds);
+}
 #else
 bool gdal_available() {
     return false;
@@ -194,6 +228,10 @@ DemGrid DemGrid::load_geotiff(const std::string& path) {
 }
 
 void DemGrid::save_geotiff(const std::string&) const {
+    throw std::runtime_error("GDAL was not built in");
+}
+
+void ImageRgb::save_geotiff(const std::string&, const DemGrid&) const {
     throw std::runtime_error("GDAL was not built in");
 }
 #endif
@@ -316,6 +354,18 @@ void write_cache(const CacheRegion& r, const std::string& dir) {
     t << "elev = \"elev.s376dem\"\n";
     t << "imagery = \"imagery.dds\"\n";
     t << "format = \"bc1\"\n";
+    if (gdal_available()) {
+        try {
+            r.dem.save_geotiff(dir + "/elev.tif");
+            t << "elev_tif = \"elev.tif\"\n";
+            if (!r.imagery.rgb.empty()) {
+                r.imagery.save_geotiff(dir + "/imagery.tif", r.dem);
+                t << "imagery_tif = \"imagery.tif\"\n";
+            }
+        } catch (const std::exception& ex) {
+            S376_LOG_WARN("cache", "GeoTIFF sidecar: %s", ex.what());
+        }
+    }
     const std::size_t raw = static_cast<std::size_t>(r.dem.w * r.dem.h) * 4 +
                             static_cast<std::size_t>(r.imagery.w * r.imagery.h) * 3;
     const std::size_t packed = static_cast<std::size_t>(r.dem.w * r.dem.h) * 4 + dxt::bc1_size(r.imagery.w, r.imagery.h);

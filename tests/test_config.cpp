@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <string>
 
 extern int g_fails;
@@ -63,4 +64,14 @@ void test_config() {
     CHECK(c.channels[0].width == 800);
     CHECK(!c.channels[1].enabled);
     std::remove(path);
+
+    std::ifstream ksea_earth("data/earth/ksea.earth");
+    CHECK(static_cast<bool>(ksea_earth));
+    std::string earth((std::istreambuf_iterator<char>(ksea_earth)), std::istreambuf_iterator<char>());
+    CHECK(earth.find("cache/ksea/elev.tif") != std::string::npos);
+    CHECK(earth.find("cache/ksea/imagery.tif") != std::string::npos);
+    CHECK(earth.find("cache/ksea/osm.geojson") != std::string::npos);
+    CHECK(earth.find("feature_geom") != std::string::npos);
+    std::ifstream globe("data/earth/s376.earth");
+    CHECK(static_cast<bool>(globe));
 }

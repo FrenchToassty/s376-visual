@@ -75,7 +75,10 @@ field, mid (~25 km, BC1), optional coarse far ring. Root
 `elev.s376dem` is the finest LOD so HAT still works. A 25 km box is
 tens of MiB, not the 857 GB uncompressed RSI CERTS farm.
 
-Then set `render.cache_dir = "cache/ksea"` (or `--cache-dir`).
+Then set `render.cache_dir = "cache/ksea"` (or `--cache-dir`) and, with
+osgEarth, `render.earth_file = "data/earth/ksea.earth"`. That earth file
+reads `cache/ksea/elev.tif`, `imagery.tif`, and `osm.geojson`. Without
+osgEarth the IG drapes the same cache on the procedural globe.
 
 osgEarth's own file cache is separate and is enough for a hangar box
 that has the library.
