@@ -1,0 +1,56 @@
+# KSEA — public geometry only.
+# Runway ends / lengths / widths: OurAirports runways.csv (public domain).
+# 16L threshold matches the s376-synth takeoff. Lighting systems from the
+# published FAA chart (ALSF-2 on 16L, MALSR on the other instrument ends).
+# Taxi connectors in the binary are schematic offsets from those runways;
+# replace with an Overpass aeroway=* pull (ODbL) when the generator lands.
+# Packet-112 switch numbers are ours, not RSI's.
+
+icao = "KSEA"
+name = "Seattle-Tacoma International"
+arp_lat = 47.4502
+arp_lon = -122.3088
+elev_ft = 433
+attribution = "OurAirports + FAA charted ALS"
+
+[lights]
+edge_switch = 1
+centerline_switch = 2
+approach_switch = 3
+threshold_switch = 4
+
+[[runways]]
+ident_le = "16L"
+ident_he = "34R"
+le_lat = 47.463684
+le_lon = -122.307751
+le_elev_ft = 429
+heading_deg = 180.34
+length_ft = 11901
+width_ft = 150
+approach_le = "ALSF-2"
+approach_he = "MALSR"
+
+[[runways]]
+ident_le = "16C"
+ident_he = "34C"
+le_lat = 47.45583
+le_lon = -122.31155
+le_elev_ft = 429
+heading_deg = 180.3
+length_ft = 9426
+width_ft = 150
+approach_le = "MALSR"
+approach_he = "MALSR"
+
+[[runways]]
+ident_le = "16R"
+ident_he = "34L"
+le_lat = 47.45349
+le_lon = -122.31775
+le_elev_ft = 429
+heading_deg = 180.3
+length_ft = 8500
+width_ft = 150
+approach_le = "MALSR"
+approach_he = "MALSR"

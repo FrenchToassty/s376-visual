@@ -1,3 +1,4 @@
+#include "s376/airport.hpp"
 #include "s376/dxt.hpp"
 #include "s376/geo.hpp"
 #include "s376/log.hpp"
@@ -6,6 +7,8 @@
 
 #ifdef S376_HAS_OSG
 
+#include <osg/BlendFunc>
+#include <osg/Depth>
 #include <osg/Fog>
 #include <osg/Geode>
 #include <osg/Geometry>
@@ -13,6 +16,8 @@
 #include <osg/Light>
 #include <osg/LightSource>
 #include <osg/Material>
+#include <osg/Point>
+#include <osg/PointSprite>
 #include <osg/Texture2D>
 #include <osg/Viewport>
 #include <osgDB/ReadFile>
@@ -29,6 +34,7 @@
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
+#include <vector>
 
 namespace s376 {
 namespace {
@@ -245,6 +251,89 @@ osg::Node* make_dem_patch(const CacheRegion& cache) {
     return geode;
 }
 
+osg::Node* make_airport_geode(const AirportMesh& mesh) {
+    if (mesh.verts.size() < 3)
+        return nullptr;
+    auto* geode = new osg::Geode;
+    auto* geom = new osg::Geometry;
+    auto* verts = new osg::Vec3Array;
+    auto* norms = new osg::Vec3Array;
+    auto* cols = new osg::Vec4Array;
+    verts->reserve(mesh.verts.size());
+    for (const auto& v : mesh.verts) {
+        verts->push_back(ecef_to_osg(v.p));
+        norms->push_back(osg::Vec3(static_cast<float>(v.n.x), static_cast<float>(v.n.y),
+                                   static_cast<float>(v.n.z)));
+        cols->push_back(osg::Vec4(v.r, v.g, v.b, 1));
+    }
+    geom->setVertexArray(verts);
+    geom->setNormalArray(norms, osg::Array::BIND_PER_VERTEX);
+    geom->setColorArray(cols, osg::Array::BIND_PER_VERTEX);
+    geom->addPrimitiveSet(new osg::DrawArrays(GL_TRIANGLES, 0, static_cast<int>(mesh.verts.size())));
+    auto* mat = new osg::Material;
+    mat->setColorMode(osg::Material::AMBIENT_AND_DIFFUSE);
+    geom->getOrCreateStateSet()->setAttributeAndModes(mat);
+    geode->addDrawable(geom);
+    return geode;
+}
+
+struct LightGpu {
+    osg::ref_ptr<osg::Geometry> geom;
+    osg::ref_ptr<osg::Vec4Array> colors;
+    std::vector<int> switches;
+    std::vector<osg::Vec4> base;
+};
+
+LightGpu make_light_gpu(const Airport& apt) {
+    LightGpu g;
+    g.geom = new osg::Geometry;
+    auto* verts = new osg::Vec3Array;
+    g.colors = new osg::Vec4Array;
+    verts->reserve(apt.lights.size());
+    for (const auto& L : apt.lights) {
+        const geo::Ecef p = geo::lla_to_ecef(L.lat, L.lon, L.alt_m);
+        verts->push_back(ecef_to_osg(p));
+        const osg::Vec4 c(L.r, L.g, L.b, 1);
+        g.colors->push_back(c);
+        g.base.push_back(c);
+        g.switches.push_back(L.switch_num);
+    }
+    g.geom->setVertexArray(verts);
+    g.geom->setColorArray(g.colors, osg::Array::BIND_PER_VERTEX);
+    g.geom->addPrimitiveSet(
+        new osg::DrawArrays(GL_POINTS, 0, static_cast<int>(apt.lights.size())));
+    g.geom->setUseDisplayList(false);
+    g.geom->setUseVertexBufferObjects(true);
+    auto* ss = g.geom->getOrCreateStateSet();
+    ss->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+    ss->setMode(GL_BLEND, osg::StateAttribute::ON);
+    ss->setAttributeAndModes(new osg::BlendFunc(GL_SRC_ALPHA, GL_ONE));
+    ss->setAttributeAndModes(new osg::Depth(osg::Depth::LEQUAL, 0, 1, false));
+    ss->setAttributeAndModes(new osg::Point(5.0f));
+    ss->setTextureAttributeAndModes(0, new osg::PointSprite, osg::StateAttribute::ON);
+    ss->setMode(GL_POINT_SMOOTH, osg::StateAttribute::ON);
+    ss->setRenderBinDetails(20, "DepthSortedBin");
+    return g;
+}
+
+void apply_light_steps(LightGpu& g, const HostState& host) {
+    if (!g.colors || g.colors->empty())
+        return;
+    for (std::size_t i = 0; i < g.colors->size(); ++i) {
+        int step = 3;
+        if (i < g.switches.size()) {
+            const int sw = g.switches[i];
+            if (sw >= 0 && sw < xt4::kMaxLightSwitches)
+                step = host.light_steps[static_cast<std::size_t>(sw)];
+        }
+        const float k = step <= 0 ? 0.f : std::min(1.f, step / 5.f);
+        const osg::Vec4& b = g.base[i];
+        (*g.colors)[static_cast<unsigned>(i)] = osg::Vec4(b.r() * k, b.g() * k, b.b() * k, k);
+    }
+    g.colors->dirty();
+    g.geom->dirtyBound();
+}
+
 CacheRegion load_or_synth_cache(const std::string& dir) {
     if (!dir.empty()) {
         try {
@@ -311,6 +400,20 @@ class OsgRenderer final : public Renderer {
                 S376_LOG_INFO("render", "draped %s DEM  %.3f,%.3f .. %.3f,%.3f  BC1/hillshade",
                               cache.name.empty() ? "region" : cache.name.c_str(), cache.dem.west,
                               cache.dem.south, cache.dem.east, cache.dem.north);
+            }
+        }
+        {
+            const Airport apt = ksea_public();
+            if (auto* mesh = make_airport_geode(build_airport_mesh(apt))) {
+                root->addChild(mesh);
+                S376_LOG_INFO("render", "KSEA mesh  %zu runways  %zu lights  %s", apt.runways.size(),
+                              apt.lights.size(), apt.attribution.c_str());
+            }
+            lights_gpu_ = make_light_gpu(apt);
+            if (lights_gpu_.geom) {
+                auto* geode = new osg::Geode;
+                geode->addDrawable(lights_gpu_.geom);
+                root->addChild(geode);
             }
         }
         light_ = new osg::LightSource;
@@ -390,6 +493,7 @@ class OsgRenderer final : public Renderer {
         for (std::size_t i = 0; i < views_.size() && i < channels_.size(); ++i)
             apply_view_camera(views_[i]->getCamera(), channels_[i], host);
         apply_env(host);
+        apply_light_steps(lights_gpu_, host);
         viewer_->frame();
     }
 
@@ -440,6 +544,7 @@ class OsgRenderer final : public Renderer {
     osg::ref_ptr<osg::Group> root_;
     osg::ref_ptr<osg::LightSource> light_;
     osg::ref_ptr<osg::Fog> fog_;
+    LightGpu lights_gpu_;
     bool used_earth_ = false;
 };
 

@@ -184,10 +184,12 @@ the hangar NVIDIA box runs the compatibility profile that apt OSG uses.
 - Globe + local DEM drape (BC1), camera from the host, fog, sun from TOD
 - `s376-cache` offline tile packer (synth or GDAL GeoTIFF)
 
-Not yet: airport meshes, light-point GPU pass, NLIM, landing-light
-beams. The plan is in [docs/AIRPORTS.md](docs/AIRPORTS.md) and
-[docs/DESIGN.md](docs/DESIGN.md). Protocol field layouts:
-[docs/PROTOCOL.md](docs/PROTOCOL.md).
+KSEA runways (OurAirports) plus edge / centreline / approach light
+points are in the scene; intensity follows packet-112 steps 0–5.
+
+Not yet: NLIM, landing-light beams, remaining airports. The plan is in
+[docs/AIRPORTS.md](docs/AIRPORTS.md) and [docs/DESIGN.md](docs/DESIGN.md).
+Protocol field layouts: [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
 ## License
 

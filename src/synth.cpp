@@ -130,6 +130,12 @@ std::vector<std::uint8_t> SyntheticFlight::datagram(const SynthPose& s) const {
         pk.push_back(xt4::build_env(14.5f, 10 * 6076.f, 5, 4, 2016, cfg_.float_fmt));
     if (s.count == 1)
         pk.push_back(xt4::build_display(true));
+    if (s.count == 1 || s.count % 100 == 2) {
+        pk.push_back(xt4::build_light_switch(1, 5)); // runway edge
+        pk.push_back(xt4::build_light_switch(2, 5)); // centreline
+        pk.push_back(xt4::build_light_switch(3, 5)); // approach
+        pk.push_back(xt4::build_light_switch(4, 5)); // threshold / end
+    }
     return xt4::build_datagram(pk, cfg_.word_order);
 }
 

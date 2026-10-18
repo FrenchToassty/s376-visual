@@ -64,21 +64,24 @@ names.
 | Hold-short / stop bar | SMGCS / ICAO | Red stop bar, yellow hold |
 | Approach REIL / wig-wag | same | Paired white flashers at threshold |
 
-Intensity steps are **0–5** (packet 112). v0.1 stores the step; the
-light-point renderer (not yet written) will scale candela and halo.
+Intensity steps are **0–5** (packet 112). The GPU light-point pass
+scales colour and alpha by `step / 5`. Switch numbers are ours:
 
-A first-cut generator (planned, not in this tree yet):
+| Switch | Group |
+|---|---|
+| 1 | Runway edge |
+| 2 | Runway centreline |
+| 3 | Approach (ALSF-2 / MALSR bars) |
+| 4 | Threshold / end |
 
-1. Read OurAirports + optional FAA CIFP for one ICAO.
-2. Overpass-download `aeroway` ways/polygons in a 8 km box.
-3. Build a runway + taxiway mesh (asphalt/concrete materials).
-4. Place lights from the standard that the CIFP / chart lists for each end.
-5. Write `data/airports/<icao>/airport.toml` + `.osgb` / `.gltf`.
-6. Flatten the DEM in a capsule around each runway.
+`s376::ksea_public()` builds KSEA from OurAirports runway ends (16L
+matches the synth takeoff) plus FAA-charted ALS. Edge / centreline /
+approach / threshold points are placed from the published spacing
+rules above. Taxi connectors are schematic offsets from those
+runways — a stand-in until an Overpass `aeroway=*` pull (ODbL) lands.
 
-Until that tool exists, the IG shows the globe and flies the host
-eyepoint. Airports will appear as imagery (and later as meshes) under
-that camera.
+`data/airports/ksea.toml` documents the same public numbers. Do not
+paste RSI `.nx3` coordinates into it.
 
 ## Suggested build order
 
