@@ -6,6 +6,7 @@
 #include "s376/wizard.hpp"
 
 #include <cmath>
+#include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -94,8 +95,10 @@ void test_wizard() {
     CHECK(!saw_xt4);
 
     {
-        const std::string path = "build/test-wizard.toml";
+        // CTest cwd is the build dir; do not prefix "build/" or the write fails.
+        const std::string path = "s376-test-wizard.toml";
         std::ofstream out(path);
+        CHECK(static_cast<bool>(out));
         out << "visual = \"s376-visual\"\n"
                "ig_config = \"config/channels-3.toml\"\n"
                "[[targets]]\n"
@@ -112,16 +115,19 @@ void test_wizard() {
         CHECK(loaded.targets[1].control == "127.0.0.1:2377");
         threw = false;
         try {
-            std::ofstream bad("build/test-wizard-bad.toml");
+            std::ofstream bad("s376-test-wizard-bad.toml");
+            CHECK(static_cast<bool>(bad));
             bad << "[[targets]]\nname = \"x\"\ncontrol = \"10.1.95.1:2376\"\n";
             bad.close();
-            (void)s376::load_wizard_config("build/test-wizard-bad.toml");
+            (void)s376::load_wizard_config("s376-test-wizard-bad.toml");
         } catch (const s376::safety::UnsafeEndpoint&) {
             threw = true;
         } catch (const std::exception&) {
             threw = true;
         }
         CHECK(threw);
+        std::remove(path.c_str());
+        std::remove("s376-test-wizard-bad.toml");
     }
 
     s376::control_hub().reset();
@@ -167,16 +173,17 @@ void test_wizard() {
         corr.pattern = s376::DisplayPattern::White70;
         corr.blend.left_px = 40;
         std::string err;
-        CHECK(s376::save_correction("build/test-corr.toml", corr, err));
+        CHECK(s376::save_correction("s376-test-corr.toml", corr, err));
         s376::DisplayCorrection backc;
-        CHECK(s376::load_correction("build/test-corr.toml", backc, err));
+        CHECK(s376::load_correction("s376-test-corr.toml", backc, err));
         CHECK_NEAR(backc.gamma, 1.25, 1e-4);
         CHECK(backc.pattern == s376::DisplayPattern::White70);
         CHECK_NEAR(backc.blend.left_px, 40, 1e-4);
+        std::remove("s376-test-corr.toml");
     }
 
     {
-        const std::string cpath = "build/test-chan.toml";
+        const std::string cpath = "s376-test-chan.toml";
         std::ofstream o(cpath);
         o << "[[channels]]\nname = \"front\"\nheading_offset_deg = 0\nhfov_deg = 50\n"
              "vfov_deg = 32.5\nflip_vertical = false\n";
@@ -194,6 +201,7 @@ void test_wizard() {
         CHECK_NEAR(loaded.channels[0].heading_offset_deg, 35.515, 1e-6);
         CHECK(loaded.channels[0].flip_vertical);
         CHECK(loaded.channels[0].pattern == "black");
+        std::remove(cpath.c_str());
     }
 
     s376::refresh_channels();
