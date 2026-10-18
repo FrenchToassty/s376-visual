@@ -100,6 +100,18 @@ struct ShotPose {
     double alt_ft = 0;
     double hdg_true_deg = 0;
     double pitch_deg = 0;
+    double roll_deg = 0;
+};
+
+struct ShotOverrides {
+    bool have_alt = false;
+    double alt_ft = 0;
+    bool have_bank = false;
+    double bank_deg = 0;
+    bool have_hdg = false;
+    double hdg_deg = 0;
+    bool have_pitch = false;
+    double pitch_deg = 0;
 };
 
 // Public OurAirports runway ends + FAA-chart lighting systems. Taxi
@@ -114,8 +126,9 @@ Airport kbos_public();
 Airport airport_by_icao(const std::string& icao);
 std::vector<Airport> all_public_airports();
 
-// `KJFK:04R` or `KJFK:04R:3` (nm before the threshold on a 3° path).
+// `KJFK`, `KJFK:04R`, or `KJFK:04R:3` (nm before the threshold on a 3° path).
 ShotPose parse_shot_at(const std::string& spec);
+void apply_shot_overrides(ShotPose& p, const ShotOverrides& o);
 bool runway_shot_pose(const Airport& a, const std::string& ident, double dist_nm, ShotPose& out);
 
 // Merge Overpass `out geom` JSON (aeroway=taxiway|apron). Returns ways added.

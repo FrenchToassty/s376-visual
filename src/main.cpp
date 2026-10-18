@@ -50,7 +50,11 @@ void usage() {
            "  --reply-master NAME   only this --channel sends the type-200 HAT reply\n"
            "  --no-hat              never send HAT (overrides reply_master)\n"
            "  --screenshot PATH     write the first channel after a few frames and exit\n"
-           "  --at ICAO:RWY[:nm]    pose the eye (KJFK:04R:0 lined-up, :3 = 3 nm final)\n"
+           "  --at ICAO[:RWY[:nm]]  pose the eye (KJFK:04R:0 lined-up, KJFK:04R:8, or KJFK)\n"
+           "  --alt FT              override shot altitude (MSL feet)\n"
+           "  --bank DEG            override shot roll (right-wing-down)\n"
+           "  --hdg DEG             override shot true heading\n"
+           "  --pitch DEG           override shot pitch\n"
            "  --diagnostics         print a dump and exit\n"
            "  --doctor              environment checks and exit\n"
            "  --version             print version\n"
@@ -67,7 +71,7 @@ s376::HostState host_from_shot(const s376::ShotPose& p) {
     h.eye.alt_ft = p.alt_ft;
     h.eye.heading_deg = static_cast<float>(-p.hdg_true_deg);
     h.eye.pitch_deg = static_cast<float>(p.pitch_deg);
-    h.eye.roll_deg = 0;
+    h.eye.roll_deg = static_cast<float>(p.roll_deg);
     h.have_env = true;
     h.env.tod_select = -1;
     h.env.tod_hours = 14.5f;
@@ -97,6 +101,7 @@ int main(int argc, char** argv) {
     std::string quality_override;
     std::string screenshot_path;
     std::string at_spec;
+    s376::ShotOverrides shot_over;
     std::string reply_master_override;
     bool no_hat = false;
 
@@ -151,7 +156,19 @@ int main(int argc, char** argv) {
             screenshot_path = need(a.c_str());
         else if (a == "--at")
             at_spec = need(a.c_str());
-        else if (a == "--diagnostics")
+        else if (a == "--alt") {
+            shot_over.have_alt = true;
+            shot_over.alt_ft = std::stod(need(a.c_str()));
+        } else if (a == "--bank") {
+            shot_over.have_bank = true;
+            shot_over.bank_deg = std::stod(need(a.c_str()));
+        } else if (a == "--hdg") {
+            shot_over.have_hdg = true;
+            shot_over.hdg_deg = std::stod(need(a.c_str()));
+        } else if (a == "--pitch") {
+            shot_over.have_pitch = true;
+            shot_over.pitch_deg = std::stod(need(a.c_str()));
+        } else if (a == "--diagnostics")
             do_diag = true;
         else if (a == "--doctor")
             do_doctor = true;
@@ -234,18 +251,21 @@ int main(int argc, char** argv) {
     if (have_shot) {
         try {
             shot = s376::parse_shot_at(at_spec);
+            s376::apply_shot_overrides(shot, shot_over);
         } catch (const std::exception& ex) {
             std::cerr << ex.what() << "\n";
             s376::log::shutdown();
             return 2;
         }
         shot_host = host_from_shot(shot);
-        S376_LOG_INFO("ig", "shot %s:%s at %.4f,%.4f  %.0fft  hdg %.1f  pitch %.1f  %.2fnm",
-                      shot.icao.c_str(), shot.rwy.c_str(), shot.lat, shot.lon, shot.alt_ft,
-                      shot.hdg_true_deg, shot.pitch_deg, shot.dist_nm);
+        S376_LOG_INFO("ig",
+                      "shot %s:%s at %.4f,%.4f  %.0fft  hdg %.1f  pitch %.1f  bank %.1f  %.2fnm",
+                      shot.icao.c_str(), shot.rwy.empty() ? "-" : shot.rwy.c_str(), shot.lat,
+                      shot.lon, shot.alt_ft, shot.hdg_true_deg, shot.pitch_deg, shot.roll_deg,
+                      shot.dist_nm);
     }
     if (!screenshot_path.empty() && !have_shot) {
-        std::cerr << "--screenshot needs --at ICAO:RWY[:dist_nm]\n";
+        std::cerr << "--screenshot needs --at ICAO[:RWY[:dist_nm]]\n";
         s376::log::shutdown();
         return 2;
     }

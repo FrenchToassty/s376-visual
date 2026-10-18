@@ -581,10 +581,19 @@ ShotPose parse_shot_at(const std::string& spec) {
     std::string s = spec;
     for (char& c : s)
         c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-    const auto c1 = s.find(':');
-    if (c1 == std::string::npos)
-        throw std::runtime_error("shot --at needs ICAO:RWY[:dist_nm]");
     ShotPose p;
+    const auto c1 = s.find(':');
+    if (c1 == std::string::npos) {
+        p.icao = s;
+        const Airport a = airport_by_icao(p.icao);
+        p.lat = a.arp_lat;
+        p.lon = a.arp_lon;
+        p.alt_ft = a.elev_m * geo::kMToFt + 50.0;
+        p.hdg_true_deg = a.runways.empty() ? 0.0 : a.runways[0].heading_deg;
+        p.pitch_deg = 0;
+        p.roll_deg = 0;
+        return p;
+    }
     p.icao = s.substr(0, c1);
     const auto c2 = s.find(':', c1 + 1);
     p.rwy = c2 == std::string::npos ? s.substr(c1 + 1) : s.substr(c1 + 1, c2 - c1 - 1);
@@ -597,11 +606,38 @@ ShotPose parse_shot_at(const std::string& spec) {
     return p;
 }
 
+void apply_shot_overrides(ShotPose& p, const ShotOverrides& o) {
+    if (o.have_hdg)
+        p.hdg_true_deg = wrap360(o.hdg_deg);
+    if (o.have_alt)
+        p.alt_ft = o.alt_ft;
+    if (o.have_bank)
+        p.roll_deg = o.bank_deg;
+    if (o.have_pitch)
+        p.pitch_deg = o.pitch_deg;
+    // ICAO-only + high alt: stand off opposite heading so the field is ahead
+    // (e.g. --at KJFK --alt 12000 --hdg 036).
+    if (p.rwy.empty() && o.have_alt && p.alt_ft > 400.0) {
+        const Airport a = airport_by_icao(p.icao);
+        const double elev_ft = a.elev_m * geo::kMToFt;
+        const double agl = p.alt_ft - elev_ft;
+        if (agl > 400.0) {
+            const double back_nm = std::min(18.0, agl / 800.0);
+            offset_m(a.arp_lat, a.arp_lon, wrap360(p.hdg_true_deg + 180.0), back_nm * 1852.0, p.lat,
+                     p.lon);
+            if (!o.have_pitch)
+                p.pitch_deg = -std::min(12.0, agl / 1400.0);
+        }
+    }
+}
+
 std::string overpass_aeroway_query(double south, double west, double north, double east) {
     std::ostringstream o;
     o << "[out:json][timeout:40];(way[\"aeroway\"=\"taxiway\"](" << south << "," << west << ","
       << north << "," << east << ");way[\"aeroway\"=\"apron\"](" << south << "," << west << ","
       << north << "," << east << ");way[\"building\"](" << south << "," << west << "," << north
+      << "," << east << ");way[\"natural\"=\"water\"](" << south << "," << west << "," << north
+      << "," << east << ");way[\"natural\"=\"coastline\"](" << south << "," << west << "," << north
       << "," << east << "););out geom;";
     return o.str();
 }
@@ -639,6 +675,9 @@ int merge_osm_json(Airport& a, const std::string& json) {
             kind = "building";
         else if (tags.find("apron") != std::string::npos)
             kind = "apron";
+        else if (tags.find("\"water\"") != std::string::npos ||
+                 tags.find("coastline") != std::string::npos)
+            kind = "skip";
         auto read_num = [&](std::size_t key) -> float {
             auto colon = tags.find(':', key);
             if (colon == std::string::npos)
@@ -688,7 +727,7 @@ int merge_osm_json(Airport& a, const std::string& json) {
                            std::strtod(geom.c_str() + lon_colon + 1, nullptr)});
             p = std::max(latp, lonp) + 5;
         }
-        if (pts.size() >= 2) {
+        if (pts.size() >= 2 && kind != "skip") {
             if (kind == "building") {
                 Building b;
                 b.name = "osm";

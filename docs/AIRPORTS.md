@@ -96,6 +96,8 @@ Side-by-side vs Joey's Raster 4R photo (reference only, never commit):
 ./build/s376-visual --screenshot /tmp/jfk-04r.ppm --at KJFK:04R:0 --channel mid_left
 ./build/s376-visual --screenshot /tmp/bos-04r.ppm --at KBOS:04R:0 --channel mid_left
 ./build/s376-visual --screenshot /tmp/jfk-04r-3nm.ppm --at KJFK:04R:3 --channel mid_left
+./build/s376-visual --screenshot /tmp/jfk-bank.ppm --at KJFK:04R:8 --alt 3000 --bank 30 --channel mid_left
+./build/s376-visual --screenshot /tmp/jfk-12k.ppm --at KJFK --alt 12000 --hdg 036 --channel mid_left
 ```
 
 ## Suggested build order

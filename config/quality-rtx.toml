@@ -22,6 +22,7 @@ msaa = 4
 aniso = 16
 hdr = true
 atmosphere = true
+water = true
 markings = true
 detail_textures = true
 buildings = true

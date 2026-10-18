@@ -118,7 +118,8 @@ contact `10.1.95.0/24` or `192.168.173.0/24`.
 | `--gl-debug` | OSG per-attribute GL error checks (off in Release) |
 | `--quality NAME` | `gtx980ti` (default) / `rtx` / `custom` |
 | `--screenshot PATH` | write the first channel after a few frames and exit |
-| `--at ICAO:RWY[:nm]` | pose the eye (`KJFK:04R:0` lined-up, `:3` = 3 nm final) |
+| `--at ICAO[:RWY[:nm]]` | pose the eye (`KJFK:04R:0` lined-up, `KJFK:04R:8`, or `KJFK`) |
+| `--alt FT` / `--bank DEG` / `--hdg DEG` / `--pitch DEG` | override the shot pose |
 | `--diagnostics` | dump config and build options |
 | `--doctor` | environment checks (local only) |
 
@@ -128,6 +129,8 @@ only — never commit it):
 ```bash
 ./build/s376-visual --screenshot /tmp/jfk-04r.ppm --at KJFK:04R:0 --channel mid_left
 ./build/s376-visual --screenshot /tmp/bos-04r.ppm --at KBOS:04R:0 --channel mid_left
+./build/s376-visual --screenshot /tmp/jfk-bank.ppm --at KJFK:04R:8 --alt 3000 --bank 30 --channel mid_left
+./build/s376-visual --screenshot /tmp/jfk-12k.ppm --at KJFK --alt 12000 --hdg 036 --channel mid_left
 ```
 
 `s376-doctor` never sends a packet off the machine. It reports on-disk

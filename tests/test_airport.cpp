@@ -213,9 +213,35 @@ void test_airport() {
         auto lined = s376::parse_shot_at("KBOS:04R:0");
         CHECK(lined.icao == "KBOS" && lined.rwy == "04R");
         CHECK_NEAR(lined.hdg_true_deg, 35.0, 0.6);
+        auto icao = s376::parse_shot_at("KJFK");
+        CHECK(icao.icao == "KJFK" && icao.rwy.empty());
+        CHECK_NEAR(icao.lat, 40.6399, 1e-3);
+        CHECK_NEAR(icao.lon, -73.7787, 1e-3);
+        auto bank = s376::parse_shot_at("KJFK:04R:8");
+        s376::ShotOverrides o;
+        o.have_alt = true;
+        o.alt_ft = 3000;
+        o.have_bank = true;
+        o.bank_deg = 30;
+        s376::apply_shot_overrides(bank, o);
+        CHECK_NEAR(bank.alt_ft, 3000.0, 1e-6);
+        CHECK_NEAR(bank.roll_deg, 30.0, 1e-6);
+        CHECK_NEAR(bank.dist_nm, 8.0, 1e-9);
+        CHECK_NEAR(bank.pitch_deg, -3.0, 1e-6);
+        auto high = s376::parse_shot_at("KJFK");
+        s376::ShotOverrides h;
+        h.have_alt = true;
+        h.alt_ft = 12000;
+        h.have_hdg = true;
+        h.hdg_deg = 36;
+        s376::apply_shot_overrides(high, h);
+        CHECK_NEAR(high.alt_ft, 12000.0, 1e-6);
+        CHECK_NEAR(high.hdg_true_deg, 36.0, 1e-6);
+        CHECK(high.lat < 40.6399); // stood off opposite 036
+        CHECK(high.pitch_deg < 0.0);
         bool bad = false;
         try {
-            (void)s376::parse_shot_at("KJFK");
+            (void)s376::parse_shot_at("XXXX");
         } catch (const std::exception&) {
             bad = true;
         }
@@ -244,6 +270,8 @@ void test_airport() {
     const auto q = s376::overpass_aeroway_query(37.60, -122.40, 37.64, -122.35);
     CHECK(q.find("[out:json]") != std::string::npos);
     CHECK(q.find("building") != std::string::npos);
+    CHECK(q.find("natural") != std::string::npos);
+    CHECK(q.find("water") != std::string::npos);
     CHECK(!s376::curl_glob_safe(q));
     const auto cmd = s376::http_get_command(url, "/tmp/s376-osm-test.json");
     CHECK(cmd.find(" -g ") != std::string::npos);

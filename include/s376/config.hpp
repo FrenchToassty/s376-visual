@@ -66,6 +66,7 @@ struct RenderConfig {
     std::string quality = "gtx980ti"; // gtx980ti | rtx | custom
     bool hdr = true;              // ACES tonemap
     bool atmosphere = true;       // analytic sky + aerial perspective
+    bool water = true;            // Fresnel water + soft coast mask
     bool markings = true;         // FAA AC 150/5340-1 painted markings
     bool detail_textures = true;  // procedural / CC0 asphalt+grass
     bool buildings = true;        // OSM extruded footprints

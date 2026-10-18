@@ -59,4 +59,8 @@ ChannelView make_channel_view(double lat_deg, double lon_deg, double alt_m, doub
                               double vfov_deg, int width, int height, double eye_fwd_m = 0,
                               double eye_right_m = 0, double eye_up_m = 0);
 
+// 0 = ocean, 1 = land. Soft edges so coasts are not stair-step texels.
+// Public geography only (coarse continents + a few US coastal cutouts).
+float land_coverage(double lat_deg, double lon_deg);
+
 } // namespace s376::geo

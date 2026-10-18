@@ -51,7 +51,7 @@ void test_config() {
     CHECK(d.host.reply_master == "mid_left");
     CHECK(!d.render.gl_debug);
     CHECK(d.render.quality == "gtx980ti");
-    CHECK(d.render.hdr && d.render.atmosphere && d.render.markings);
+    CHECK(d.render.hdr && d.render.atmosphere && d.render.water && d.render.markings);
     CHECK(d.render.detail_textures && d.render.buildings);
     CHECK(d.render.ssao && !d.render.shadows);
     CHECK(d.render.sync_to_host);

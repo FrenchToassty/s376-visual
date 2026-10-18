@@ -6,6 +6,39 @@ account may stop mid-run — treat this file as the source of truth.
 **PR:** https://github.com/joeylawell/s376-visual/pull/1
 **Branch:** `cursor/s376-visual-v1-6852`
 
+## Milestone: aerial / bank image quality (2026-10-18)
+
+Joey's second Raster photo (steep bank over a coastal field) is
+**reference only** — `refs/raster-bank-aerial.jpg`, gitignored. Do not
+commit it. Verdict on Raster: "looks like poo poo." Beat it without
+changing host behavior. Budget is one 980 Ti channel at 60 Hz (4-PC
+deploy); the water/haze path is ALU-only, no extra pass.
+
+- **Oblique ground:** globe texture 2048×1024 (was 720×360), mesh 160×80,
+  trilinear + aniso 16 + LOD bias −0.35. Soft SDF coasts replace the
+  old 10° grid and the "whole western Atlantic is land" box.
+- **Water:** `render.water` (on for gtx980ti/rtx). Fresnel sky
+  reflection, stable (no-time) normal-mapped waves, sun glint,
+  shoreline mix from the land mask. Hillshade water is z < 1 m (was
+  z < 20, which painted KJFK as ocean). `s376-cache osm` now also
+  asks Overpass for `natural=water` / `coastline` (not meshed yet).
+- **Atmosphere:** extra horizon haze (`uHaze`) that grows with
+  altitude; sky mixes toward fog color at the horizon.
+- **Shot:** `--at ICAO` (ARP) or `ICAO:RWY[:nm]`, plus `--alt FT`,
+  `--bank DEG`, `--hdg DEG`, `--pitch DEG`. ICAO-only + high alt
+  stands off opposite heading so the field is ahead.
+
+`10787` unit tests passed. Headless `--at KJFK:04R:8 --alt 3000 --bank 30`
+logs `3000ft  hdg 31.0  pitch -3.0  bank 30.0  8.00nm`. `--at KJFK --alt
+12000 --hdg 036` stands off SW of the ARP looking 036.
+
+Hangar comparisons (photo is reference only):
+
+```bash
+./build/s376-visual --screenshot /tmp/jfk-bank.ppm --at KJFK:04R:8 --alt 3000 --bank 30 --channel mid_left
+./build/s376-visual --screenshot /tmp/jfk-12k.ppm --at KJFK --alt 12000 --hdg 036 --channel mid_left
+```
+
 ## Milestone: collimated 3-on-4 PCs (2026-10-18)
 
 Joey: the display is a **collimated cross-cockpit**. From each seat you

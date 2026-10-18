@@ -69,11 +69,13 @@ const char* kLitTexVS = R"(
 varying vec3 vN;
 varying vec2 vUV;
 varying float vEyeDist;
+varying vec3 vView;
 void main() {
     vN = gl_Normal;
     vUV = gl_MultiTexCoord0.xy;
     vec4 eye = gl_ModelViewMatrix * gl_Vertex;
     vEyeDist = length(eye.xyz);
+    vView = -eye.xyz;
     gl_Position = ftransform();
 }
 )";
@@ -85,12 +87,16 @@ uniform vec3 uSunDir;
 uniform vec3 uAmbient;
 uniform vec3 uDiffuse;
 uniform vec3 uFogColor;
+uniform vec3 uUp;
 uniform float uFogDensity;
+uniform float uHaze;
 uniform float uExposure;
 uniform float uDetail;
+uniform float uWater;
 varying vec3 vN;
 varying vec2 vUV;
 varying float vEyeDist;
+varying vec3 vView;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p) {
     vec2 i = floor(p), f = fract(p);
@@ -101,21 +107,48 @@ float noise(vec2 p) {
 vec3 aces(vec3 x) {
     return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
 }
+float aerial(float dist, vec3 n) {
+    float g = 1.0 - clamp(abs(dot(normalize(n), normalize(uUp))), 0.0, 1.0);
+    float h = uFogDensity + uHaze * (0.30 + 1.10 * g);
+    return exp(-h * h * dist * dist);
+}
 void main() {
     vec3 n = normalize(vN);
-    float ndl = max(dot(n, normalize(uSunDir)), 0.0);
     vec3 albedo = texture2D(sTex, vUV).rgb;
-    float macro = 0.82 + 0.18 * noise(vUV * 24.0);
-    float micro = 0.90 + 0.10 * noise(vUV * 180.0);
-    albedo *= mix(1.0, macro * micro, uDetail);
-    float gness = clamp((albedo.g - albedo.r) * 4.0, 0.0, 1.0);
-    float close = clamp(1.0 - vEyeDist / 8000.0, 0.12, 1.0);
-    vec3 grass = vec3(0.20, 0.30, 0.13) * (0.82 + 0.18 * noise(vUV * 260.0));
-    vec3 dirt = vec3(0.30, 0.23, 0.14) * (0.88 + 0.12 * noise(vUV * 90.0));
-    vec3 land = mix(mix(albedo, dirt, 0.22), grass, gness * 0.40);
-    albedo = mix(albedo, land, uDetail * close);
+    float wet = 0.0;
+    if (uWater > 0.5)
+        wet = smoothstep(0.03, 0.16, albedo.b - max(albedo.r, albedo.g) * 0.90);
+    float ndl = max(dot(n, normalize(uSunDir)), 0.0);
+    if (wet < 0.98) {
+        float macro = 0.82 + 0.18 * noise(vUV * 24.0);
+        float micro = 0.90 + 0.10 * noise(vUV * 180.0);
+        vec3 land = albedo * mix(1.0, macro * micro, uDetail);
+        float gness = clamp((land.g - land.r) * 4.0, 0.0, 1.0);
+        float close = clamp(1.0 - vEyeDist / 8000.0, 0.12, 1.0);
+        vec3 grass = vec3(0.20, 0.30, 0.13) * (0.82 + 0.18 * noise(vUV * 260.0));
+        vec3 dirt = vec3(0.30, 0.23, 0.14) * (0.88 + 0.12 * noise(vUV * 90.0));
+        land = mix(mix(land, dirt, 0.22), grass, gness * 0.40);
+        albedo = mix(albedo, land, uDetail * close * (1.0 - wet));
+    }
     vec3 col = albedo * (uAmbient + uDiffuse * ndl);
-    float f = exp(-uFogDensity * uFogDensity * vEyeDist * vEyeDist);
+    if (wet > 0.01) {
+        vec3 view = normalize(vView);
+        vec3 sun = normalize(uSunDir);
+        float n1 = noise(vUV * 160.0);
+        float n2 = noise(vUV * 380.0 + 11.0);
+        vec3 wn = normalize(n + vec3((n1 - 0.5) * 0.18, (n2 - 0.5) * 0.18, 0.0));
+        float fres = pow(1.0 - clamp(dot(wn, view), 0.0, 1.0), 5.0);
+        vec3 deep = vec3(0.02, 0.08, 0.16);
+        vec3 shallow = vec3(0.05, 0.16, 0.24);
+        vec3 wcol = mix(deep, shallow, n1 * 0.40);
+        vec3 skyref = mix(uFogColor, vec3(0.32, 0.52, 0.78), 0.55);
+        wcol = mix(wcol, skyref, 0.20 + 0.58 * fres);
+        float glint = pow(max(dot(reflect(-sun, wn), view), 0.0), 72.0);
+        wcol += vec3(1.0, 0.95, 0.82) * glint * 0.90;
+        wcol *= (uAmbient + uDiffuse * (0.22 + 0.55 * max(dot(wn, sun), 0.0)));
+        col = mix(col, wcol, wet);
+    }
+    float f = aerial(vEyeDist, n);
     col = mix(uFogColor, col, clamp(f, 0.0, 1.0));
     gl_FragColor = vec4(aces(col * uExposure), 1.0);
 }
@@ -144,6 +177,8 @@ uniform vec3 uAmbient;
 uniform vec3 uDiffuse;
 uniform vec3 uFogColor;
 uniform float uFogDensity;
+uniform float uHaze;
+uniform vec3 uUp;
 uniform float uExposure;
 uniform float uDetail;
 uniform float uSsao;
@@ -176,7 +211,9 @@ void main() {
     vec3 col = albedo * (uAmbient + uDiffuse * (mat > 0.5 && mat < 1.5 ? 1.0 : ndl));
     if (mat > 0.5 && mat < 1.5)
         col = albedo * (0.55 + 0.55 * max(ndl, 0.35));
-    float f = exp(-uFogDensity * uFogDensity * vEyeDist * vEyeDist);
+    float g = 1.0 - clamp(abs(dot(n, normalize(uUp))), 0.0, 1.0);
+    float h = uFogDensity + uHaze * (0.30 + 1.10 * g);
+    float f = exp(-h * h * vEyeDist * vEyeDist);
     col = mix(uFogColor, col, clamp(f, 0.0, 1.0));
     gl_FragColor = vec4(aces(col * uExposure), 1.0);
 }
@@ -200,6 +237,7 @@ uniform vec3 uFogColor;
 uniform vec3 uSunDir;
 uniform vec3 uDiffuse;
 uniform float uFogDensity;
+uniform float uHaze;
 uniform float uExposure;
 varying vec4 vCol;
 varying float vEyeDist;
@@ -211,7 +249,8 @@ void main() {
     float edge = 0.55 + 0.45 * hash(gl_FragCoord.xy * 0.07 + vEyeDist * 0.001);
     float wrap = 0.65 + 0.35 * max(dot(normalize(uSunDir), vec3(0.0, 0.0, 1.0)), 0.0);
     vec3 col = vCol.rgb * wrap * (0.75 + 0.25 * uDiffuse);
-    float f = exp(-uFogDensity * uFogDensity * vEyeDist * vEyeDist);
+    float h = uFogDensity + uHaze;
+    float f = exp(-h * h * vEyeDist * vEyeDist);
     col = mix(uFogColor, col, clamp(f, 0.0, 1.0));
     gl_FragColor = vec4(aces(col * uExposure), vCol.a * edge);
 }
@@ -282,6 +321,7 @@ void main() {
         sky = mix(horiz, ground, clamp(-h * 2.0, 0.0, 1.0));
     sky += vec3(1.0, 0.92, 0.75) * pow(m, 32.0) * 0.55;
     sky += vec3(1.0, 0.85, 0.55) * pow(m, 8.0) * 0.12;
+    sky = mix(sky, uFogColor, 0.28 * (1.0 - abs(h)));
     float night = clamp(-dot(sun, up) * 2.0, 0.0, 1.0);
     vec3 moon = normalize(-sun + 0.15 * up);
     float mm = max(dot(d, moon), 0.0);
@@ -384,6 +424,8 @@ struct ShaderEnv {
     osg::ref_ptr<osg::Uniform> detail;
     osg::ref_ptr<osg::Uniform> ssao;
     osg::ref_ptr<osg::Uniform> up;
+    osg::ref_ptr<osg::Uniform> haze;
+    osg::ref_ptr<osg::Uniform> water;
 };
 
 void attach_env_uniforms(osg::StateSet* ss, ShaderEnv& env) {
@@ -396,6 +438,8 @@ void attach_env_uniforms(osg::StateSet* ss, ShaderEnv& env) {
     env.detail = new osg::Uniform("uDetail", 1.f);
     env.ssao = new osg::Uniform("uSsao", 0.f);
     env.up = new osg::Uniform("uUp", osg::Vec3(0.f, 0.f, 1.f));
+    env.haze = new osg::Uniform("uHaze", 4e-6f);
+    env.water = new osg::Uniform("uWater", 1.f);
     ss->addUniform(env.sun_dir);
     ss->addUniform(env.ambient);
     ss->addUniform(env.diffuse);
@@ -405,6 +449,8 @@ void attach_env_uniforms(osg::StateSet* ss, ShaderEnv& env) {
     ss->addUniform(env.detail);
     ss->addUniform(env.ssao);
     ss->addUniform(env.up);
+    ss->addUniform(env.haze);
+    ss->addUniform(env.water);
     strip_ff(ss);
 }
 
@@ -455,47 +501,31 @@ osg::Image* make_globe_image(int w, int h) {
     auto* img = new osg::Image;
     img->allocateImage(w, h, 1, GL_RGB, GL_UNSIGNED_BYTE);
     auto* p = img->data();
+    const double dlat = 180.0 / h;
+    const double dlon = 360.0 / w;
     for (int y = 0; y < h; ++y) {
         const double lat = 90.0 - 180.0 * (y + 0.5) / h;
         for (int x = 0; x < w; ++x) {
             const double lon = -180.0 + 360.0 * (x + 0.5) / w;
-            bool land = false;
-            if (lat > -60 && lat < 75) {
-                if (lon > -130 && lon < -50 && lat > 15)
-                    land = true;
-                if (lon > -90 && lon < -30 && lat > -55 && lat < 15)
-                    land = true;
-                if (lon > -15 && lon < 50 && lat > 35)
-                    land = true;
-                if (lon > -20 && lon < 55 && lat > -35 && lat < 37)
-                    land = true;
-                if (lon > 40 && lon < 150 && lat > 5)
-                    land = true;
-                if (lon > 110 && lon < 155 && lat > -40 && lat < -10)
-                    land = true;
+            float cover = 0.f;
+            for (int sy = 0; sy < 2; ++sy) {
+                for (int sx = 0; sx < 2; ++sx) {
+                    cover += geo::land_coverage(lat + (sy - 0.5) * 0.45 * dlat,
+                                                lon + (sx - 0.5) * 0.45 * dlon);
+                }
             }
-            if (lat > 70 || lat < -60)
-                land = true;
-            const bool grid = (std::fmod(std::fabs(lat), 10.0) < 0.25) ||
-                              (std::fmod(std::fabs(lon), 10.0) < 0.25);
-            unsigned char r, g, b;
-            if (grid) {
-                r = g = b = 40;
-            } else if (!land) {
-                r = 20;
-                g = 50;
-                b = 110;
-            } else if (lat > 70 || lat < -60) {
-                r = g = b = 220;
-            } else {
-                r = 50;
-                g = 110;
-                b = 45;
-            }
+            cover *= 0.25f;
+            const float ice = (lat > 70.f || lat < -60.f) ? 1.f : 0.f;
+            const float water_r = 0.07f, water_g = 0.16f, water_b = 0.38f;
+            const float land_r = 0.20f + 0.04f * ice, land_g = 0.38f - 0.10f * ice,
+                        land_b = 0.16f + 0.50f * ice;
+            const float r = water_r + (land_r - water_r) * cover;
+            const float g = water_g + (land_g - water_g) * cover;
+            const float b = water_b + (land_b - water_b) * cover;
             const int i = (y * w + x) * 3;
-            p[i] = r;
-            p[i + 1] = g;
-            p[i + 2] = b;
+            p[i] = static_cast<unsigned char>(std::max(0, std::min(255, int(r * 255.f))));
+            p[i + 1] = static_cast<unsigned char>(std::max(0, std::min(255, int(g * 255.f))));
+            p[i + 2] = static_cast<unsigned char>(std::max(0, std::min(255, int(b * 255.f))));
         }
     }
     return img;
@@ -503,7 +533,7 @@ osg::Image* make_globe_image(int w, int h) {
 
 osg::Node* make_procedural_globe(float aniso = 16.f) {
     auto* geode = new osg::Geode;
-    constexpr int nlon = 96, nlat = 48;
+    constexpr int nlon = 160, nlat = 80;
     auto* geom = new osg::Geometry;
     auto* verts = new osg::Vec3Array;
     auto* norms = new osg::Vec3Array;
@@ -543,11 +573,12 @@ osg::Node* make_procedural_globe(float aniso = 16.f) {
     geom->setTexCoordArray(0, uvs);
     geom->addPrimitiveSet(idx);
 
-    auto* tex = new osg::Texture2D(make_globe_image(720, 360));
+    auto* tex = new osg::Texture2D(make_globe_image(2048, 1024));
     tex->setWrap(osg::Texture::WRAP_S, osg::Texture::REPEAT);
     tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR_MIPMAP_LINEAR);
     tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
     tex->setMaxAnisotropy(std::max(1.f, aniso));
+    tex->setLODBias(-0.35f);
     attach_lit_tex(geom->getOrCreateStateSet(), tex);
     geode->addDrawable(geom);
     return geode;
@@ -648,6 +679,7 @@ osg::Node* make_dem_patch(const CacheRegion& cache, float aniso = 16.f) {
     tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR_MIPMAP_LINEAR);
     tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
     tex->setMaxAnisotropy(std::max(1.f, aniso));
+    tex->setLODBias(-0.35f);
     attach_lit_tex(geom->getOrCreateStateSet(), tex);
     geode->addDrawable(geom);
     return geode;
@@ -1216,6 +1248,8 @@ class OsgRenderer final : public Renderer {
             env_u_.detail->set(cfg.render.detail_textures ? 1.f : 0.f);
         if (env_u_.ssao)
             env_u_.ssao->set(cfg.render.ssao ? 1.f : 0.f);
+        if (env_u_.water)
+            env_u_.water->set(cfg.render.water ? 1.f : 0.f);
         root_ = root;
 
         int nscr = 1, sw = 1920, sh = 1080;
@@ -1371,8 +1405,17 @@ class OsgRenderer final : public Renderer {
             dens *= 2.4f;
         if (env_u_.fog_density)
             env_u_.fog_density->set(dens);
+        float alt_k = 0.f;
+        if (host.have_eyepoint)
+            alt_k = std::min(1.f, static_cast<float>(host.eye.alt_ft) / 16000.f);
+        float haze = 0.f;
+        if (cfg_.render.atmosphere)
+            haze = 3.2e-6f + 1.5e-5f * alt_k;
+        if (env_u_.haze)
+            env_u_.haze->set(haze);
         if (env_u_.fog_color)
-            env_u_.fog_color->set(osg::Vec3(0.62f, 0.70f, 0.78f));
+            env_u_.fog_color->set(osg::Vec3(0.62f + 0.10f * alt_k, 0.70f + 0.08f * alt_k,
+                                            0.78f + 0.08f * alt_k));
 
         float tod = host.have_env ? host.env.tod_hours : 14.5f;
         // Type-124 tod_select: −1 = continuous hours; 0 day / 1 dusk / 2 dawn / 3 night.

@@ -55,4 +55,14 @@ void test_geo() {
     CHECK(el > 70); // noon at equator around equinox
     const double mag = std::sqrt(s.x * s.x + s.y * s.y + s.z * s.z);
     CHECK_NEAR(mag, 1.0, 1e-9);
+
+    // Soft US coasts: airports are land, nearby ocean / bays are water.
+    CHECK(s376::geo::land_coverage(40.6399, -73.7787) > 0.55); // KJFK
+    CHECK(s376::geo::land_coverage(40.620, -73.840) < 0.40);   // Jamaica Bay
+    CHECK(s376::geo::land_coverage(40.500, -73.800) < 0.25);   // Atlantic south of Rockaway
+    CHECK(s376::geo::land_coverage(40.565, -73.850) > 0.45);   // Rockaway barrier
+    CHECK(s376::geo::land_coverage(42.3656, -71.0096) > 0.55); // KBOS
+    CHECK(s376::geo::land_coverage(37.6188, -122.3754) > 0.50); // KSFO pad
+    CHECK(s376::geo::land_coverage(47.4502, -122.3088) > 0.50); // KSEA
+    CHECK(s376::geo::land_coverage(0.0, -30.0) < 0.15);         // mid-Atlantic
 }

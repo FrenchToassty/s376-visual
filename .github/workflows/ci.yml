@@ -38,6 +38,8 @@ jobs:
           ./build/s376-visual --headless --demo --duration 2 --bind 127.0.0.1:2300 -c config/s376-visual.toml
           ./build/s376-visual --headless --demo-weather --duration 2 --bind 127.0.0.1:2300 -c config/s376-visual.toml
           ./build/s376-visual --headless --at KJFK:04R:0 --duration 0.3 --bind 127.0.0.1:2300 -c config/s376-visual.toml
+          ./build/s376-visual --headless --at KJFK:04R:8 --alt 3000 --bank 30 --duration 0.3 --bind 127.0.0.1:2300 -c config/s376-visual.toml
+          ./build/s376-visual --headless --at KJFK --alt 12000 --hdg 036 --duration 0.3 --bind 127.0.0.1:2300 -c config/s376-visual.toml
           ./build/s376-visual --headless --at KBOS:04R:3 --quality rtx --duration 0.3 --bind 127.0.0.1:2300 -c config/s376-visual.toml
           ./build/s376-visual --headless --channel far_left --duration 0.3 --bind 127.0.0.1:2300 -c config/s376-visual.toml
           ./build/s376-visual --headless --channel mid_left --duration 0.3 --bind 127.0.0.1:2300 -c config/s376-visual.toml

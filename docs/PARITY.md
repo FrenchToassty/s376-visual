@@ -79,14 +79,16 @@ or deep it is. Expensive levers are TOML toggles; `render.quality =
 | FAA AC 150/5340-1 markings | **ok** — geometry (threshold, 5×7 numbers/LRC, aiming, TDZ, CL, edge, hold-short). Stays sharp at grazing angles; no committed textures |
 | Asphalt / rubber / grass detail | **partial** — hash+land-class noise. `scripts/fetch-textures.sh` pulls CC0 Poly Haven 1K JPGs into `cache/textures/` (never committed); shader fallback if absent |
 | OSM buildings | **partial** — extruded footprints + schematic terminals. LOD cap 280. Instancing later |
-| Analytic sky + aerial perspective | **partial** — Preetham-like dome, sun disc, moon+stars at night, EXP2 fog. Not a full Bruneton LUT |
+| Analytic sky + aerial perspective | **partial** — Preetham-like dome, sun disc, moon+stars at night, EXP2 + altitude haze (`uHaze`). Not a full Bruneton LUT |
+| Water / coastlines | **partial** — soft land mask (public geography), Fresnel + stable waves + sun glint. OSM water/coastline queried, not meshed yet |
+| Oblique mip / aniso | **ok** — 2048×1024 globe, trilinear, aniso 16, LOD bias −0.35 |
 | Cloud soft edge / lighting | **partial** — hash edge + sun wrap on the weather-round decks |
 | HDR + ACES | **ok** — filmic in every forward shader; `render.exposure` |
 | SSAO | **partial** — cheap wall darkening; on for both `gtx980ti` (one channel) and `rtx`. No depth post-pass |
 | Sun shadows | **gap** — `render.shadows` toggle only; CSM not drawn (980 Ti budget) |
 | GPU point sprites for lights | **ok** — GLSL 120 points (no PointSprite / POINT_SMOOTH); still step 0–5 |
 | GL compatibility (not Core) | **ok** — Linux leaves the context version unset (NVIDIA 4.6 compat). Elsewhere 3.3 + `COMPATIBILITY_PROFILE_BIT`. Scene lighting/fog/points are shaders so a CORE context does not emit `invalid enumerant` |
-| `--screenshot PATH --at ICAO:RWY[:nm]` | **ok** — defaults to `mid_left` (captain front). `--channel front` aliases that |
+| `--screenshot PATH --at ICAO[:RWY[:nm]]` | **ok** — `--alt` / `--bank` / `--hdg` / `--pitch`. Defaults to `mid_left`. `--channel front` aliases that |
 
 ## Channel / desk
 

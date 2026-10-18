@@ -267,7 +267,7 @@ ImageRgb ImageRgb::hillshade(const DemGrid& dem) {
             nz /= mag;
             const double shade = std::max(0.0, nx * 0.4 + ny * 0.3 + nz * 0.85);
             const float z = dem.z_m[static_cast<std::size_t>(y * dem.w + x)];
-            const bool water = z < 20.f;
+            const bool water = z < 1.0f;
             unsigned char r, g, b;
             if (water) {
                 r = 30;

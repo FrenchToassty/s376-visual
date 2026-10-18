@@ -116,6 +116,7 @@ void apply_quality_preset(RenderConfig& r, const std::string& name) {
         r.aniso = std::max(r.aniso, 16);
         r.hdr = true;
         r.atmosphere = true;
+        r.water = true;
         r.markings = true;
         r.detail_textures = true;
         r.buildings = true;
@@ -129,6 +130,7 @@ void apply_quality_preset(RenderConfig& r, const std::string& name) {
     r.aniso = 16;
     r.hdr = true;
     r.atmosphere = true;
+    r.water = true;
     r.markings = true;
     r.detail_textures = true;
     r.buildings = true;
@@ -206,6 +208,8 @@ static void fill_render(RenderConfig& r, const std::unordered_map<std::string, s
         parse_bool(kv.at("render.hdr"), r.hdr);
     if (kv.count("render.atmosphere"))
         parse_bool(kv.at("render.atmosphere"), r.atmosphere);
+    if (kv.count("render.water"))
+        parse_bool(kv.at("render.water"), r.water);
     if (kv.count("render.markings"))
         parse_bool(kv.at("render.markings"), r.markings);
     if (kv.count("render.detail_textures"))
@@ -308,6 +312,7 @@ std::string dump_config(const AppConfig& cfg) {
     o << "render.quality=" << cfg.render.quality << "\n";
     o << "render.hdr=" << (cfg.render.hdr ? "true" : "false") << "\n";
     o << "render.atmosphere=" << (cfg.render.atmosphere ? "true" : "false") << "\n";
+    o << "render.water=" << (cfg.render.water ? "true" : "false") << "\n";
     o << "render.markings=" << (cfg.render.markings ? "true" : "false") << "\n";
     o << "render.detail_textures=" << (cfg.render.detail_textures ? "true" : "false") << "\n";
     o << "render.buildings=" << (cfg.render.buildings ? "true" : "false") << "\n";

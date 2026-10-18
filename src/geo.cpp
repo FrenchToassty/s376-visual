@@ -154,4 +154,89 @@ ChannelView make_channel_view(double lat_deg, double lon_deg, double alt_m, doub
     return v;
 }
 
+namespace {
+
+float clampf(float x, float a, float b) {
+    return x < a ? a : (x > b ? b : x);
+}
+
+float smooth01(float e0, float e1, float x) {
+    if (e1 <= e0)
+        return x >= e1 ? 1.f : 0.f;
+    const float t = clampf((x - e0) / (e1 - e0), 0.f, 1.f);
+    return t * t * (3.f - 2.f * t);
+}
+
+float soft_box(double lat, double lon, double lat0, double lat1, double lon0, double lon1,
+               double fade) {
+    const float a = smooth01(static_cast<float>(lat0 - fade), static_cast<float>(lat0),
+                             static_cast<float>(lat)) *
+                    (1.f - smooth01(static_cast<float>(lat1), static_cast<float>(lat1 + fade),
+                                    static_cast<float>(lat)));
+    const float b = smooth01(static_cast<float>(lon0 - fade), static_cast<float>(lon0),
+                             static_cast<float>(lon)) *
+                    (1.f - smooth01(static_cast<float>(lon1), static_cast<float>(lon1 + fade),
+                                    static_cast<float>(lon)));
+    return a * b;
+}
+
+double lerp_coast(double lat, const double* lats, const double* lons, int n) {
+    if (lat <= lats[0])
+        return lons[0];
+    if (lat >= lats[n - 1])
+        return lons[n - 1];
+    for (int i = 0; i < n - 1; ++i) {
+        if (lat <= lats[i + 1]) {
+            const double t = (lat - lats[i]) / (lats[i + 1] - lats[i]);
+            return lons[i] + t * (lons[i + 1] - lons[i]);
+        }
+    }
+    return lons[n - 1];
+}
+
+} // namespace
+
+float land_coverage(double lat, double lon) {
+    float land = 0.f;
+    land = std::max(land, soft_box(lat, lon, -55.0, 14.0, -82.0, -34.0, 0.7)); // S America
+    land = std::max(land, soft_box(lat, lon, 35.0, 71.5, -10.0, 40.0, 0.5));   // Europe
+    land = std::max(land, soft_box(lat, lon, -35.0, 37.0, -18.0, 52.0, 0.6));  // Africa
+    land = std::max(land, soft_box(lat, lon, 5.0, 75.0, 40.0, 180.0, 0.6));    // Asia
+    land = std::max(land, soft_box(lat, lon, -45.0, -10.0, 112.0, 154.0, 0.5)); // Australia
+    land = std::max(land, soft_box(lat, lon, 50.0, 72.0, -140.0, -55.0, 0.8)); // Canada shield
+
+    // North America west of a soft east-coast polyline (so the Atlantic is ocean).
+    static const double clat[] = {15.0, 24.5, 29.8, 33.0, 35.6, 38.6, 40.15, 40.85, 42.35, 44.6, 47.2, 51.0};
+    static const double clon[] = {-97.8, -80.5, -81.5, -79.1, -75.5, -75.05, -74.08, -73.92, -70.75, -67.9, -67.6, -55.0};
+    if (lat > 14.0 && lat < 73.0 && lon > -170.0 && lon < -50.0) {
+        const double coast = lerp_coast(lat, clat, clon, 12);
+        float na = 1.f - smooth01(static_cast<float>(coast - 0.14), static_cast<float>(coast + 0.14),
+                                  static_cast<float>(lon));
+        na *= smooth01(15.f, 16.5f, static_cast<float>(lat)) *
+              (1.f - smooth01(71.5f, 73.5f, static_cast<float>(lat)));
+        na *= smooth01(-168.f, -164.f, static_cast<float>(lon));
+        land = std::max(land, na);
+    }
+
+    // Long Island + Rockaway barrier (KJFK photos). Soft so coasts are not stairs.
+    land = std::max(land, soft_box(lat, lon, 40.58, 41.18, -74.06, -71.86, 0.03));
+    land = std::min(land, 1.f - 0.96f * soft_box(lat, lon, 40.598, 40.652, -73.900, -73.778, 0.008));
+    land = std::max(land, soft_box(lat, lon, 40.545, 40.588, -73.96, -73.73, 0.008)); // Rockaway
+    land = std::max(land, soft_box(lat, lon, 40.626, 40.662, -73.828, -73.752, 0.006)); // JFK field
+    land = std::max(land, soft_box(lat, lon, 41.52, 42.10, -70.62, -69.90, 0.04));     // Cape Cod
+    land = std::max(land, soft_box(lat, lon, 42.20, 42.48, -71.20, -70.85, 0.03));     // Boston neck
+
+    // West-coast bays (keep the airport pads as land).
+    float sf = soft_box(lat, lon, 37.48, 38.10, -122.53, -122.20, 0.025);
+    sf *= 1.f - soft_box(lat, lon, 37.598, 37.640, -122.402, -122.348, 0.008);
+    land = std::min(land, 1.f - 0.88f * sf);
+    float ps = soft_box(lat, lon, 47.32, 48.18, -122.58, -122.30, 0.03);
+    ps *= 1.f - soft_box(lat, lon, 47.428, 47.478, -122.325, -122.288, 0.008);
+    land = std::min(land, 1.f - 0.72f * ps);
+
+    land = std::max(land, smooth01(73.f, 77.f, static_cast<float>(lat)));
+    land = std::max(land, 1.f - smooth01(-62.f, -56.f, static_cast<float>(lat)));
+    return clampf(land, 0.f, 1.f);
+}
+
 } // namespace s376::geo
