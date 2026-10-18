@@ -96,6 +96,7 @@ struct RenderConfig {
     bool bloom = true;            // Raster-style fog halo + city glow
     bool fxaa = true;             // fullscreen FXAA (MSAA stays on the window)
     bool filmic = true;           // lift/gamma/gain after ACES
+    bool solar_astronomy = false; // date/lon sun_ecef; default = visual TOD buckets
     float exposure = 1.0f;
     bool sync_to_host = true;     // draw only on a new type-100 eyepoint
     int ram_mb = 2048;            // CPU resident budget (gtx980ti: 2 GB)

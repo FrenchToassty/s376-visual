@@ -1841,21 +1841,9 @@ AirportMesh build_airport_mesh(const Airport& a, bool buildings, bool markings) 
         strip_quad(mesh, t.lat, t.lon, t.lat + 0.00004, t.lon, 0.0, 1.6, a.elev_m, a.elev_m + t.height_m,
                    0.18f, 0.32f, 0.14f, 4.f);
     }
-    for (const auto& L : a.lights) {
-        if (L.kind != LightKind::Approach && L.kind != LightKind::Flasher &&
-            L.kind != LightKind::Threshold)
-            continue;
-        if (geo::land_coverage(L.lat, L.lon) >= 0.35f)
-            continue;
-        const double z0 = 0.15;
-        if (L.alt_m - z0 < 0.8)
-            continue;
-        // Crossed pier legs so ALS over Jamaica Bay sits above the water.
-        strip_quad(mesh, L.lat, L.lon, L.lat + 1.2e-6, L.lon, 0.0, 0.11, z0, L.alt_m, 0.48f, 0.48f,
-                   0.46f, 2.f);
-        strip_quad(mesh, L.lat, L.lon, L.lat, L.lon + 1.2e-6, 90.0, 0.11, z0, L.alt_m, 0.48f, 0.48f,
-                   0.46f, 2.f);
-    }
+    // ALS over water already sits at official light_alt_m. Crossed 0.11 m
+    // pier legs merged into a black pier/bridge on a 0.6 nm 04R short-final
+    // (04L ALS seen edge-on) — do not emit that mesh.
     for (const auto& p : a.parked) {
         double nlat, nlon;
         offset_m(p.lat, p.lon, p.hdg_deg, 18.0, nlat, nlon);

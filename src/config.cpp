@@ -286,6 +286,8 @@ static void fill_render(RenderConfig& r, const std::unordered_map<std::string, s
         parse_bool(kv.at("render.fxaa"), r.fxaa);
     if (kv.count("render.filmic"))
         parse_bool(kv.at("render.filmic"), r.filmic);
+    if (kv.count("render.solar_astronomy"))
+        parse_bool(kv.at("render.solar_astronomy"), r.solar_astronomy);
     if (kv.count("render.exposure"))
         r.exposure = static_cast<float>(std::stod(kv.at("render.exposure")));
     if (kv.count("render.sync_to_host"))
@@ -432,6 +434,7 @@ std::string dump_config(const AppConfig& cfg, const std::vector<std::string>& se
     o << "render.bloom=" << (cfg.render.bloom ? "true" : "false") << "\n";
     o << "render.fxaa=" << (cfg.render.fxaa ? "true" : "false") << "\n";
     o << "render.filmic=" << (cfg.render.filmic ? "true" : "false") << "\n";
+    o << "render.solar_astronomy=" << (cfg.render.solar_astronomy ? "true" : "false") << "\n";
     o << "render.sync_to_host=" << (cfg.render.sync_to_host ? "true" : "false") << "\n";
     o << "render.ram_mb=" << cfg.render.ram_mb << "\n";
     o << "render.vram_mb=" << cfg.render.vram_mb << "\n";

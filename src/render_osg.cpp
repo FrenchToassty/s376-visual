@@ -188,8 +188,9 @@ void main() {
     float ndl = max(dot(n, normalize(uSunDir)), 0.0);
     ndl *= shadow_term(vPos);
     float luma = dot(albedo, vec3(0.30, 0.50, 0.20));
-    float chroma = albedo.b + albedo.g * 0.6 - albedo.r * 1.4;
-    float darkWater = (1.0 - smoothstep(0.05, 0.20, luma)) * smoothstep(0.00, 0.06, chroma);
+    // Blue-over-red only — dark vegetation (low chroma) must not become water.
+    float chroma = albedo.b - max(albedo.r, albedo.g) * 0.85;
+    float darkWater = (1.0 - smoothstep(0.04, 0.12, luma)) * smoothstep(0.04, 0.14, chroma);
     if (uWater > 0.5)
         wet = max(wet, darkWater);
     vec2 wu = (dot(vWorld, vWorld) > 1.0) ? vWorld : vUV;
@@ -231,7 +232,8 @@ void main() {
         float foam = smoothstep(0.42, 0.68, wet) * (1.0 - smoothstep(0.78, 0.98, wet));
         foam *= 0.55 + 0.45 * noise(wu * 900.0 + vec2(uTime * 0.15, 0.0));
         wcol = mix(wcol, vec3(0.86, 0.90, 0.94), foam * 0.65);
-        col = mix(col, wcol, wet);
+        // Keep ortho in the mix so an 8 m pack still reads as imagery, not a slab.
+        col = mix(col, wcol, wet * 0.68);
     }
     if (uBloom > 0.5 && uNight > 0.25 && wet < 0.40) {
         float urban = smoothstep(0.14, 0.36, luma) * (1.0 - gness);
@@ -506,6 +508,7 @@ varying float vEyeDist;
 uniform float uPointSize;
 uniform float uPointSizeFar;
 uniform float uSizeNearM;
+uniform float uNight;
 void main() {
     vCol = gl_Color;
     vec4 eye = gl_ModelViewMatrix * gl_Vertex;
@@ -515,6 +518,8 @@ void main() {
     float sz = gl_MultiTexCoord1.x;
     if (sz < 0.5)
         sz = mix(uPointSize, uPointSizeFar, t);
+    // Night: grow the sprite so the Raster halo has room around the core.
+    sz *= 1.0 + uNight * 0.45;
     gl_PointSize = sz;
     gl_Position = ftransform();
 }
@@ -543,12 +548,15 @@ void main() {
     float r2 = dot(pc, pc);
     if (r2 > 1.0)
         discard;
-    float core = exp(-r2 * 2.8);
-    float halo = exp(-r2 * 0.55) * 0.38 * uBloom * (0.35 + 0.65 * uNight);
+    float core = exp(-r2 * 3.2);
+    float halo = exp(-r2 * 0.40) * mix(0.20, 0.85, uNight) * uBloom;
     float fogH = exp(-uFogDensity * vEyeDist * 0.12);
     float f = exp(-uFogDensity * uFogDensity * vEyeDist * vEyeDist);
     float a = vCol.a * (core + halo * fogH) * clamp(f, 0.0, 1.0);
-    gl_FragColor = vec4(grade(vCol.rgb * uExposure, uFilmic), a);
+    vec3 rgb = vCol.rgb * uExposure * (1.0 + 1.35 * uNight);
+    // Night cores skip ACES crush so ALS / edge / PAPI stay the brightest thing.
+    vec3 mapped = mix(grade(rgb, uFilmic), min(rgb, vec3(1.35)), uNight);
+    gl_FragColor = vec4(mapped, a);
 }
 )";
 
@@ -595,7 +603,7 @@ void main() {
     float h = clamp(dot(d, up), -1.0, 1.0);
     vec3 sun = normalize(uSunDir);
     float m = max(dot(d, sun), 0.0);
-    float sunH = clamp(dot(sun, up), -0.25, 1.0);
+    float sunH = dot(sun, up);
     vec3 zenith = vec3(0.10, 0.38, 0.92);
     vec3 horiz = vec3(0.55, 0.72, 0.95);
     vec3 ground = vec3(0.28, 0.38, 0.52);
@@ -615,7 +623,7 @@ void main() {
     float am = 1.0 / max(h * 0.70 + 0.30, 0.10);
     vec3 rayleigh = vec3(0.10, 0.34, 0.90) * rayP * exp(-0.08 * am);
     vec3 mie = vec3(1.0, 0.88, 0.65) * mieP * 0.045;
-    float twilight = pow(1.0 - clamp(sunH, 0.0, 1.0), 2.4);
+    float twilight = pow(1.0 - clamp(sunH, 0.0, 1.0), 2.4) * smoothstep(-0.22, 0.06, sunH);
     vec3 dusk = vec3(1.0, 0.42, 0.12) * mieP * twilight * 0.40 * exp(-abs(h) * 3.2);
     vec3 pbr = (rayleigh + mie) * (0.45 + 0.70 * max(sunH, 0.0)) + dusk;
     pbr = mix(simple, pbr + simple * 0.35, 0.55);
@@ -624,14 +632,18 @@ void main() {
         pbr = mix(pbr, ground * (0.25 + 0.75 * max(sunH, 0.0)), clamp(-h * 2.2, 0.0, 1.0));
     pbr = mix(pbr, uFogColor, 0.12 * hz);
     vec3 sky = mix(simple, pbr, step(0.5, uAtmosphere));
-    float night = clamp(-sunH * 2.2, 0.0, 1.0);
+    // 0 at +6° sun, 1 by −8° — 3 AM is navy, not a leftover dusk glow.
+    float night = smoothstep(0.10, -0.14, sunH);
     vec3 moon = normalize(-sun + 0.15 * up);
     float mm = max(dot(d, moon), 0.0);
-    vec3 nightcol = vec3(0.01, 0.015, 0.04);
-    nightcol += vec3(0.65, 0.70, 0.82) * pow(mm, 80.0) * 0.9;
-    nightcol += vec3(0.35, 0.40, 0.50) * pow(mm, 8.0) * 0.08;
+    vec3 nightcol = vec3(0.003, 0.006, 0.018);
+    nightcol += vec3(0.55, 0.60, 0.72) * pow(mm, 80.0) * 0.55;
+    nightcol += vec3(0.28, 0.32, 0.42) * pow(mm, 8.0) * 0.05;
     float star = step(0.996, hash(d.xy * 90.0 + d.z * 17.0));
-    nightcol += vec3(star) * step(0.05, h);
+    nightcol += vec3(star) * step(0.05, h) * 0.85;
+    // Faint urban horizon (NYC is ~308° from 04R short final — barely in a 50° front).
+    float city = pow(clamp(1.0 - abs(h), 0.0, 1.0), 12.0) * 0.028;
+    nightcol += vec3(0.20, 0.13, 0.05) * city;
     sky = mix(sky, nightcol, night);
     gl_FragColor = vec4(grade(sky * uExposure, uFilmic), 1.0);
 }
@@ -1956,7 +1968,9 @@ void update_storms(MeshGpu& g, const HostState& host, float flash) {
 void apply_light_steps(LightGpu& g, const HostState& host) {
     if (!g.colors || g.colors->empty())
         return;
-    const float tod = host.have_env ? host.env.tod_hours : 14.5f;
+    const float tod = host.have_env ? effective_tod_hours(host.env.tod_hours, host.env.tod_select)
+                                    : 14.5f;
+    const float night = lights::night_weight(tod);
     const float hat = host.have_hat ? host.hat_ft : std::max(0.f, static_cast<float>(host.eye.alt_ft));
     const float psz_near = lights::point_size_px(tod, hat, 0.f);
     const float psz_far = lights::base_size_px(tod);
@@ -1994,6 +2008,7 @@ void apply_light_steps(LightGpu& g, const HostState& host) {
             range = std::sqrt(dx * dx + dy * dy + dz * dz);
             k *= lights::range_visibility(kind, range);
         }
+        k *= 1.f + 0.85f * night; // night cores must outshine the navy sky
         float sz = lights::point_size_px(tod, hat, range) * lights::type_size_boost(kind);
         if (kind == LightKind::Vasi) {
             sz = std::min(8.f, std::max(5.8f, sz));
@@ -3339,32 +3354,23 @@ class OsgRenderer final : public Renderer {
             env_u_.fog_color->set(osg::Vec3(0.42f + 0.06f * alt_k, 0.60f + 0.06f * alt_k,
                                             0.86f + 0.04f * alt_k));
 
-        float tod = host.have_env ? host.env.tod_hours : 14.5f;
-        // Type-124 tod_select: −1 = continuous hours; 0 day / 1 dusk / 2 dawn / 3 night.
-        if (host.have_env && host.env.tod_select >= 0) {
-            switch (host.env.tod_select) {
-            case 0:
-                tod = 14.5f;
-                break;
-            case 1:
-                tod = 19.0f;
-                break;
-            case 2:
-                tod = 6.0f;
-                break;
-            case 3:
-                tod = 0.5f;
-                break;
-            default:
-                break;
-            }
-        }
+        const float tod = host.have_env ? effective_tod_hours(host.env.tod_hours, host.env.tod_select)
+                                        : 14.5f;
+        const int tod_sel = host.have_env ? host.env.tod_select : -1;
         const int month = host.have_env ? host.env.month : 6;
         const int day = host.have_env ? host.env.day : 21;
         const double lat = host.have_eyepoint ? host.eye.lat_deg : 47.46;
         const double lon = host.have_eyepoint ? host.eye.lon_deg : -122.31;
         double el = 0;
-        const geo::Ecef s = geo::sun_ecef(lat, lon, tod, month, day, &el);
+        geo::Ecef s;
+        if (cfg_.render.solar_astronomy) {
+            s = geo::sun_ecef(lat, lon, tod, month, day, &el);
+        } else {
+            el = visual_sun_elev_deg(host.have_env ? host.env.tod_hours : 14.5f, tod_sel);
+            const double az = visual_sun_az_deg(host.have_env ? host.env.tod_hours : 14.5f, tod_sel,
+                                                lat);
+            s = geo::sun_from_elev_az(lat, lon, el, az);
+        }
         if (env_u_.sun_dir)
             env_u_.sun_dir->set(osg::Vec3(static_cast<float>(s.x), static_cast<float>(s.y),
                                           static_cast<float>(s.z)));
@@ -3408,11 +3414,14 @@ class OsgRenderer final : public Renderer {
             }
         }
         const float dayf = static_cast<float>(std::max(0.0, std::sin(geo::deg2rad(el))));
+        const float nightf =
+            el <= -8.0 ? 1.f : (el >= 6.0 ? 0.f : static_cast<float>((6.0 - el) / 14.0));
         if (env_u_.fog_color) {
             const float twilight = (1.f - dayf) * dayf * 4.f;
-            env_u_.fog_color->set(osg::Vec3(0.18f + 0.24f * dayf + 0.22f * twilight + 0.06f * alt_k,
-                                            0.16f + 0.44f * dayf + 0.08f * twilight + 0.06f * alt_k,
-                                            0.22f + 0.64f * dayf + 0.04f * alt_k));
+            env_u_.fog_color->set(osg::Vec3(
+                0.03f + 0.39f * dayf + 0.22f * twilight + 0.06f * alt_k * (1.f - nightf),
+                0.04f + 0.56f * dayf + 0.08f * twilight + 0.06f * alt_k * (1.f - nightf),
+                0.07f + 0.79f * dayf + 0.04f * alt_k * (1.f - nightf)));
         }
         float flash = 0.f;
         if (host.have_env && host.env.lightning_trigger != 0) {
@@ -3445,7 +3454,7 @@ class OsgRenderer final : public Renderer {
             --storm_flash_left_;
         }
         if (env_u_.night)
-            env_u_.night->set(1.f - dayf);
+            env_u_.night->set(nightf);
         if (env_u_.time)
             env_u_.time->set(tod * 37.f + 12.f);
         if (env_u_.wetness)

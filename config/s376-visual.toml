@@ -49,6 +49,8 @@ aniso = 16
 quality = "gtx980ti"      # gtx980ti | rtx | custom
 # gtx980ti: one channel on 6 GB Maxwell / 16 GB RAM — hdr/atmosphere/water/
 # markings/detail/buildings/ssao/bloom/fxaa/filmic on; shadows off.
+# solar_astronomy = false  # default: host TOD buckets drive sun elevation
+#                          # true = date/lon sun_ecef (operator dusk may be day)
 # CPU tile budget 2 GB. Per-feature GPU ms: docs/QUALITY.md.
 # ram_mb = 2048
 # vram_mb = 5120

@@ -1,4 +1,5 @@
 #include "s376/airport.hpp"
+#include "s376/landmarks.hpp"
 #include "s376/lights.hpp"
 #include "s376/tod.hpp"
 
@@ -73,7 +74,12 @@ void test_lights() {
     CHECK_NEAR(size_mult_hat(500.f), 1.0, 1e-4);
     CHECK(size_mult_hat(250.f) > 1.0 && size_mult_hat(250.f) < 12.0);
     CHECK_NEAR(base_size_px(12.f), 2.8, 1e-4);
-    CHECK_NEAR(base_size_px(0.f), 2.5, 1e-4);
+    CHECK_NEAR(base_size_px(0.f), kNightFarSizePx, 1e-4);
+    CHECK_NEAR(base_size_px(3.f), kNightFarSizePx, 1e-4);
+    CHECK(base_size_px(14.5f) < 3.0f);
+    CHECK(night_weight(14.5f) < 0.02f);
+    CHECK_NEAR(night_weight(3.f), 1.0, 1e-4);
+    CHECK(night_weight(19.f) > 0.2f && night_weight(19.f) < 0.5f);
     CHECK_NEAR(point_size_px(12.f, 0.f), 2.8 * 12.0, 1e-3);
     CHECK_NEAR(point_size_px(12.f, 0.f, 0.f), 2.8 * 12.0, 1e-3);
     // Distant lights clamp to the Raster 2.5–2.8 px floor and never grow
@@ -179,6 +185,29 @@ void test_lights() {
         CHECK(n_horizon >= 8);
         CHECK(horizon_sz < 3.2f);
         CHECK(horizon_sz < point_size_px(14.5f, hat, 0.f) * 0.4f);
+        CHECK(point_size_px(3.f, hat, 4000.f) > 5.0f);
+        CHECK(point_size_px(3.f, hat, 4000.f) < 6.5f);
+        // Left-horizon 'pier/bridge' is 04L edge (official, runway_k=1),
+        // not NYC landmarks (~308° / 20 km, outside the 50° front).
+        int n_04l_edge = 0;
+        for (const auto& L : jfk.lights) {
+            if (L.runway_k != 1 || L.kind != s376::LightKind::Edge)
+                continue;
+            const auto hp = s376::geo::project_lla(view, L.lat, L.lon, L.alt_m, 1920, 1200);
+            if (hp.in_frame && hp.pix_x < 700.0 && std::fabs(hp.ndc_y) < 0.30)
+                ++n_04l_edge;
+        }
+        CHECK(n_04l_edge >= 20);
+        int n_lm = 0;
+        int nlm = 0;
+        const s376::Landmark* lms = s376::nyc_landmarks(&nlm);
+        for (int i = 0; i < nlm; ++i) {
+            const auto hp =
+                s376::geo::project_lla(view, lms[i].lat, lms[i].lon, lms[i].height_m, 1920, 1200);
+            if (hp.in_frame)
+                ++n_lm;
+        }
+        CHECK(n_lm == 0);
     }
     CHECK_NEAR(tod_visibility(s376::LightKind::Edge, 0.5f), 1.0, 1e-3);
     CHECK_NEAR(kMaxRangeFt, 250000.0, 1e-3);

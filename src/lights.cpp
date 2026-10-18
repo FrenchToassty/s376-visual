@@ -106,12 +106,21 @@ float size_mult_hat(float hat_ft) {
     return kSizeMultNear + (kSizeMultFar - kSizeMultNear) * t;
 }
 
+float night_weight(float tod_hours) {
+    float h = tod_hours;
+    if (!std::isfinite(h))
+        h = 12.f;
+    return std::min(1.f, std::max(0.f, std::fabs(h - 12.f) - 6.f) / 3.f);
+}
+
 float base_size_px(float tod_hours) {
     float h = tod_hours;
     if (!std::isfinite(h))
         h = 12.f;
     const float noon = 1.f - std::min(1.f, std::fabs(h - 12.f) / 4.f);
-    return kBaseSizePx + (kNoonSizePx - kBaseSizePx) * noon;
+    const float night = night_weight(h);
+    const float day_sz = kBaseSizePx + (kNoonSizePx - kBaseSizePx) * noon;
+    return day_sz + (kNightFarSizePx - day_sz) * night;
 }
 
 float point_size_px(float tod_hours, float hat_ft, float range_m) {

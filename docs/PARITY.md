@@ -131,7 +131,7 @@ or deep it is. Expensive levers are TOML toggles; `render.quality =
 | FAA AC 150/5340-1 markings | **ok** — geometry (threshold, 5×7 numbers/LRC, aiming, TDZ, CL, edge, hold-short). Stays sharp at grazing angles; no committed textures |
 | Asphalt / rubber / grass detail | **ok** — generated 128² atlas (grass/asphalt/dirt/concrete) blended by land cover under the ortho; distance fade (strong <2.2 km). Runway PBR + wet from type-124 `runway_condition`. Optional CC0 Poly Haven / ambientCG via `scripts/fetch-textures.sh` (never committed) |
 | OSM buildings | **partial** — extruded official footprints (unchanged) + facade/roof palette by OSM `building=*` / schematic role, night window emissive. Mesh nearest 800 full / 2500 far. Collision = every footprint (`solids.bin`) |
-| Analytic sky + aerial perspective | **ok** — Rayleigh/Mie sky (Nishita-lite, GLSL 120), sun from host TOD, aerial haze from host visibility, dawn/dusk/night. Toggle `render.atmosphere`. Not a full Bruneton LUT |
+| Analytic sky + aerial perspective | **ok** — Rayleigh/Mie sky (Nishita-lite, GLSL 120), visual sun from host type-124 TOD buckets (dusk is dusk at any airport/date; `render.solar_astronomy` keeps `sun_ecef`), aerial haze from host visibility, dawn/dusk/night. Toggle `render.atmosphere`. Not a full Bruneton LUT |
 | Water / coastlines | **ok** — Jamaica Bay / ocean from land mask: sky reflection, Fresnel, sun glint, normal-map wave scroll, shoreline foam. Toggle `render.water` |
 | Oblique mip / aniso | **ok** — 2048×1024 globe + local patches, trilinear, aniso 16, LOD bias −0.35 |
 | Horizon seam / haze | **partial** — altitude `uHaze` + grazing fade; sky mixes to fog at the horizon. Not a Bruneton LUT |

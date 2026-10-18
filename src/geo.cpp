@@ -66,6 +66,28 @@ int day_of_year(int year, int month, int day) {
     return d;
 }
 
+Ecef sun_from_elev_az(double lat_deg, double lon_deg, double elev_deg, double az_deg) {
+    const double el = deg2rad(elev_deg);
+    const double az = deg2rad(az_deg);
+    Enu s;
+    s.n = std::cos(el) * std::cos(az);
+    s.e = std::cos(el) * std::sin(az);
+    s.u = std::sin(el);
+    Ecef east, north, up;
+    ecef_to_enu_axes(lat_deg, lon_deg, east, north, up);
+    Ecef dir;
+    dir.x = s.e * east.x + s.n * north.x + s.u * up.x;
+    dir.y = s.e * east.y + s.n * north.y + s.u * up.y;
+    dir.z = s.e * east.z + s.n * north.z + s.u * up.z;
+    const double mag = std::sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+    if (mag > 0) {
+        dir.x /= mag;
+        dir.y /= mag;
+        dir.z /= mag;
+    }
+    return dir;
+}
+
 Ecef sun_ecef(double lat_deg, double lon_deg, double tod_hours, int month, int day,
               double* elev_deg_out) {
     const int doy = day_of_year(2000, month <= 0 ? 6 : month, day <= 0 ? 21 : day);
@@ -87,24 +109,7 @@ Ecef sun_ecef(double lat_deg, double lon_deg, double tod_hours, int month, int d
         if (hour_angle > 0)
             az = 2.0 * kPi - az; // afternoon: west
     }
-    // Sun direction in ENU: azimuth from north, clockwise.
-    Enu s;
-    s.n = std::cos(el) * std::cos(az);
-    s.e = std::cos(el) * std::sin(az);
-    s.u = std::sin(el);
-    Ecef east, north, up;
-    ecef_to_enu_axes(lat_deg, lon_deg, east, north, up);
-    Ecef dir;
-    dir.x = s.e * east.x + s.n * north.x + s.u * up.x;
-    dir.y = s.e * east.y + s.n * north.y + s.u * up.y;
-    dir.z = s.e * east.z + s.n * north.z + s.u * up.z;
-    const double mag = std::sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
-    if (mag > 0) {
-        dir.x /= mag;
-        dir.y /= mag;
-        dir.z /= mag;
-    }
-    return dir;
+    return sun_from_elev_az(lat_deg, lon_deg, rad2deg(el), rad2deg(az));
 }
 
 ChannelView make_channel_view(double lat_deg, double lon_deg, double alt_m, double true_hdg_deg,

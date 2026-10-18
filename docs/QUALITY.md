@@ -170,9 +170,17 @@ Hangar 980 Ti / 1 m pack is offline. These are software-GL proxies.
 | water off/on | `kjfk_04r_0.6nm_water_off.png` | `kjfk_04r_0.6nm_quality_after.png` |
 | detail off/on | `kjfk_04r_0.6nm_detail_off.png` | `kjfk_04r_0.6nm_quality_after.png` |
 | runway dry/wet | `kjfk_04r_0.15nm_dry.png` | `kjfk_04r_0.15nm_wet.png` (`--rwy-cond 2`) |
-| dusk | — | `kjfk_04r_0.6nm_dusk.png` (`--tod 0.5`) |
-| night | — | `kjfk_04r_0.6nm_night.png` (`--tod 3`) + `kjfk_04r_2.99nm_night.png` |
+| dusk | `kjfk_04r_0.6nm_dusk_before.png` (`--tod 19` was day) | `kjfk_04r_0.6nm_dusk.png` (`--tod 19`) |
+| night | `kjfk_04r_0.6nm_night_before.png` | `kjfk_04r_0.6nm_night.png` (`--tod 3`) + `kjfk_04r_2.99nm_night.png` |
 
-`--tod 19` is the type-124 dusk bucket; with the existing
-`sun_ecef` (local solar + longitude) that is still day at KJFK in June.
-Twilight is `--tod 0.5`, night `--tod 3`. Do not change `sun_ecef` here.
+Host type-124 TOD drives the **visual** sun elevation (day / dusk / night)
+regardless of date and longitude. `--tod 19` is dusk; `--tod 3` is night
+(navy sky, Raster-style light halos). `sun_ecef` (date + lon) stays as
+the opt-in astronomy path: `render.solar_astronomy` or `--solar-astronomy`.
+
+The 0.6 nm day lower half is Jamaica Bay in the 8 m test pack, not a
+land-mask bleed over the pad (`land_coverage` keeps the field as land
+and the short final as water). Water keeps 32 % of the ortho so the
+pack does not paint-bucket into a slab. The left-horizon line is official 04L edge lights; the black
+rectangle was those plus 0.11 m ALS pier-leg mesh seen edge-on.
+Pier mesh removed; lights stay.

@@ -76,6 +76,7 @@ void test_config() {
     CHECK(d.render.detail_textures && d.render.buildings);
     CHECK(d.render.ssao && !d.render.shadows);
     CHECK(d.render.bloom && d.render.fxaa && d.render.filmic);
+    CHECK(!d.render.solar_astronomy);
     CHECK(d.render.sync_to_host);
     CHECK(d.render.ram_mb == 2048);
     CHECK(d.render.vram_mb == 5120);
@@ -104,6 +105,7 @@ void test_config() {
         CHECK(dumped.find("render.bloom=true") != std::string::npos);
         CHECK(dumped.find("render.fxaa=true") != std::string::npos);
         CHECK(dumped.find("render.filmic=true") != std::string::npos);
+        CHECK(dumped.find("render.solar_astronomy=false") != std::string::npos);
         int nb = 0;
         const auto* budgets = s376::quality_gpu_budgets(nb);
         CHECK(nb >= 8 && budgets != nullptr);

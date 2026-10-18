@@ -76,6 +76,8 @@ void usage() {
            "  --hdg DEG             override shot true heading\n"
            "  --pitch DEG           override shot pitch\n"
            "  --tod HOURS           shot time-of-day 0..24 (host type 124; default 14.5)\n"
+           "                        visual sun: 8–16 day, 16–20 dusk, 20–5 night, 5–8 dawn\n"
+           "  --solar-astronomy     date/lon sun_ecef instead of visual TOD buckets\n"
            "  --rwy-cond N          shot runway condition 0 dry / 1 damp / 2 wet / ≥3 flooded\n"
            "  --era current|classic session-only NYC skyline easter egg (not saved)\n"
            "  --control HOST:PORT   local operator control (default 127.0.0.1:2376; not xT4)\n"
@@ -151,6 +153,7 @@ int main(int argc, char** argv) {
     bool no_control = false;
     float shot_tod = 14.5f;
     bool have_shot_tod = false;
+    bool solar_astronomy = false;
     int shot_rwy_cond = 0;
     bool have_shot_rwy = false;
 
@@ -242,6 +245,8 @@ int main(int argc, char** argv) {
         } else if (a == "--tod") {
             have_shot_tod = true;
             shot_tod = std::stof(need(a.c_str()));
+        } else if (a == "--solar-astronomy") {
+            solar_astronomy = true;
         } else if (a == "--rwy-cond") {
             have_shot_rwy = true;
             shot_rwy_cond = std::stoi(need(a.c_str()));
@@ -290,6 +295,8 @@ int main(int argc, char** argv) {
         if (quality_override != "custom")
             s376::apply_quality_preset(cfg.render, quality_override);
     }
+    if (solar_astronomy)
+        cfg.render.solar_astronomy = true;
     if (!reply_master_override.empty())
         cfg.host.reply_master = reply_master_override;
     if (no_hat)

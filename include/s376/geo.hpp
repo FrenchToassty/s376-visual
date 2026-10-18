@@ -58,8 +58,13 @@ double dms_to_deg(int d, int m, double s, bool west_or_south = false);
 void body_to_enu(double heading_deg, double pitch_deg, double roll_deg, Enu& fwd, Enu& right,
                  Enu& down);
 
-// Sun unit vector in ECEF (points toward the sun). tod_hours is 0..24 local solar
-// approximation using longitude. Returns elevation degrees as well.
+// Sun unit vector in ECEF from an ENU elevation / azimuth (az clockwise
+// from north). Used by the visual TOD path and by sun_ecef.
+Ecef sun_from_elev_az(double lat_deg, double lon_deg, double elev_deg, double az_deg);
+
+// Astronomical sun (date + longitude). tod_hours is treated as UTC and
+// longitude is added to the hour angle. Opt-in via render.solar_astronomy;
+// the default IG path uses visual_sun_elev_deg so host dusk is dusk.
 Ecef sun_ecef(double lat_deg, double lon_deg, double tod_hours, int month, int day,
               double* elev_deg_out = nullptr);
 

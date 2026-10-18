@@ -4,10 +4,9 @@ A coworker (human or agent) can pick up from here. Cursor usage on the
 original account may stop mid-run — **this file is the source of truth**.
 Update it at the end of every run.
 
-**PR (quality):** https://github.com/joeylawell/s376-visual/pull/4 (draft)
-**Branch:** `cursor/quality-gtx980ti-6852`
 **PR #1 (visual v1):** https://github.com/joeylawell/s376-visual/pull/1 (draft)
-**Base:** `cursor/s376-visual-v1-6852` @ fc37cf9
+**Branch:** `cursor/s376-visual-v1-6852` (quality + defect fixes merged here)
+**PR #4:** https://github.com/joeylawell/s376-visual/pull/4 (quality-gtx980ti; merged into #1)
 **Repo:** https://github.com/joeylawell/s376-visual (public)
 
 **Top rule:** beat Raster in every way; **accuracy first**. FAA is the
@@ -28,6 +27,26 @@ from tests/CI. `scripts/check-no-rsi.sh` fails the build if
 ---
 
 ## Current state (2026-10-18, this increment)
+
+**Quality defect pass (merge PR #4 → PR #1):** Four reviewed-frame
+fixes. Official light/runway coordinates unchanged. Hangar 1 m pack
+still not on this box (`/tmp/kjfk-tiny` ~8 m). Mint on a phone
+hotspot — do not wait.
+
+1. **Night `--tod 3`:** visual sun at −55° (navy/black, faint city
+   glow). ALS / edge / PAPI use a 9 px night disc, VS halo scale,
+   and skip ACES on cores so the lights are the brightest thing.
+2. **`--tod 19` is dusk:** host type-124 buckets/hours map to sun
+   elevation independent of date/lon. `render.solar_astronomy` /
+   `--solar-astronomy` keeps `sun_ecef`.
+3. **Day 0.6 nm green slab:** Jamaica Bay in the 8 m pack, not a
+   mask bleed over the pad. Tightened the wet chroma test; water
+   keeps 32 % ortho.
+4. **Left-horizon black bars:** the long line is official **04L edge
+   lights** (parallel left of 04R). The solid rectangle was the
+   nearest of those plus 0.11 m ALS pier-leg mesh seen edge-on.
+   Pier mesh removed; 04L/04R lights stay. NYC landmarks are
+   outside the 50° front.
 
 **Quality pass (gtx980ti budget):** GTA V-level levers, each toggleable
 and budgeted for one 980 Ti channel at 1920×1200 / 60 Hz. Official
@@ -58,12 +77,12 @@ llvmpipe frames (`/tmp/kjfk-tiny`, hangar 980 Ti not on this box):
   `kjfk_04r_2.99nm_quality_before.png`
 - after day: `kjfk_04r_0.6nm_quality_after.png`,
   `kjfk_04r_2.99nm_quality_after.png`
-- dusk `--tod 0.5`: `kjfk_04r_0.6nm_dusk.png`
-- night `--tod 3`: `kjfk_04r_0.6nm_night.png`, `kjfk_04r_2.99nm_night.png`
+- dusk `--tod 19`: `kjfk_04r_0.6nm_dusk.png` (before: `…_dusk_before.png`)
+- night `--tod 3`: `kjfk_04r_0.6nm_night.png` (before: `…_night_before.png`)
 - wet `--rwy-cond 2`: `kjfk_04r_0.15nm_wet.png` vs `…_dry.png`
 - toggles: `kjfk_04r_0.6nm_atmo_off.png`, `…_water_off.png`, `…_detail_off.png`
 
-Tests: **130610** pass. Real 980 Ti GPU ms waits on Joey's Mint PC.
+Tests: **130633** pass. Real 980 Ti GPU ms waits on Joey's Mint PC.
 
 **Light size / PAPI / tile seams (prior increment):** The ~13 large
 white/red/green hemispheres on the 0.6 nm horizon were 22L ALSF-2 /
