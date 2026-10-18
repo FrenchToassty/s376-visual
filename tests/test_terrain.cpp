@@ -105,6 +105,46 @@ void test_terrain() {
     auto again = s376::load_cache(cdir);
     CHECK(again.dem.w == region.dem.w);
     CHECK(!again.imagery_dds.empty());
+    CHECK(again.imagery.rgb.empty()); // load_cache must not hillshade / inflate RGB
+
+    auto peeked = s376::DemGrid::peek(dem_path);
+    CHECK(peeked.w == dem.w && peeked.h == dem.h);
+    CHECK(peeked.z_m.empty());
+    auto sub = s376::DemGrid::load_subsampled(dem_path, 16);
+    CHECK(sub.w == 16 && sub.h == 16);
+    CHECK(sub.z_m.size() == 256);
+    double zsub = 0;
+    CHECK(sub.sample_m(47.4479, -122.3103, zsub));
+    CHECK_NEAR(zsub, z_m, 8.0);
+    auto meshed = s376::load_cache_mesh(cdir, 32);
+    CHECK(meshed.dem.w <= 32 && meshed.dem.h <= 32);
+    CHECK(meshed.imagery.rgb.empty());
+
+    s376::dxt::CompressedImage dds_img{};
+    CHECK(s376::dxt::read_dds(dds, dds_img));
+    CHECK(dds_img.w == 8 && dds_img.h == 8);
+    CHECK(dds_img.fmt == s376::dxt::BlockFmt::Bc1);
+    CHECK(dds_img.blocks.size() == 32);
+
+    const auto tiles = s376::scan_cache_tiles(cdir);
+    CHECK(!tiles.empty());
+    CHECK(s376::cache_dir_looks_packed(cdir));
+    CHECK(s376::resolve_cache_dir(cdir, "KSEA") == cdir);
+    CHECK(s376::resolve_cache_dir("", "XXXX").empty());
+    s376::CacheTileRef fake;
+    fake.dem_w = 4000;
+    fake.dem_h = 4000;
+    fake.dds_bytes = 21ull * 1024ull * 1024ull;
+    const auto naive = 4000ull * 4000ull * 48ull;
+    const auto paged = s376::estimate_tile_cpu_bytes(fake, 96);
+    CHECK(paged < 2ull * 1024ull * 1024ull);
+    CHECK(naive > 500ull * 1024ull * 1024ull);
+    CHECK(paged * 14ull < (2ull << 30));
+#ifndef _WIN32
+    const auto rss = s376::peak_rss_bytes();
+    CHECK(rss > 0);
+    CHECK(rss < (2ull << 30)); // unit tests must stay under the 980 Ti RAM budget
+#endif
 
     const auto hat = s376::sample_hat(&src, 47.463684, -122.307751, 447.0);
     CHECK(hat.covered);

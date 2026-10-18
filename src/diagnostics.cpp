@@ -1,6 +1,7 @@
 #include "s376/airport.hpp"
 #include "s376/diagnostics.hpp"
 #include "s376/fetch.hpp"
+#include "s376/terrain.hpp"
 #include "s376/geo.hpp"
 #include "s376/host.hpp"
 #include "s376/render.hpp"
@@ -414,6 +415,53 @@ DoctorReport run_doctor(const AppConfig& cfg, const std::string& config_path, bo
             else
                 d << ", gpu skipped (no usable DISPLAY)";
             add(r, {"frame-" + t.name, CheckStatus::Pass, d.str(), ""});
+        }
+    }
+
+    {
+        const auto rss = peak_rss_bytes();
+        const auto cur = current_rss_bytes();
+        std::ostringstream d;
+        d << "peak " << format_byte_count(rss) << "  now " << format_byte_count(cur)
+          << "  budget " << cfg.render.ram_mb << " MiB";
+        const auto budget = static_cast<std::uint64_t>(std::max(256, cfg.render.ram_mb)) << 20;
+        add(r, {"rss", rss > budget ? CheckStatus::Warn : CheckStatus::Pass, d.str(),
+                rss > budget ? "page tiles / bake osm.bin; gtx980ti ram_mb=2048" : ""});
+        if (!cfg.render.cache_dir.empty()) {
+            const auto tiles = scan_cache_tiles(cfg.render.cache_dir);
+            std::uint64_t naive = 0;
+            for (const auto& t : tiles)
+                naive += static_cast<std::uint64_t>(t.dem_w) * static_cast<std::uint64_t>(t.dem_h) *
+                         48ull;
+            std::ostringstream td;
+            td << tiles.size() << " tiles  naive full-res mesh "
+               << format_byte_count(naive) << "  paged mesh "
+               << format_byte_count(static_cast<std::uint64_t>(tiles.size()) *
+                                    estimate_tile_cpu_bytes(CacheTileRef{}, cfg.render.mesh_n));
+            if (!tiles.empty()) {
+                const CacheTileRef* sample = &tiles.front();
+                for (const auto& t : tiles)
+                    if (t.lod >= sample->lod)
+                        sample = &t;
+                try {
+                    auto mesh = load_cache_mesh(sample->path, cfg.render.mesh_n);
+                    td << "  sample " << mesh.dem.w << "x" << mesh.dem.h;
+                } catch (...) {
+                }
+            }
+            add(r, {"cache-tiles", CheckStatus::Pass, td.str(), ""});
+            const auto json = cfg.render.cache_dir + "/osm.json";
+            const auto bin = cfg.render.cache_dir + "/osm.bin";
+            if (std::filesystem::exists(json) && !std::filesystem::exists(bin)) {
+                std::ostringstream od;
+                od << "osm.json " << format_byte_count(std::filesystem::file_size(json))
+                   << " not loaded; bake osm.bin";
+                add(r, {"osm-bin", CheckStatus::Warn, od.str(),
+                        "s376-cache bake-osm " + cfg.render.cache_dir});
+            } else if (std::filesystem::exists(bin)) {
+                add(r, {"osm-bin", CheckStatus::Pass,
+                        "osm.bin " + format_byte_count(std::filesystem::file_size(bin)), ""});
+            }
         }
     }
 

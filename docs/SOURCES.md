@@ -10,7 +10,9 @@ s376-visual streams or caches standard formats.
 | [Esri World Imagery](https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9) (default earth file) | osgEarth XYZ, spherical mercator | Attribution required. Fine for development; check Esri terms before a public show |
 | OpenStreetMap standard tiles | osgEarth XYZ | [Tile usage policy](https://operations.osmfoundation.org/policies/tiles/) — do **not** point a 60 Hz IG at `tile.openstreetmap.org` in production. Host your own tile cache |
 | Sentinel-2 L2A (Copernicus) | Local GeoTIFF / MBTiles / WMTS | Best free true-colour around European airports (EGLL, EDDF, LEBL). Copernicus open licence |
-| [NAIP](https://naip-usdaonline.hub.arcgis.com/) | Tiled ImageServer export + local BC7 | USDA ~0.6 m native; we pull ~1 m near the ARP and 10 nm finals (4000 px tiles), 4 m mid, 20 m far |
+| [NAIP](https://naip-usdaonline.hub.arcgis.com/) | Tiled ImageServer export + local BC7 | USDA ~0.6 m native; we pull ~1 m near the ARP and 10 nm finals (4000 px tiles), 4 m mid, 20 m far. That **downsamples** NAIP slightly |
+| [NYS GIS Latest ortho](https://orthos.its.ny.gov/) | MapServer export (`--imagery nys`; auto at KJFK) | Public ~0.5–1 ft/px over NYC/LI. Same 4000 px / 1 m default tiling unless `--near-m` is lowered |
+| USGS NAIP Plus / HRO | ImageServer export (`--imagery hro`) | Optional higher-tier over NAIP (US public domain) |
 | osgEarth ReadyMap | TMS, if the public endpoint is still up | Historical osgEarth demo. Treat as optional |
 
 The default `data/earth/s376.earth` points at Esri World Imagery so a
@@ -44,6 +46,8 @@ camera path rides the streamed mesh.
 | Copernicus GLO-30 | [Copernicus DEM licence](https://spacedata.copernicus.eu) (© European Union) | `ATTRIBUTION.txt` in each packed cache |
 | USGS 3DEP | US government work, public domain | same |
 | USDA NAIP (via USGS National Map) | US government work, public domain | same |
+| NYS GIS Program Office ortho | public NYS ortho (orthos.its.ny.gov) | same |
+| USGS NAIP Plus / HRO | US government work, public domain | same |
 | EOX Sentinel-2 cloudless | [CC BY 4.0](https://s2maps.eu/) + Copernicus Sentinel | same |
 | OurAirports runways.csv | public domain | airport TOML / `airport.hpp` |
 | OpenStreetMap aeroway=* / building=* | [ODbL](https://www.openstreetmap.org/copyright) | OSM taxi/apron/building ways; attribute OSM |
@@ -69,8 +73,12 @@ Do **not** commit downloaded GeoTIFFs, JPEGs, or packed `cache/` trees.
 # preview the public URLs without downloading
 ./build/s376-cache fetch KSEA --dry-run
 
-# OSM taxi / apron / building ways (ODbL) — not committed
+# OSM taxi / apron / building ways (ODbL) — not committed.
+# Writes osm.json then stream-bakes osm.bin. The IG loads only osm.bin.
 ./build/s376-cache osm KSFO --out cache/KSFO
+./build/s376-cache bake-osm cache/KJFK   # if osm.json already exists
+# NYS ortho (KJFK auto); optional HRO; never Google/Bing/Esri scrape
+./build/s376-cache fetch KJFK --imagery nys --out cache/KJFK
 
 # optional CC0 close-up detail (never committed)
 ./scripts/fetch-textures.sh           # cache/textures/*.jpg

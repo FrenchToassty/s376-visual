@@ -21,13 +21,14 @@ void usage() {
         << " — offline DEM / imagery packer (no RSI tiles)\n"
            "usage:\n"
            "  s376-cache fetch ICAO [--radius-km N] [--out DIR] [--dem auto|glo30|3dep]\n"
-           "                       [--imagery auto|naip|s2|hillshade] [--dry-run]\n"
+           "                       [--imagery auto|nys|hro|naip|s2|hillshade] [--dry-run]\n"
            "                       [--near-m M] [--near-dem-m M] [--mid-m M] [--far-m M]\n"
            "                       [--near-km N] [--approach-nm N] [--max-export N]\n"
            "  s376-cache synth-ksea [--out DIR] [--size N] [--lods]\n"
            "  s376-cache from-geotiff DEM.tif [--imagery FILE] [--out DIR] [--lods]\n"
            "  s376-cache pack-lods --from DIR --out DIR\n"
            "  s376-cache osm ICAO [--out DIR] [--radius-km N] [--dry-run]\n"
+           "  s376-cache bake-osm DIR   stream-parse DIR/osm.json → DIR/osm.bin\n"
            "  s376-cache geojson ICAO [--out DIR]\n"
            "  s376-cache info DIR\n"
            "\n"
@@ -140,7 +141,8 @@ int main(int argc, char** argv) {
             s376::log::shutdown();
             return 0;
         }         else if (a[0] != '-' && icao.empty() &&
-                   (cmd == "fetch" || cmd == "osm" || cmd == "geojson" || cmd == "info" ||
+                   (cmd == "fetch" || cmd == "osm" || cmd == "bake-osm" || cmd == "geojson" ||
+                    cmd == "info" ||
                     cmd == "from-geotiff" || cmd == "pack-lods")) {
             if (cmd == "fetch" || cmd == "osm" || cmd == "geojson")
                 icao = a;
@@ -237,9 +239,27 @@ int main(int argc, char** argv) {
                 return 1;
             }
             s376::Airport apt = s376::airport_by_icao(ref.icao);
-            const int n = s376::try_merge_osm_file(apt, json_path);
+            const int n = s376::bake_osm_bin(json_path, dest + "/osm.bin");
+            (void)s376::read_osm_bin(apt, dest + "/osm.bin");
             s376::write_airport_geojson(apt, dest + "/osm.geojson");
-            std::cout << "wrote " << json_path << "  " << n << " OSM ways (ODbL — © OSM)\n";
+            std::cout << "wrote " << dest << "/osm.bin  " << n
+                      << " OSM ways (ODbL — © OSM). IG does not load osm.json.\n";
+            s376::log::shutdown();
+            return 0;
+        }
+        if (cmd == "bake-osm") {
+            std::string dest = !dem_path.empty() ? dem_path : out;
+            if (dest.empty() || dest == "cache/ksea")
+                dest = "cache/KJFK";
+            const std::string json_path = dest + "/osm.json";
+            const std::string bin_path = dest + "/osm.bin";
+            const int n = s376::bake_osm_bin(json_path, bin_path);
+            if (n <= 0 && !std::filesystem::exists(json_path)) {
+                std::cerr << "bake-osm: missing " << json_path << "\n";
+                s376::log::shutdown();
+                return 1;
+            }
+            std::cout << "baked " << bin_path << "  " << n << " ways from " << json_path << "\n";
             s376::log::shutdown();
             return 0;
         }

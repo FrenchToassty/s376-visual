@@ -6,6 +6,54 @@ account may stop mid-run — treat this file as the source of truth.
 **PR:** https://github.com/joeylawell/s376-visual/pull/1
 **Branch:** `cursor/s376-visual-v1-6852`
 
+## Milestone: KJFK OOM — page tiles, osm.bin, RAM budget (2026-10-18)
+
+Hangar Mint box (16 GB RAM, RTX 5060 Ti) OOM-killed
+`./build/s376-visual --cache-dir cache/KJFK --screenshot … --at KJFK
+--alt 12000 --hdg 036 --channel mid_left`: **anon-rss 13.9 GB**,
+total-vm 22 GB. That also killed the host app.
+
+Joey's on-disk pack (do not commit): lod0 ~1.0 GB (14 subdirs), lod1
+29.6 MB, lod2, `osm.json` 436 MB, `osm.geojson` 150 MB, `imagery.dds`
+787 KB, `elev.s376dem` 590 KB, **~1.6 GB total**. Causes: every lod0
+4000² DEM meshed at full res (~512 MB/tile × 14) + optional BC→RGBA /
+hillshade, and `try_load_osm` slurping the 436 MB JSON for every
+public airport.
+
+Fix (must also hold on i7-5930K + GTX 980 Ti 6 GB / 16 GB RAM):
+
+- **Pager:** `scan_cache_tiles` + distance/frustum + `ram_mb=2048` /
+  `vram_mb=5120` (`gtx980ti`). `load_cache_mesh` / `DemGrid::peek` /
+  `load_subsampled` (`mesh_n=96`). Never mesh 4000².
+- **Compressed upload:** `dxt::read_dds` keeps DXT1/BC7 blocks. No
+  OSG `readImageFile` decode. `setUnRefImageDataAfterApply(true)`.
+- **OSM:** `s376-cache osm` / `bake-osm` stream-parses JSON →
+  `osm.bin` (`S376OSM1`). Runtime `try_load_osm` opens **only**
+  `osm.bin`. `try_merge_osm_file` capped at 2 MiB (bake tools use
+  `max_bytes=0`).
+- **Doctor:** `rss` (peak/now/budget) and `cache-tiles` (naive vs
+  paged). `s376-doctor --cache-dir cache/KJFK`.
+- **Empty `--at` cache:** auto `cache/<ICAO>` or a clear WARN (no
+  silent synth KSEA).
+- **Screenshot black bar:** FBO slave does not inherit the master's
+  1920×1008 viewport.
+- **NYS/HRO:** `--imagery auto|nys|hro|naip|s2`. KJFK auto = NYS
+  Latest ortho. Default 4000 px / 1 m/px **downsamples** NAIP (~0.6 m)
+  and does not preserve 0.5–1 ft; see `docs/QUALITY.md`.
+- **Detail atlas:** generated 128² grass/asphalt/dirt/concrete with
+  distance fade.
+
+Re-test on the hangar GPU (after `s376-cache bake-osm cache/KJFK` if
+`osm.bin` is missing):
+
+```bash
+./build/s376-doctor --cache-dir cache/KJFK --no-bench
+# expect [pass] rss peak << 2 GiB, cache-tiles paged << naive
+./build/s376-visual --screenshot /tmp/jfk-12k.ppm --cache-dir cache/KJFK \
+  --at KJFK --alt 12000 --hdg 036 --channel mid_left
+# must not OOM; 1920×1080 PNG, no ~7% top black bar
+```
+
 ## Milestone: screenshot FBO + selected channel (2026-10-18)
 
 Hangar GPU test of 8285de8 (Mint, RTX 5060 Ti, NVIDIA 595.99, GL 4.6
@@ -460,15 +508,16 @@ are unit-tested.
 | More airports | `docs/AIRPORTS.md` | KSEA / KSFO / KLAS / KLAX / KJFK / KBOS are in. Next: EGLL / EDDF |
 | Per-seat FO eye | `eye_right_m` | Config exists, default 0 (collimated shared eye). Uncomment 0.51 m if Joey wants it |
 | Off-axis frustum | camera is rotated by heading offset | Shared eyepoint + asymmetric projection later |
-| High-res fetch on hangar | `s376-cache fetch KSEA` / `KJFK` | Dry-run estimate only on this agent. Joey is running a real full-res `fetch KJFK` on Mint — paste doctor bytes/time here |
-| Screenshot on hangar GPU | `--screenshot --at` | FBO+PNG+warmup landed; 8285de8 window readPixels was garbage. Re-run the 12k/bank commands on the 5060 Ti |
+| High-res fetch on hangar | `s376-cache fetch KSEA` / `KJFK` | Joey's pack sizes are in the OOM milestone. Optional: `--imagery nys --near-m 0.3` for native NYS feet-scale (more tiles; pager still caps RAM) |
+| Screenshot on hangar GPU | `--screenshot --at` | FBO+PNG+warmup + viewport inheritance fix landed. Re-run 12k **with bake-osm** and confirm no OOM / no top black bar |
 
 ## Next 5 concrete steps (in order)
 
-1. **Hangar GPU re-test** the FBO screenshot (`--screenshot /tmp/jfk-12k.ppm
-   --at KJFK --alt 12000 --hdg 036 --channel mid_left`) and paste
-   whether 1920×1080 PNG looks like a scene (not stripe noise). Then
-   **`s376-cache fetch KJFK`** (already running) + doctor bytes/time.
+1. **Hangar GPU re-test (OOM + shot):** `s376-cache bake-osm cache/KJFK`
+   then `--screenshot /tmp/jfk-12k.ppm --cache-dir cache/KJFK --at KJFK
+   --alt 12000 --hdg 036 --channel mid_left`. Confirm no kernel OOM,
+   peak RSS under ~2 GB (`s376-doctor --cache-dir cache/KJFK`),
+   1920×1080 PNG, no ~7% top bar. Paste doctor `rss` / `cache-tiles`.
 2. **Close remaining PARITY gaps**: 109 beams, 131 display, 128
    patchy/speed-cue, 124 runway condition, PAPI/taxi, cloud type
    catalog, real storm-cell sizes.

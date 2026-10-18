@@ -47,7 +47,7 @@ struct FetchRequest {
     std::string icao = "KSEA";
     double radius_km = 25;
     std::string dem = "auto";      // auto | glo30 | 3dep
-    std::string imagery = "auto";  // auto | naip | s2 | hillshade
+    std::string imagery = "auto";  // auto | nys | hro | naip | s2 | hillshade
     std::string out_dir;
     bool dry_run = false;
     bool mips = true;
@@ -102,6 +102,9 @@ std::string glo30_tile_url(int lat_deg, int lon_deg);
 std::vector<std::string> glo30_urls_for_box(const GeoBox& b);
 std::string usgs_export_url(const char* service, const GeoBox& b, int w, int h, const char* format,
                             const char* pixel = nullptr);
+// nys | hro | naip. NYS Latest ortho (~0.5–1 ft/px, NYC/LI); HRO via USGSNAIPPlus.
+std::string imagery_export_url(const std::string& kind, const GeoBox& b, int w, int h);
+bool imagery_covers_nys(double lat, double lon);
 std::string s2_tile_url(int z, int x, int y);
 
 bool http_get_file(const std::string& url, const std::string& dest);

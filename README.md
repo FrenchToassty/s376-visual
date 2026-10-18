@@ -116,7 +116,7 @@ contact `10.1.95.0/24` or `192.168.173.0/24`.
 | `--demo-weather` | demo plus 124/125/126/127/128 weather and a type-105 storm |
 | `-v` / `--debug` | verbose / per-packet hex |
 | `--gl-debug` | OSG per-attribute GL error checks (off in Release) |
-| `--quality NAME` | `gtx980ti` (default) / `rtx` / `custom` |
+| `--quality NAME` | `gtx980ti` (default, 2 GB RAM / 5 GB VRAM cap) / `rtx` / `custom` — see `docs/QUALITY.md` |
 | `--screenshot PATH` | write the first channel (offscreen FBO at channel WxH, PPM+PNG) after warmup and exit |
 | `--screenshot-wait SEC` | settle time before capture (default 3; pager idle or this) |
 | `--self-test-shot DIR` | render a known solid/gradient, check pixels, write PPM+PNG |
@@ -138,8 +138,15 @@ only — never commit it):
 ```
 
 `s376-doctor` never sends a packet off the machine. It reports on-disk
-`cache/<icao>` size for KSEA / KSFO / KLAS and a per-channel frame-time
-bench (CPU view cost always; GPU ms/frame when `DISPLAY` is set).
+`cache/<icao>` size for KSEA / KSFO / KLAS, **peak RSS vs `ram_mb`**,
+a naive-vs-paged tile estimate when `--cache-dir` is set, and a
+per-channel frame-time bench (CPU view cost always; GPU ms/frame when
+`DISPLAY` is set).
+
+`--at ICAO` with an empty `cache_dir` auto-selects `cache/<ICAO>` when
+that pack exists; otherwise it **warns** and falls back to a synth
+KSEA DEM (it will not silently look like JFK). The IG pages lod0
+tiles and never opens `osm.json` — run `s376-cache bake-osm DIR` first.
 
 ## Windows
 
@@ -171,8 +178,9 @@ region once, offline:
 ./build/s376-cache fetch KSFO --out cache/ksfo
 # preview URLs + packed-size estimate (no download):
 ./build/s376-cache fetch KSEA --dry-run
-# Overpass taxi/apron (POST; [ ] never reach curl globbing):
+# Overpass taxi/apron (POST; [ ] never reach curl globbing) → osm.bin:
 ./build/s376-cache osm KSEA --out cache/ksea
+./build/s376-cache bake-osm cache/KJFK
 
 ./build/s376-visual --demo --cache-dir cache/ksea
 ```

@@ -269,6 +269,32 @@ std::string usgs_export_url(const char* service, const GeoBox& b, int w, int h, 
     return o.str();
 }
 
+std::string imagery_export_url(const std::string& kind, const GeoBox& b, int w, int h) {
+    std::ostringstream o;
+    if (kind == "nys") {
+        // NYS GIS Program Office Latest ortho (public, ~0.5–1 ft/px over NYC/LI).
+        o << "https://orthos.its.ny.gov/arcgis/rest/services/wms/Latest/MapServer/export?bbox="
+          << b.west << "," << b.south << "," << b.east << "," << b.north
+          << "&bboxSR=4326&imageSR=4326&size=" << w << "," << h
+          << "&format=jpg&f=image&transparent=false";
+    } else if (kind == "hro") {
+        o << "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/"
+             "ImageServer/exportImage?bbox="
+          << b.west << "," << b.south << "," << b.east << "," << b.north
+          << "&bboxSR=4326&imageSR=4326&size=" << w << "," << h << "&format=tiff&f=image";
+    } else {
+        o << "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/"
+             "ImageServer/exportImage?bbox="
+          << b.west << "," << b.south << "," << b.east << "," << b.north
+          << "&bboxSR=4326&imageSR=4326&size=" << w << "," << h << "&format=tiff&f=image";
+    }
+    return o.str();
+}
+
+bool imagery_covers_nys(double lat, double lon) {
+    return lat >= 40.45 && lat <= 45.05 && lon >= -79.85 && lon <= -71.75;
+}
+
 std::string s2_tile_url(int z, int x, int y) {
     std::ostringstream o;
     o << "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2023_3857/default/g/" << z << "/" << y
@@ -373,7 +399,7 @@ FetchPlan plan_fetch(const FetchRequest& req) {
     if (dem == "auto")
         dem = apt.conus ? "3dep" : "glo30";
     if (img == "auto")
-        img = apt.conus ? "naip" : "s2";
+        img = !apt.conus ? "s2" : (imagery_covers_nys(apt.lat, apt.lon) ? "nys" : "naip");
     p.dem_kind = dem;
     p.img_kind = img;
 
@@ -397,20 +423,18 @@ FetchPlan plan_fetch(const FetchRequest& req) {
     } else {
         throw std::runtime_error("dem must be auto|glo30|3dep");
     }
-    if (img == "naip") {
-        attr << "Imagery: USDA NAIP via USGS National Map ImageServer (US public domain).\n";
+    if (img == "naip" || img == "nys" || img == "hro") {
+        if (img == "nys")
+            attr << "Imagery: NYS GIS Program Office ortho (public; ~0.5–1 ft/px, NYC/LI).\n";
+        else if (img == "hro")
+            attr << "Imagery: USGS NAIP Plus / HRO (US public domain) over NAIP.\n";
+        else
+            attr << "Imagery: USDA NAIP via USGS National Map ImageServer (US public domain).\n";
         for (const auto& lod : p.lods) {
             const GeoBox box = lod_coverage(apt, req, lod);
             const auto tiles = tile_raster(box, lod.img_m > 0 ? lod.img_m : 20.0, req.max_export);
-            for (const auto& t : tiles) {
-                p.urls.push_back(
-                    "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/"
-                    "ImageServer/exportImage?bbox=" +
-                    std::to_string(t.box.west) + "," + std::to_string(t.box.south) + "," +
-                    std::to_string(t.box.east) + "," + std::to_string(t.box.north) +
-                    "&bboxSR=4326&imageSR=4326&size=" + std::to_string(t.w) + "," +
-                    std::to_string(t.h) + "&format=tiff&f=image");
-            }
+            for (const auto& t : tiles)
+                p.urls.push_back(imagery_export_url(img, t.box, t.w, t.h));
         }
     } else if (img == "s2") {
         attr << "Imagery: EOX Sentinel-2 cloudless 2023 (CC BY 4.0, Copernicus Sentinel data).\n";
@@ -418,7 +442,7 @@ FetchPlan plan_fetch(const FetchRequest& req) {
     } else if (img == "hillshade") {
         attr << "Imagery: local hillshade (no download).\n";
     } else {
-        throw std::runtime_error("imagery must be auto|naip|s2|hillshade");
+        throw std::runtime_error("imagery must be auto|nys|hro|naip|s2|hillshade");
     }
     attr << "Do not commit the downloaded rasters. See docs/SOURCES.md.\n";
     p.attribution = attr.str();
@@ -559,17 +583,14 @@ std::uint64_t fetch_and_pack(const FetchRequest& req, FetchPlan* plan_out) {
         }
     };
 
-    auto naip_url = [](const RasterTile& t) {
-        return std::string("https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/"
-                           "ImageServer/exportImage?bbox=") +
-               std::to_string(t.box.west) + "," + std::to_string(t.box.south) + "," +
-               std::to_string(t.box.east) + "," + std::to_string(t.box.north) +
-               "&bboxSR=4326&imageSR=4326&size=" + std::to_string(t.w) + "," +
-               std::to_string(t.h) + "&format=tiff&f=image";
+    auto img_url = [&](const RasterTile& t) {
+        return imagery_export_url(plan.img_kind, t.box, t.w, t.h);
     };
+    const bool tiled_img =
+        plan.img_kind == "naip" || plan.img_kind == "nys" || plan.img_kind == "hro";
 
     std::size_t packed_tiles = 0;
-    if (plan.dem_kind == "3dep" || plan.img_kind == "naip") {
+    if (plan.dem_kind == "3dep" || tiled_img) {
         for (const auto& lod : plan.lods) {
             const GeoBox box = lod_coverage(apt, req, lod);
             const auto dem_tiles =
@@ -598,11 +619,11 @@ std::uint64_t fetch_and_pack(const FetchRequest& req, FetchPlan* plan_out) {
                         }
                     }
                 }
-                if (plan.img_kind == "naip") {
+                if (tiled_img) {
                     const std::string dest = raw + "/l" + std::to_string(lod.level) + "-i-" +
                                              std::to_string(it.iy) + "-" + std::to_string(it.ix) +
                                              ".tif";
-                    if (try_get(naip_url(it), dest) && gdal_available()) {
+                    if (try_get(img_url(it), dest) && gdal_available()) {
                         try {
                             tile_img = ImageRgb::load_jpeg_or_png(dest);
                         } catch (const std::exception& ex) {
@@ -638,7 +659,7 @@ std::uint64_t fetch_and_pack(const FetchRequest& req, FetchPlan* plan_out) {
         }
     }
 
-    if (plan.img_kind == "naip") {
+    if (tiled_img) {
         const GeoBox b = box_from_radius(apt.lat, apt.lon, std::min(8.0, req.radius_km));
         const std::string dest = raw + "/naip.jpg";
         const std::string url =

@@ -77,6 +77,15 @@ void test_diagnostics() {
     }
     CHECK(ksea_ok);
     CHECK(egll_ok);
+    {
+        auto packed_cfg = s376::default_config();
+        packed_cfg.render.cache_dir = tmp + "/ksea";
+        auto packed_rep = s376::run_doctor(packed_cfg, "", false, false);
+        const auto packed_text = s376::format_report(packed_rep);
+        CHECK(packed_text.find("cache-tiles") != std::string::npos);
+        CHECK(packed_text.find("rss") != std::string::npos);
+        CHECK(packed_text.find("paged mesh") != std::string::npos);
+    }
     std::filesystem::remove_all(tmp);
 
     auto cfg = s376::default_config();
@@ -112,7 +121,14 @@ void test_diagnostics() {
     CHECK(text.find("frame-mid_left") != std::string::npos);
     CHECK(text.find("frame-mid_right") != std::string::npos);
     CHECK(text.find("frame-far_right") != std::string::npos);
+    CHECK(text.find("rss") != std::string::npos);
+    CHECK(text.find("budget") != std::string::npos);
     CHECK(report.fails == 0);
+#ifndef _WIN32
+    CHECK(s376::current_rss_bytes() > 0);
+    CHECK(s376::peak_rss_bytes() >= s376::current_rss_bytes());
+    CHECK(s376::peak_rss_bytes() < (2ull << 30));
+#endif
 
     {
         s376::HostState shot;

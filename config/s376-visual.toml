@@ -46,8 +46,11 @@ vsync = true
 msaa = 4                  # 4x MSAA; one 980 Ti channel can do 8
 aniso = 16
 quality = "gtx980ti"      # gtx980ti | rtx | custom
-# gtx980ti: one channel on 6 GB Maxwell — hdr/atmosphere/water/markings/detail/
-# buildings/ssao on; shadows off (CSM not drawn yet)
+# gtx980ti: one channel on 6 GB Maxwell / 16 GB RAM — hdr/atmosphere/water/
+# markings/detail/buildings/ssao on; shadows off. CPU tile budget 2 GB.
+# ram_mb = 2048
+# vram_mb = 5120
+# mesh_n = 96
 sync_to_host = true       # draw only when a new type-100 eyepoint arrives
 
 [log]

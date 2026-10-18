@@ -34,4 +34,18 @@ std::size_t bc1_size(int w, int h);
 std::size_t bc7_size(int w, int h);
 int mip_count(int w, int h);
 
+enum class BlockFmt { Bc1, Bc7 };
+
+// Compressed DDS payload (no RGBA decode). Used so the IG never inflates
+// a 4000² BC7 tile to 48 MB of RGB on the CPU.
+struct CompressedImage {
+    int w = 0;
+    int h = 0;
+    int mips = 1;
+    BlockFmt fmt = BlockFmt::Bc1;
+    std::vector<std::uint8_t> blocks;
+};
+
+bool read_dds(const std::string& path, CompressedImage& out);
+
 } // namespace s376::dxt

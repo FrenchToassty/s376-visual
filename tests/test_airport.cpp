@@ -317,7 +317,32 @@ void test_airport() {
     from_file.icao = "KSFO";
     CHECK(s376::try_merge_osm_file(from_file, tmp + "/osm.json") == 3);
     CHECK(s376::try_merge_osm_file(from_file, tmp + "/missing.json") == 0);
-    CHECK(s376::try_load_osm(from_file, tmp) >= 0);
+    CHECK(s376::merge_osm_file_stream(from_file, tmp + "/osm.json", 0) == 3);
+    // Runtime path never opens osm.json — only osm.bin.
+    CHECK(s376::try_load_osm(from_file, tmp) == 0);
+    CHECK(s376::bake_osm_bin(tmp + "/osm.json", tmp + "/osm.bin") == 3);
+    CHECK(std::filesystem::exists(tmp + "/osm.bin"));
+    s376::Airport from_bin;
+    from_bin.icao = "KSFO";
+    CHECK(s376::try_load_osm(from_bin, tmp) == 3);
+    CHECK(from_bin.taxiways.size() == 1);
+    CHECK(from_bin.aprons.size() == 1);
+    CHECK(from_bin.buildings.size() == 1);
+    CHECK_NEAR(from_bin.buildings.back().height_m, 18.0, 0.1);
+    {
+        const auto huge = tmp + "/huge";
+        std::filesystem::create_directories(huge);
+        {
+            std::ofstream out(huge + "/osm.json");
+            out << std::string(3 * 1024 * 1024, 'x');
+            out << sample;
+        }
+        s376::Airport ignore;
+        ignore.icao = "KSFO";
+        CHECK(s376::try_merge_osm_file(ignore, huge + "/osm.json") == 0);
+        CHECK(s376::try_load_osm(ignore, huge) == 0);
+        CHECK(ignore.taxiways.empty());
+    }
 
     const auto gj = s376::airport_geojson(s376::ksea_public());
     CHECK(gj.find("FeatureCollection") != std::string::npos);

@@ -24,6 +24,10 @@ struct DemGrid {
 
     static DemGrid synth_ksea(int w = 128, int h = 128);
     static DemGrid load(const std::string& path); // .s376dem
+    // Header + bbox only (z_m empty). For tile indexes — does not allocate w*h.
+    static DemGrid peek(const std::string& path);
+    // Load a mesh-sized grid (max_n per side) without keeping the full raster.
+    static DemGrid load_subsampled(const std::string& path, int max_n);
     void save(const std::string& path) const;
 
     static DemGrid load_geotiff(const std::string& path); // throws if no GDAL / bad file
@@ -69,7 +73,32 @@ struct CacheRegion {
 CacheRegion generate_ksea_cache();
 void write_cache(const CacheRegion& r, const std::string& dir);
 CacheRegion load_cache(const std::string& dir);
+// Like load_cache, but DEM is subsampled for a mesh (never 4000² verts).
+CacheRegion load_cache_mesh(const std::string& dir, int max_mesh_n = 96);
 bool gdal_available();
+
+struct CacheTileRef {
+    std::string path;
+    int lod = 0;
+    double west = 0, south = 0, east = 0, north = 0;
+    int dem_w = 0, dem_h = 0;
+    std::uint64_t dds_bytes = 0;
+    std::uint64_t dem_bytes = 0;
+};
+
+// Index lodN/ and lodN/tY_X without loading rasters.
+std::vector<CacheTileRef> scan_cache_tiles(const std::string& dir);
+double tile_center_lat(const CacheTileRef& t);
+double tile_center_lon(const CacheTileRef& t);
+// CPU bytes if we mesh at max_n and keep the compressed DDS off-heap after upload.
+std::uint64_t estimate_tile_cpu_bytes(const CacheTileRef& t, int max_mesh_n = 96);
+// cache/<ICAO> or cache/<icao> when `configured` is empty. Empty if none exist.
+std::string resolve_cache_dir(const std::string& configured, const std::string& icao);
+bool cache_dir_looks_packed(const std::string& dir);
+
+// Process RSS (Linux VmRSS / VmHWM). 0 if unavailable.
+std::uint64_t current_rss_bytes();
+std::uint64_t peak_rss_bytes();
 
 // HAT = eyepoint MSL − terrain MSL. HOT is the terrain elevation.
 // If src is null or the point is off the DEM, elev=0 and hat=alt (stand-in).

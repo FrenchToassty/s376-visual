@@ -74,6 +74,9 @@ struct RenderConfig {
     bool shadows = false;         // CSM toggle; still not drawn
     float exposure = 1.0f;
     bool sync_to_host = true;     // draw only on a new type-100 eyepoint
+    int ram_mb = 2048;            // CPU resident budget (gtx980ti: 2 GB)
+    int vram_mb = 5120;           // GPU texture budget (6 GB Maxwell − headroom)
+    int mesh_n = 96;              // DEM mesh samples per tile side
 };
 
 void apply_quality_preset(RenderConfig& r, const std::string& name);

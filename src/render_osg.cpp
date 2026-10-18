@@ -10,6 +10,7 @@
 
 #include <osg/BlendFunc>
 #include <osg/Camera>
+#include <osg/CullSettings>
 #include <osg/CullFace>
 #include <osg/Depth>
 #include <osg/MatrixTransform>
@@ -49,6 +50,12 @@
 #endif
 #ifndef GL_DEPTH_COMPONENT24
 #define GL_DEPTH_COMPONENT24 0x81A6
+#endif
+#ifndef GL_COMPRESSED_RGB_S3TC_DXT1_EXT
+#define GL_COMPRESSED_RGB_S3TC_DXT1_EXT 0x83F0
+#endif
+#ifndef GL_COMPRESSED_RGBA_BPTC_UNORM_ARB
+#define GL_COMPRESSED_RGBA_BPTC_UNORM_ARB 0x8E8C
 #endif
 
 #ifdef S376_HAS_OSGEARTH
@@ -103,6 +110,7 @@ uniform float uHaze;
 uniform float uExposure;
 uniform float uDetail;
 uniform float uWater;
+uniform sampler2D sDetail;
 varying vec3 vN;
 varying vec2 vUV;
 varying float vEyeDist;
@@ -134,11 +142,16 @@ void main() {
         float micro = 0.90 + 0.10 * noise(vUV * 180.0);
         vec3 land = albedo * mix(1.0, macro * micro, uDetail);
         float gness = clamp((land.g - land.r) * 4.0, 0.0, 1.0);
-        float close = clamp(1.0 - vEyeDist / 8000.0, 0.12, 1.0);
+        float close = clamp(1.0 - vEyeDist / 2500.0, 0.0, 1.0);
+        float mid = clamp(1.0 - vEyeDist / 8000.0, 0.12, 1.0);
         vec3 grass = vec3(0.20, 0.30, 0.13) * (0.82 + 0.18 * noise(vUV * 260.0));
         vec3 dirt = vec3(0.30, 0.23, 0.14) * (0.88 + 0.12 * noise(vUV * 90.0));
+        vec2 duv = vUV * 90.0;
+        vec3 atlas = texture2D(sDetail, vec2(fract(duv.x) * 0.5 + (gness > 0.35 ? 0.0 : 0.5),
+                                             fract(duv.y) * 0.5 + (wet > 0.2 ? 0.5 : 0.0))).rgb;
         land = mix(mix(land, dirt, 0.22), grass, gness * 0.40);
-        albedo = mix(albedo, land, uDetail * close * (1.0 - wet));
+        land = mix(land, land * (0.55 + 0.90 * atlas), close);
+        albedo = mix(albedo, land, uDetail * mid * (1.0 - wet));
     }
     vec3 col = albedo * (uAmbient + uDiffuse * ndl);
     if (wet > 0.01) {
@@ -400,9 +413,60 @@ osg::Program* make_program(const char* vs, const char* fs) {
     return p;
 }
 
+osg::Texture2D* make_detail_atlas() {
+    constexpr int N = 128;
+    auto* img = new osg::Image;
+    img->allocateImage(N, N, 1, GL_RGB, GL_UNSIGNED_BYTE);
+    auto* p = img->data();
+    for (int y = 0; y < N; ++y) {
+        for (int x = 0; x < N; ++x) {
+            const int qx = x / (N / 2);
+            const int qy = y / (N / 2);
+            const float n =
+                0.5f + 0.5f * std::sin(x * 0.37f + y * 0.21f) * std::cos(x * 0.11f - y * 0.29f);
+            float r = 0.22f, g = 0.36f, b = 0.16f; // grass
+            if (qx == 1 && qy == 0) {              // asphalt
+                r = 0.16f + 0.04f * n;
+                g = 0.16f + 0.03f * n;
+                b = 0.17f + 0.03f * n;
+            } else if (qx == 0 && qy == 1) { // dirt
+                r = 0.32f + 0.06f * n;
+                g = 0.24f + 0.04f * n;
+                b = 0.14f;
+            } else if (qx == 1 && qy == 1) { // concrete
+                r = g = b = 0.42f + 0.08f * n;
+            } else {
+                r = 0.18f + 0.10f * n;
+                g = 0.32f + 0.10f * n;
+                b = 0.12f + 0.04f * n;
+            }
+            const int i = (y * N + x) * 3;
+            p[i] = static_cast<unsigned char>(r * 255.f);
+            p[i + 1] = static_cast<unsigned char>(g * 255.f);
+            p[i + 2] = static_cast<unsigned char>(b * 255.f);
+        }
+    }
+    auto* tex = new osg::Texture2D(img);
+    tex->setWrap(osg::Texture::WRAP_S, osg::Texture::REPEAT);
+    tex->setWrap(osg::Texture::WRAP_T, osg::Texture::REPEAT);
+    tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR_MIPMAP_LINEAR);
+    tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
+    tex->setUnRefImageDataAfterApply(true);
+    return tex;
+}
+
+osg::Texture2D* shared_detail_atlas() {
+    static osg::ref_ptr<osg::Texture2D> t;
+    if (!t)
+        t = make_detail_atlas();
+    return t.get();
+}
+
 void attach_lit_tex(osg::StateSet* ss, osg::Texture2D* tex) {
     ss->setTextureAttribute(0, tex);
     ss->addUniform(new osg::Uniform("sTex", 0));
+    ss->setTextureAttributeAndModes(1, shared_detail_atlas(), osg::StateAttribute::ON);
+    ss->addUniform(new osg::Uniform("sDetail", 1));
     ss->setAttributeAndModes(make_program(kLitTexVS, kLitTexFS), osg::StateAttribute::ON);
     strip_ff(ss);
 }
@@ -603,40 +667,47 @@ osg::Image* image_from_rgb(const ImageRgb& im) {
     return img;
 }
 
+osg::Image* image_from_compressed_dds(const std::string& path) {
+    dxt::CompressedImage c;
+    if (!dxt::read_dds(path, c) || c.blocks.empty())
+        return nullptr;
+    const GLenum fmt = (c.fmt == dxt::BlockFmt::Bc7) ? GL_COMPRESSED_RGBA_BPTC_UNORM_ARB
+                                                     : GL_COMPRESSED_RGB_S3TC_DXT1_EXT;
+    auto* data = new unsigned char[c.blocks.size()];
+    std::memcpy(data, c.blocks.data(), c.blocks.size());
+    auto* img = new osg::Image;
+    img->setImage(c.w, c.h, 1, fmt, fmt, GL_UNSIGNED_BYTE, data, osg::Image::USE_NEW_DELETE);
+    if (c.mips > 1) {
+        osg::Image::MipmapDataType offs;
+        std::size_t o = (c.fmt == dxt::BlockFmt::Bc7) ? dxt::bc7_size(c.w, c.h)
+                                                      : dxt::bc1_size(c.w, c.h);
+        int w = c.w, h = c.h;
+        for (int i = 1; i < c.mips; ++i) {
+            offs.push_back(o);
+            w = std::max(1, w / 2);
+            h = std::max(1, h / 2);
+            o += (c.fmt == dxt::BlockFmt::Bc7) ? dxt::bc7_size(w, h) : dxt::bc1_size(w, h);
+        }
+        img->setMipmapLevels(offs);
+    }
+    return img;
+}
+
 osg::Image* image_from_dds_or_rgb(const CacheRegion& cache) {
     if (!cache.imagery_dds.empty() && std::filesystem::exists(cache.imagery_dds)) {
-        if (auto loaded = osgDB::readRefImageFile(cache.imagery_dds))
-            return loaded.release();
-        // OSG may lack a DDS plugin; decode BC1 ourselves.
-        try {
-            std::ifstream in(cache.imagery_dds, std::ios::binary);
-            std::vector<char> hdr(128);
-            in.read(hdr.data(), 128);
-            const int w = static_cast<unsigned char>(hdr[16]) |
-                          (static_cast<unsigned char>(hdr[17]) << 8) |
-                          (static_cast<unsigned char>(hdr[18]) << 16) |
-                          (static_cast<unsigned char>(hdr[19]) << 24);
-            const int h = static_cast<unsigned char>(hdr[12]) |
-                          (static_cast<unsigned char>(hdr[13]) << 8) |
-                          (static_cast<unsigned char>(hdr[14]) << 16) |
-                          (static_cast<unsigned char>(hdr[15]) << 24);
-            const auto n = dxt::bc1_size(w, h);
-            std::vector<std::uint8_t> blocks(n);
-            in.read(reinterpret_cast<char*>(blocks.data()), static_cast<std::streamsize>(n));
-            if (in) {
-                auto rgb = dxt::decode_bc1(blocks.data(), w, h);
-                ImageRgb im;
-                im.w = w;
-                im.h = h;
-                im.rgb = std::move(rgb);
-                return image_from_rgb(im);
-            }
-        } catch (...) {
-        }
+        if (auto* packed = image_from_compressed_dds(cache.imagery_dds))
+            return packed;
+        // Never osgDB::readImageFile — OSG decodes BC/DXT to RGBA (48 MB/tile).
     }
     if (!cache.imagery.rgb.empty())
         return image_from_rgb(cache.imagery);
-    return image_from_rgb(ImageRgb::hillshade(cache.dem));
+    if (!cache.dem.empty() && cache.dem.w * cache.dem.h <= 256 * 256)
+        return image_from_rgb(ImageRgb::hillshade(cache.dem));
+    ImageRgb fb;
+    fb.w = 8;
+    fb.h = 8;
+    fb.rgb.assign(8 * 8 * 3, 48);
+    return image_from_rgb(fb);
 }
 
 osg::Node* make_dem_patch(const CacheRegion& cache, float aniso = 16.f) {
@@ -691,6 +762,8 @@ osg::Node* make_dem_patch(const CacheRegion& cache, float aniso = 16.f) {
     tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
     tex->setMaxAnisotropy(std::max(1.f, aniso));
     tex->setLODBias(-0.35f);
+    tex->setUnRefImageDataAfterApply(true);
+    tex->setResizeNonPowerOfTwoHint(false);
     attach_lit_tex(geom->getOrCreateStateSet(), tex);
     geode->addDrawable(geom);
     return geode;
@@ -1162,11 +1235,12 @@ void apply_light_steps(LightGpu& g, const HostState& host) {
     g.geom->dirtyBound();
 }
 
-CacheRegion load_or_synth_cache(const std::string& dir) {
+CacheRegion load_or_synth_cache(const std::string& dir, int max_mesh_n) {
     if (!dir.empty()) {
         try {
-            auto r = load_cache(dir);
-            S376_LOG_INFO("render", "loaded DEM cache %s  %dx%d", dir.c_str(), r.dem.w, r.dem.h);
+            auto r = load_cache_mesh(dir, max_mesh_n);
+            S376_LOG_INFO("render", "loaded DEM cache %s  %dx%d (subsampled)", dir.c_str(), r.dem.w,
+                          r.dem.h);
             return r;
         } catch (const std::exception& ex) {
             S376_LOG_WARN("render", "cache %s: %s — using synth KSEA DEM", dir.c_str(), ex.what());
@@ -1314,6 +1388,8 @@ osg::ref_ptr<osg::Camera> make_shot_fbo(int w, int h, const osg::Vec4& clear,
     rtt->attach(osg::Camera::DEPTH_BUFFER, GL_DEPTH_COMPONENT24);
     rtt->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
     rtt->setComputeNearFarMode(osg::CullSettings::DO_NOT_COMPUTE_NEAR_FAR);
+    rtt->setInheritanceMask(osg::CullSettings::ALL_VARIABLES &
+                            ~osg::CullSettings::COMPUTE_NEAR_FAR_MODE);
     rtt->setPostDrawCallback(cb);
     return rtt;
 }
@@ -1372,48 +1448,33 @@ class OsgRenderer final : public Renderer {
 #endif
         if (!used_earth_) {
             const std::string dir = cfg.render.cache_dir;
-            bool any_lod = false;
-            if (!dir.empty()) {
-                auto try_patch = [&](const std::string& path, const char* label) {
-                    if (!std::filesystem::exists(path + "/elev.s376dem"))
-                        return;
-                    try {
-                        auto cache = load_cache(path);
-                        if (auto* patch =
-                                make_dem_patch(cache, static_cast<float>(cfg.render.aniso))) {
-                            root->addChild(patch);
-                            any_lod = true;
-                            S376_LOG_INFO("render", "draped %s  %dx%d  %.3f,%.3f .. %.3f,%.3f",
-                                          label, cache.dem.w, cache.dem.h, cache.dem.west,
-                                          cache.dem.south, cache.dem.east, cache.dem.north);
-                        }
-                    } catch (const std::exception& ex) {
-                        S376_LOG_WARN("render", "%s: %s", label, ex.what());
-                    }
-                };
-                for (int i = 2; i >= 0; --i) {
-                    const std::string lod = dir + "/lod" + std::to_string(i);
-                    try_patch(lod, ("LOD" + std::to_string(i)).c_str());
-                    if (!std::filesystem::is_directory(lod))
-                        continue;
-                    for (const auto& e : std::filesystem::directory_iterator(lod)) {
-                        if (!e.is_directory())
-                            continue;
-                        const std::string name = e.path().filename().string();
-                        if (name.size() < 2 || name[0] != 't')
-                            continue;
-                        try_patch(e.path().string(), name.c_str());
-                    }
-                }
-            }
-            if (!any_lod) {
-                const CacheRegion cache = load_or_synth_cache(dir);
+            tiles_root_ = new osg::Group;
+            root->addChild(tiles_root_);
+            tile_index_ = scan_cache_tiles(dir);
+            ram_budget_ = static_cast<std::uint64_t>(std::max(256, cfg.render.ram_mb)) * 1024ull *
+                          1024ull;
+            vram_budget_ = static_cast<std::uint64_t>(std::max(256, cfg.render.vram_mb)) * 1024ull *
+                           1024ull;
+            mesh_n_ = std::max(16, std::min(192, cfg.render.mesh_n));
+            if (tile_index_.empty()) {
+                if (dir.empty())
+                    S376_LOG_WARN("render",
+                                  "cache_dir empty — synth KSEA DEM (set --cache-dir or cache/"
+                                  "<ICAO> for --at)");
+                const CacheRegion cache = load_or_synth_cache(dir, mesh_n_);
                 if (auto* patch = make_dem_patch(cache, static_cast<float>(cfg.render.aniso))) {
-                    root->addChild(patch);
-                    S376_LOG_INFO("render", "draped %s DEM  %.3f,%.3f .. %.3f,%.3f  BC1/hillshade",
+                    tiles_root_->addChild(patch);
+                    S376_LOG_INFO("render", "draped %s DEM  %.3f,%.3f .. %.3f,%.3f  mesh %dx%d",
                                   cache.name.empty() ? "region" : cache.name.c_str(), cache.dem.west,
-                                  cache.dem.south, cache.dem.east, cache.dem.north);
+                                  cache.dem.south, cache.dem.east, cache.dem.north, cache.dem.w,
+                                  cache.dem.h);
                 }
+            } else {
+                S376_LOG_INFO("render",
+                              "cache %s  %zu tiles  ram budget %d MiB  vram %d MiB  mesh %d",
+                              dir.c_str(), tile_index_.size(), cfg.render.ram_mb, cfg.render.vram_mb,
+                              mesh_n_);
+                page_tiles(true); // coarse lod first; lod0 pages in on frame()
             }
         }
         if (!used_earth_) {
@@ -1430,7 +1491,19 @@ class OsgRenderer final : public Renderer {
             for (Airport apt : all_public_airports()) {
                 const int osm_n = try_load_osm(apt, cfg.render.cache_dir);
                 if (osm_n > 0)
-                    S376_LOG_INFO("render", "%s OSM aeroway  %d ways", apt.icao.c_str(), osm_n);
+                    S376_LOG_INFO("render", "%s OSM aeroway  %d ways (osm.bin)", apt.icao.c_str(),
+                                  osm_n);
+                else if (!cfg.render.cache_dir.empty() &&
+                         std::filesystem::exists(cfg.render.cache_dir + "/osm.json") &&
+                         apt.icao.size() >= 3 &&
+                         cfg.render.cache_dir.find(apt.icao) != std::string::npos)
+                    S376_LOG_WARN("render",
+                                  "%s has osm.json (%.1f MiB) — not loaded. "
+                                  "s376-cache bake-osm %s",
+                                  apt.icao.c_str(),
+                                  std::filesystem::file_size(cfg.render.cache_dir + "/osm.json") /
+                                      (1024.0 * 1024.0),
+                                  cfg.render.cache_dir.c_str());
                 if (auto* mesh = make_airport_geode(build_airport_mesh(
                         apt, cfg.render.buildings, cfg.render.markings))) {
                     root->addChild(mesh);
@@ -1552,6 +1625,7 @@ class OsgRenderer final : public Renderer {
             sky_xf_->setMatrix(osg::Matrix::translate(e.x, e.y, e.z));
         }
         last_host_ = host;
+        page_tiles(false);
         for (std::size_t i = 0; i < views_.size() && i < channels_.size(); ++i)
             apply_view_camera(views_[i]->getCamera(), channels_[i], host);
         apply_env(host);
@@ -1653,6 +1727,122 @@ class OsgRenderer final : public Renderer {
     std::size_t view_count() const override { return views_.size(); }
 
   private:
+    bool tile_resident(const std::string& path) const {
+        for (const auto& r : resident_) {
+            if (r.path == path)
+                return true;
+        }
+        return false;
+    }
+
+    bool load_one_tile(const CacheTileRef& t) {
+        if (!tiles_root_ || tile_resident(t.path))
+            return true;
+        try {
+            auto cache = load_cache_mesh(t.path, mesh_n_);
+            osg::ref_ptr<osg::Node> node = make_dem_patch(cache, static_cast<float>(cfg_.render.aniso));
+            if (!node)
+                return false;
+            tiles_root_->addChild(node);
+            ResidentTile r;
+            r.path = t.path;
+            r.node = node;
+            r.cpu = estimate_tile_cpu_bytes(t, mesh_n_);
+            r.vram = t.dds_bytes;
+            resident_cpu_ += r.cpu;
+            resident_vram_ += r.vram;
+            resident_.push_back(std::move(r));
+            S376_LOG_INFO("render", "page in lod%d %s  mesh %dx%d  cpu+vram %llu+%llu KiB", t.lod,
+                          t.path.c_str(), cache.dem.w, cache.dem.h,
+                          static_cast<unsigned long long>(resident_.back().cpu / 1024),
+                          static_cast<unsigned long long>(t.dds_bytes / 1024));
+            return true;
+        } catch (const std::exception& ex) {
+            S376_LOG_WARN("render", "tile %s: %s", t.path.c_str(), ex.what());
+            return false;
+        }
+    }
+
+    void evict_tile(std::size_t i) {
+        if (i >= resident_.size() || !tiles_root_)
+            return;
+        tiles_root_->removeChild(resident_[i].node);
+        resident_cpu_ -= resident_[i].cpu;
+        resident_vram_ -= resident_[i].vram;
+        resident_.erase(resident_.begin() + static_cast<std::ptrdiff_t>(i));
+    }
+
+    void page_tiles(bool coarse_only) {
+        if (!tiles_root_ || tile_index_.empty())
+            return;
+        double elat = 40.64, elon = -73.78;
+        double hdg_true = 0;
+        if (last_host_.have_eyepoint) {
+            elat = last_host_.eye.lat_deg;
+            elon = last_host_.eye.lon_deg;
+            hdg_true = -static_cast<double>(last_host_.eye.heading_deg);
+        }
+        struct Scored {
+            const CacheTileRef* t;
+            double score;
+        };
+        std::vector<Scored> want;
+        for (const auto& t : tile_index_) {
+            if (coarse_only && t.lod == 0)
+                continue;
+            const double dlat = (tile_center_lat(t) - elat) * 111.32;
+            const double dlon = (tile_center_lon(t) - elon) * 111.32 *
+                                std::max(0.2, std::cos(geo::deg2rad(elat)));
+            const double km = std::sqrt(dlat * dlat + dlon * dlon);
+            if (t.lod == 0 && last_host_.have_eyepoint) {
+                const double brg = std::atan2(dlon, dlat) * (180.0 / 3.14159265358979323846);
+                double dh = brg - hdg_true;
+                while (dh > 180.0)
+                    dh -= 360.0;
+                while (dh < -180.0)
+                    dh += 360.0;
+                // Keep the pad under the eye; drop far tiles well outside the frustum.
+                if (km > 10.0 && std::fabs(dh) > 75.0)
+                    continue;
+            }
+            const double w = (t.lod == 0) ? 1.0 : (t.lod == 1) ? 0.35 : 0.15;
+            want.push_back({&t, km * w});
+        }
+        std::sort(want.begin(), want.end(),
+                  [](const Scored& a, const Scored& b) { return a.score < b.score; });
+        for (const auto& s : want) {
+            if (tile_resident(s.t->path))
+                continue;
+            const auto cpu = estimate_tile_cpu_bytes(*s.t, mesh_n_);
+            if (s.t->lod == 0 &&
+                (resident_cpu_ + cpu > ram_budget_ || resident_vram_ + s.t->dds_bytes > vram_budget_)) {
+                // Evict farthest lod0 if that makes room.
+                int far = -1;
+                double far_s = -1;
+                for (std::size_t i = 0; i < resident_.size(); ++i) {
+                    for (const auto& t : tile_index_) {
+                        if (t.path != resident_[i].path || t.lod != 0)
+                            continue;
+                        const double dlat = (tile_center_lat(t) - elat) * 111.32;
+                        const double dlon = (tile_center_lon(t) - elon) * 111.32 *
+                                            std::max(0.2, std::cos(geo::deg2rad(elat)));
+                        const double km = std::sqrt(dlat * dlat + dlon * dlon);
+                        if (km > far_s) {
+                            far_s = km;
+                            far = static_cast<int>(i);
+                        }
+                    }
+                }
+                if (far >= 0 && far_s > s.score + 2.0)
+                    evict_tile(static_cast<std::size_t>(far));
+                if (resident_cpu_ + cpu > ram_budget_ ||
+                    resident_vram_ + s.t->dds_bytes > vram_budget_)
+                    continue;
+            }
+            load_one_tile(*s.t);
+        }
+    }
+
     bool render_fbo(int w, int h, const osg::Vec4& clear, osg::Node* scene, bool ortho,
                     const ChannelConfig* ch, const HostState* host, RgbImage& out) {
         if (!viewer_ || views_.empty())
@@ -1675,8 +1865,23 @@ class OsgRenderer final : public Renderer {
         if (!view->addSlave(rtt.get(), false))
             return false;
         const unsigned idx = view->findSlaveIndexForCamera(rtt.get());
-        if (auto* slave = view->getSlave(idx)._camera.get())
-            slave->setGraphicsContext(master->getGraphicsContext());
+        struct ForceViewport : public osg::View::Slave::UpdateSlaveCallback {
+            int vw = 0, vh = 0;
+            ForceViewport(int a, int b) : vw(a), vh(b) {}
+            void updateSlave(osg::View& v, osg::View::Slave& s) override {
+                s.updateSlaveImplementation(v);
+                if (s._camera.valid())
+                    s._camera->setViewport(0, 0, vw, vh);
+            }
+        };
+        auto& sl = view->getSlave(idx);
+        if (sl._camera) {
+            sl._camera->setGraphicsContext(master->getGraphicsContext());
+            sl._camera->setViewport(0, 0, w, h);
+            sl._camera->setInheritanceMask(osg::CullSettings::ALL_VARIABLES &
+                                           ~osg::CullSettings::COMPUTE_NEAR_FAR_MODE);
+            sl._updateSlaveCallback = new ForceViewport(w, h);
+        }
         viewer_->frame();
         view->removeSlave(idx);
         if (!cb->ok || !cb->img)
@@ -1835,6 +2040,20 @@ class OsgRenderer final : public Renderer {
     bool stripped_ff_ = false;
     bool gl_check_errors_ = false;
     HostState last_host_;
+    struct ResidentTile {
+        std::string path;
+        osg::ref_ptr<osg::Node> node;
+        std::uint64_t cpu = 0;
+        std::uint64_t vram = 0;
+    };
+    std::vector<CacheTileRef> tile_index_;
+    std::vector<ResidentTile> resident_;
+    osg::ref_ptr<osg::Group> tiles_root_;
+    std::uint64_t ram_budget_ = 2ull << 30;
+    std::uint64_t vram_budget_ = 5ull << 30;
+    std::uint64_t resident_cpu_ = 0;
+    std::uint64_t resident_vram_ = 0;
+    int mesh_n_ = 96;
 };
 
 } // namespace

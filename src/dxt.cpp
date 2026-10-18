@@ -384,4 +384,46 @@ void write_dds_bc7(const std::string& path, const std::uint8_t* rgb, int w, int 
     write_mip_chain(o, rgb, w, h, mips, true);
 }
 
+bool read_dds(const std::string& path, CompressedImage& out) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in)
+        return false;
+    std::uint8_t hdr[128] = {};
+    in.read(reinterpret_cast<char*>(hdr), 128);
+    if (!in || hdr[0] != 'D' || hdr[1] != 'D' || hdr[2] != 'S' || hdr[3] != ' ')
+        return false;
+    auto u32 = [&](int off) -> std::uint32_t {
+        return static_cast<std::uint32_t>(hdr[off] | (hdr[off + 1] << 8) | (hdr[off + 2] << 16) |
+                                          (hdr[off + 3] << 24));
+    };
+    out.h = static_cast<int>(u32(12));
+    out.w = static_cast<int>(u32(16));
+    out.mips = std::max(1, static_cast<int>(u32(28)));
+    if (out.w < 1 || out.h < 1 || out.w > 16384 || out.h > 16384)
+        return false;
+    const bool dx10 = hdr[84] == 'D' && hdr[85] == 'X' && hdr[86] == '1' && hdr[87] == '0';
+    const bool dxt1 = hdr[84] == 'D' && hdr[85] == 'X' && hdr[86] == 'T' && hdr[87] == '1';
+    if (dx10) {
+        std::uint8_t dx[20] = {};
+        in.read(reinterpret_cast<char*>(dx), 20);
+        const std::uint32_t fmt = static_cast<std::uint32_t>(dx[0] | (dx[1] << 8) | (dx[2] << 16) |
+                                                             (dx[3] << 24));
+        out.fmt = (fmt == 98) ? BlockFmt::Bc7 : BlockFmt::Bc1;
+    } else if (dxt1) {
+        out.fmt = BlockFmt::Bc1;
+    } else {
+        return false;
+    }
+    std::size_t need = 0;
+    int cw = out.w, ch = out.h;
+    for (int i = 0; i < out.mips; ++i) {
+        need += (out.fmt == BlockFmt::Bc7) ? bc7_size(cw, ch) : bc1_size(cw, ch);
+        cw = std::max(1, cw / 2);
+        ch = std::max(1, ch / 2);
+    }
+    out.blocks.resize(need);
+    in.read(reinterpret_cast<char*>(out.blocks.data()), static_cast<std::streamsize>(need));
+    return static_cast<bool>(in) || in.gcount() > 0;
+}
+
 } // namespace s376::dxt

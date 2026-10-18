@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -759,30 +760,242 @@ int merge_osm_json(Airport& a, const std::string& json) {
 }
 
 int try_merge_osm_file(Airport& a, const std::string& path) {
+    return merge_osm_file_stream(a, path, 2ull * 1024ull * 1024ull);
+}
+
+int merge_osm_file_stream(Airport& a, const std::string& path, std::uint64_t max_bytes) {
     if (path.empty() || !std::filesystem::exists(path) || !std::filesystem::is_regular_file(path))
         return 0;
-    std::ifstream in(path);
+    const auto sz = std::filesystem::file_size(path);
+    if (max_bytes > 0 && sz > max_bytes)
+        return 0;
+    std::ifstream in(path, std::ios::binary);
     if (!in)
         return 0;
-    const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    return merge_osm_json(a, json);
+    int added = 0;
+    std::string carry;
+    carry.reserve(256 * 1024);
+    char buf[64 * 1024];
+    while (in) {
+        in.read(buf, sizeof(buf));
+        const auto n = static_cast<std::size_t>(in.gcount());
+        if (n == 0)
+            break;
+        carry.append(buf, n);
+        std::size_t pos = 0;
+        while (true) {
+            auto g = carry.find("\"geometry\"", pos);
+            if (g == std::string::npos) {
+                if (carry.size() > 16384)
+                    carry.erase(0, carry.size() - 8192);
+                break;
+            }
+            auto arr = carry.find('[', g);
+            if (arr == std::string::npos) {
+                carry.erase(0, g);
+                break;
+            }
+            int depth = 0;
+            std::size_t end = arr;
+            bool done = false;
+            for (; end < carry.size(); ++end) {
+                if (carry[end] == '[')
+                    ++depth;
+                else if (carry[end] == ']') {
+                    --depth;
+                    if (depth == 0) {
+                        done = true;
+                        break;
+                    }
+                }
+            }
+            if (!done) {
+                carry.erase(0, g);
+                break;
+            }
+            const auto win = carry.rfind('{', g);
+            const std::size_t start = win != std::string::npos && win < g ? win : g;
+            const auto chunk = carry.substr(start, end - start + 1);
+            const bool is_bldg = chunk.find("\"building\"") != std::string::npos;
+            const bool is_apron = chunk.find("apron") != std::string::npos;
+            // Same caps as write_osm_bin — a 400 MB Overpass dump must not
+            // grow unbounded Airport vectors at bake time.
+            if (is_bldg && a.buildings.size() >= 280) {
+                pos = end + 1;
+                continue;
+            }
+            if (is_apron && !is_bldg && a.aprons.size() >= 80) {
+                pos = end + 1;
+                continue;
+            }
+            if (!is_bldg && !is_apron && a.taxiways.size() >= 400) {
+                pos = end + 1;
+                continue;
+            }
+            if (a.taxiways.size() >= 400 && a.aprons.size() >= 80 && a.buildings.size() >= 280)
+                return added;
+            added += merge_osm_json(a, chunk);
+            pos = end + 1;
+            if (pos > 128 * 1024) {
+                carry.erase(0, pos);
+                pos = 0;
+            }
+        }
+    }
+    return added;
+}
+
+namespace {
+
+void write_u32(std::ostream& o, std::uint32_t v) {
+    o.write(reinterpret_cast<const char*>(&v), 4);
+}
+void write_f32(std::ostream& o, float v) {
+    o.write(reinterpret_cast<const char*>(&v), 4);
+}
+void write_f64(std::ostream& o, double v) {
+    o.write(reinterpret_cast<const char*>(&v), 8);
+}
+bool read_u32(std::istream& i, std::uint32_t& v) {
+    i.read(reinterpret_cast<char*>(&v), 4);
+    return static_cast<bool>(i);
+}
+bool read_f32(std::istream& i, float& v) {
+    i.read(reinterpret_cast<char*>(&v), 4);
+    return static_cast<bool>(i);
+}
+bool read_f64(std::istream& i, double& v) {
+    i.read(reinterpret_cast<char*>(&v), 8);
+    return static_cast<bool>(i);
+}
+
+void write_poly(std::ostream& o, const std::string& name, float extra,
+                const std::vector<std::pair<double, double>>& pts) {
+    const auto nlen = static_cast<std::uint32_t>(std::min<std::size_t>(name.size(), 255));
+    write_u32(o, nlen);
+    o.write(name.data(), static_cast<std::streamsize>(nlen));
+    write_f32(o, extra);
+    write_u32(o, static_cast<std::uint32_t>(pts.size()));
+    for (const auto& p : pts) {
+        write_f64(o, p.first);
+        write_f64(o, p.second);
+    }
+}
+
+bool read_poly(std::istream& i, std::string& name, float& extra,
+               std::vector<std::pair<double, double>>& pts) {
+    std::uint32_t nlen = 0, npts = 0;
+    if (!read_u32(i, nlen) || nlen > 1024)
+        return false;
+    name.assign(nlen, '\0');
+    i.read(name.data(), static_cast<std::streamsize>(nlen));
+    if (!read_f32(i, extra) || !read_u32(i, npts) || npts > 20000)
+        return false;
+    pts.resize(npts);
+    for (auto& p : pts) {
+        if (!read_f64(i, p.first) || !read_f64(i, p.second))
+            return false;
+    }
+    return static_cast<bool>(i);
+}
+
+} // namespace
+
+bool write_osm_bin(const Airport& a, const std::string& path) {
+    const auto parent = std::filesystem::path(path).parent_path();
+    if (!parent.empty())
+        std::filesystem::create_directories(parent);
+    std::ofstream o(path, std::ios::binary);
+    if (!o)
+        return false;
+    o.write("S376OSM1", 8);
+    write_u32(o, 1);
+    const auto nt = std::min<std::size_t>(a.taxiways.size(), 400);
+    const auto na = std::min<std::size_t>(a.aprons.size(), 80);
+    const auto nb = std::min<std::size_t>(a.buildings.size(), 280);
+    write_u32(o, static_cast<std::uint32_t>(nt));
+    write_u32(o, static_cast<std::uint32_t>(na));
+    write_u32(o, static_cast<std::uint32_t>(nb));
+    for (std::size_t i = 0; i < nt; ++i)
+        write_poly(o, a.taxiways[i].name, static_cast<float>(a.taxiways[i].width_m), a.taxiways[i].path);
+    for (std::size_t i = 0; i < na; ++i)
+        write_poly(o, a.aprons[i].name, 0.f, a.aprons[i].ring);
+    for (std::size_t i = 0; i < nb; ++i)
+        write_poly(o, a.buildings[i].name, a.buildings[i].height_m, a.buildings[i].ring);
+    return static_cast<bool>(o);
+}
+
+int read_osm_bin(Airport& a, const std::string& path) {
+    std::ifstream i(path, std::ios::binary);
+    if (!i)
+        return 0;
+    char mag[8];
+    i.read(mag, 8);
+    if (!i || std::memcmp(mag, "S376OSM1", 8) != 0)
+        return 0;
+    std::uint32_t ver = 0, nt = 0, na = 0, nb = 0;
+    if (!read_u32(i, ver) || ver != 1 || !read_u32(i, nt) || !read_u32(i, na) || !read_u32(i, nb))
+        return 0;
+    int added = 0;
+    for (std::uint32_t n = 0; n < nt; ++n) {
+        Taxiway t;
+        float w = 23.f;
+        if (!read_poly(i, t.name, w, t.path))
+            break;
+        t.width_m = w;
+        a.taxiways.push_back(std::move(t));
+        ++added;
+    }
+    for (std::uint32_t n = 0; n < na; ++n) {
+        Apron ap;
+        float z = 0;
+        if (!read_poly(i, ap.name, z, ap.ring))
+            break;
+        a.aprons.push_back(std::move(ap));
+        ++added;
+    }
+    for (std::uint32_t n = 0; n < nb; ++n) {
+        Building b;
+        if (!read_poly(i, b.name, b.height_m, b.ring))
+            break;
+        a.buildings.push_back(std::move(b));
+        ++added;
+    }
+    return added;
+}
+
+int bake_osm_bin(const std::string& json_path, const std::string& bin_path) {
+    Airport tmp;
+    // Bake tools may stream a large Overpass file; no 2 MiB cap.
+    const int n = merge_osm_file_stream(tmp, json_path, 0);
+    if (!write_osm_bin(tmp, bin_path))
+        return 0;
+    return n;
 }
 
 int try_load_osm(Airport& a, const std::string& cache_dir) {
     std::string id = a.icao;
+    std::string low = a.icao;
     for (char& c : id)
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    for (char& c : low)
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     std::vector<std::string> paths;
     if (!cache_dir.empty()) {
-        paths.push_back(cache_dir + "/osm.json");
+        paths.push_back(cache_dir + "/osm.bin");
         const auto parent = std::filesystem::path(cache_dir).parent_path();
-        if (!parent.empty())
-            paths.push_back((parent / id / "osm.json").string());
+        if (!parent.empty()) {
+            paths.push_back((parent / id / "osm.bin").string());
+            paths.push_back((parent / low / "osm.bin").string());
+        }
+    } else {
+        paths.push_back("cache/" + id + "/osm.bin");
+        paths.push_back("cache/" + low + "/osm.bin");
     }
-    paths.push_back("cache/" + id + "/osm.json");
-    paths.push_back(std::string("data/airports/") + id + ".osm.json");
     for (const auto& p : paths) {
-        const int n = try_merge_osm_file(a, p);
+        if (!std::filesystem::exists(p))
+            continue;
+        const int n = read_osm_bin(a, p);
         if (n > 0)
             return n;
     }

@@ -77,7 +77,7 @@ or deep it is. Expensive levers are TOML toggles; `render.quality =
 | Anisotropic filter (`render.aniso`, default 16) | **ok** — DEM / globe drapes |
 | Mipmapped drapes | **ok** |
 | FAA AC 150/5340-1 markings | **ok** — geometry (threshold, 5×7 numbers/LRC, aiming, TDZ, CL, edge, hold-short). Stays sharp at grazing angles; no committed textures |
-| Asphalt / rubber / grass detail | **partial** — hash+land-class noise. `scripts/fetch-textures.sh` pulls CC0 Poly Haven 1K JPGs into `cache/textures/` (never committed); shader fallback if absent |
+| Asphalt / rubber / grass detail | **partial** — generated 128² atlas (grass/asphalt/dirt/concrete) blended over ortho with distance fade + hash noise. Optional CC0 Poly Haven / ambientCG via `scripts/fetch-textures.sh` (never committed) |
 | OSM buildings | **partial** — extruded footprints + schematic terminals. LOD cap 280. Instancing later |
 | Analytic sky + aerial perspective | **partial** — Preetham-like dome, sun disc, moon+stars at night, EXP2 + altitude haze (`uHaze`). Not a full Bruneton LUT |
 | Water / coastlines | **partial** — soft land mask + 40 km local patches at each airport, Fresnel + stable waves + sun glint. OSM water/coastline queried, not meshed yet |

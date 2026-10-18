@@ -2,6 +2,7 @@
 
 #include "s376/geo.hpp"
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -137,8 +138,17 @@ int merge_osm_json(Airport& a, const std::string& json);
 std::string overpass_aeroway_query(double south, double west, double north, double east);
 // GET URL with [ ] { } percent-encoded so curl globbing cannot expand it.
 std::string overpass_aeroway_url(double south, double west, double north, double east);
-// Load that JSON from a file (0 if missing). Search cache/<icao>/osm.json etc.
+// Load that JSON from a file (0 if missing). For bake tools only — the
+// renderer must not open a 400 MB Overpass dump.
 int try_merge_osm_file(Airport& a, const std::string& path);
+// Stream-parse a (possibly huge) Overpass file. Never slurp the whole file.
+int merge_osm_file_stream(Airport& a, const std::string& path, std::uint64_t max_bytes = 0);
+// Compact runtime sidecar. The IG loads only this, never osm.json.
+bool write_osm_bin(const Airport& a, const std::string& path);
+int read_osm_bin(Airport& a, const std::string& path);
+// Bake osm.json → osm.bin (stream parse). Returns ways written.
+int bake_osm_bin(const std::string& json_path, const std::string& bin_path);
+// Runtime: osm.bin only. Does not open osm.json.
 int try_load_osm(Airport& a, const std::string& cache_dir);
 
 void generate_lights(Airport& a);

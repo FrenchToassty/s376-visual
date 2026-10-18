@@ -55,6 +55,9 @@ void test_config() {
     CHECK(d.render.detail_textures && d.render.buildings);
     CHECK(d.render.ssao && !d.render.shadows);
     CHECK(d.render.sync_to_host);
+    CHECK(d.render.ram_mb == 2048);
+    CHECK(d.render.vram_mb == 5120);
+    CHECK(d.render.mesh_n == 96);
     {
         auto rtx = d.render;
         s376::apply_quality_preset(rtx, "rtx");
@@ -62,10 +65,19 @@ void test_config() {
         CHECK(rtx.ssao && rtx.shadows);
         CHECK(rtx.msaa >= 4 && rtx.aniso >= 16);
         CHECK_NEAR(rtx.exposure, 1.05, 1e-4);
+        CHECK(rtx.ram_mb >= 3072);
+        CHECK(rtx.vram_mb >= 10240);
+        CHECK(rtx.mesh_n >= 128);
         auto gtx = d.render;
         s376::apply_quality_preset(gtx, "gtx980ti");
         CHECK(gtx.ssao && !gtx.shadows);
         CHECK(gtx.hdr && gtx.atmosphere);
+        CHECK(gtx.ram_mb == 2048);
+        CHECK(gtx.vram_mb == 5120);
+        CHECK(gtx.mesh_n == 96);
+        const auto dumped = s376::dump_config(d);
+        CHECK(dumped.find("render.ram_mb=2048") != std::string::npos);
+        CHECK(dumped.find("render.vram_mb=5120") != std::string::npos);
     }
     {
         const auto lin = s376::plan_gl_display(true, false);

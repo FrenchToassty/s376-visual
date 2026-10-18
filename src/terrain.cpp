@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -107,27 +108,77 @@ void DemGrid::save(const std::string& path) const {
     o.write(reinterpret_cast<const char*>(z_m.data()), static_cast<std::streamsize>(z_m.size() * 4));
 }
 
-DemGrid DemGrid::load(const std::string& path) {
-    std::ifstream in(path, std::ios::binary);
-    if (!in)
-        throw std::runtime_error("cannot read " + path);
+static bool read_dem_header(std::istream& in, DemGrid& d) {
     char mag[8];
     in.read(mag, 8);
-    if (std::memcmp(mag, kMagic, 8) != 0)
-        throw std::runtime_error(path + " is not an s376 DEM");
-    DemGrid d;
+    if (!in || std::memcmp(mag, kMagic, 8) != 0)
+        return false;
     in.read(reinterpret_cast<char*>(&d.w), 4);
     in.read(reinterpret_cast<char*>(&d.h), 4);
     in.read(reinterpret_cast<char*>(&d.west), 8);
     in.read(reinterpret_cast<char*>(&d.south), 8);
     in.read(reinterpret_cast<char*>(&d.east), 8);
     in.read(reinterpret_cast<char*>(&d.north), 8);
-    if (d.w <= 0 || d.h <= 0 || d.w > 16384 || d.h > 16384)
-        throw std::runtime_error(path + " has implausible DEM size");
+    return static_cast<bool>(in) && d.w > 0 && d.h > 0 && d.w <= 16384 && d.h <= 16384;
+}
+
+DemGrid DemGrid::peek(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in)
+        throw std::runtime_error("cannot read " + path);
+    DemGrid d;
+    if (!read_dem_header(in, d))
+        throw std::runtime_error(path + " is not an s376 DEM");
+    return d;
+}
+
+DemGrid DemGrid::load(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in)
+        throw std::runtime_error("cannot read " + path);
+    DemGrid d;
+    if (!read_dem_header(in, d))
+        throw std::runtime_error(path + " is not an s376 DEM");
     d.z_m.resize(static_cast<std::size_t>(d.w * d.h));
     in.read(reinterpret_cast<char*>(d.z_m.data()), static_cast<std::streamsize>(d.z_m.size() * 4));
     if (!in)
         throw std::runtime_error(path + " truncated");
+    return d;
+}
+
+DemGrid DemGrid::load_subsampled(const std::string& path, int max_n) {
+    const int cap = std::max(8, max_n);
+    std::ifstream in(path, std::ios::binary);
+    if (!in)
+        throw std::runtime_error("cannot read " + path);
+    DemGrid hdr;
+    if (!read_dem_header(in, hdr))
+        throw std::runtime_error(path + " is not an s376 DEM");
+    if (hdr.w <= cap && hdr.h <= cap)
+        return load(path);
+    DemGrid d;
+    d.w = cap;
+    d.h = cap;
+    d.west = hdr.west;
+    d.south = hdr.south;
+    d.east = hdr.east;
+    d.north = hdr.north;
+    d.z_m.assign(static_cast<std::size_t>(d.w * d.h), 0.f);
+    const std::uint64_t header = 48;
+    std::vector<float> row(static_cast<std::size_t>(hdr.w));
+    for (int y = 0; y < d.h; ++y) {
+        const int sy = std::min(hdr.h - 1, y * (hdr.h - 1) / std::max(1, d.h - 1));
+        in.seekg(static_cast<std::streamoff>(header + static_cast<std::uint64_t>(sy) *
+                                                           static_cast<std::uint64_t>(hdr.w) * 4));
+        in.read(reinterpret_cast<char*>(row.data()),
+                static_cast<std::streamsize>(hdr.w * 4));
+        if (!in)
+            throw std::runtime_error(path + " truncated");
+        for (int x = 0; x < d.w; ++x) {
+            const int sx = std::min(hdr.w - 1, x * (hdr.w - 1) / std::max(1, d.w - 1));
+            d.z_m[static_cast<std::size_t>(y * d.w + x)] = row[static_cast<std::size_t>(sx)];
+        }
+    }
     return d;
 }
 
@@ -406,8 +457,136 @@ CacheRegion load_cache(const std::string& dir) {
     r.dir = dir;
     r.dem = DemGrid::load(dir + "/elev.s376dem");
     r.imagery_dds = dir + "/imagery.dds";
-    r.imagery = ImageRgb::hillshade(r.dem); // CPU copy for HAT-less drape fallback
+    // Do not hillshade the full DEM here — a 4000² tile is 48 MB of RGB
+    // and was a large part of the KJFK OOM. Texture comes from imagery.dds.
     return r;
+}
+
+CacheRegion load_cache_mesh(const std::string& dir, int max_mesh_n) {
+    CacheRegion r;
+    r.dir = dir;
+    r.dem = DemGrid::load_subsampled(dir + "/elev.s376dem", max_mesh_n);
+    r.imagery_dds = dir + "/imagery.dds";
+    return r;
+}
+
+bool cache_dir_looks_packed(const std::string& dir) {
+    if (dir.empty())
+        return false;
+    return std::filesystem::exists(dir + "/elev.s376dem") ||
+           std::filesystem::exists(dir + "/lod0/elev.s376dem") ||
+           std::filesystem::exists(dir + "/imagery.dds") ||
+           std::filesystem::is_directory(dir + "/lod0");
+}
+
+std::string resolve_cache_dir(const std::string& configured, const std::string& icao) {
+    if (!configured.empty() && cache_dir_looks_packed(configured))
+        return configured;
+    if (!configured.empty() && std::filesystem::is_directory(configured))
+        return configured;
+    if (icao.empty())
+        return configured;
+    std::string id = icao;
+    std::string low = icao;
+    for (char& c : id)
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    for (char& c : low)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    const std::string cands[] = {"cache/" + id, "cache/" + low, id, low};
+    for (const auto& c : cands) {
+        if (cache_dir_looks_packed(c))
+            return c;
+    }
+    return configured;
+}
+
+double tile_center_lat(const CacheTileRef& t) {
+    return 0.5 * (t.south + t.north);
+}
+double tile_center_lon(const CacheTileRef& t) {
+    return 0.5 * (t.west + t.east);
+}
+
+std::uint64_t estimate_tile_cpu_bytes(const CacheTileRef& t, int max_mesh_n) {
+    const int n = std::max(8, max_mesh_n);
+    // verts + norms + uvs + indices, after the full raster is discarded
+    const std::uint64_t mesh = static_cast<std::uint64_t>(n) * static_cast<std::uint64_t>(n) * 48ull;
+    return mesh + 8192ull + std::min<std::uint64_t>(t.dds_bytes, 256ull * 1024ull);
+}
+
+std::vector<CacheTileRef> scan_cache_tiles(const std::string& dir) {
+    std::vector<CacheTileRef> out;
+    if (dir.empty() || !std::filesystem::is_directory(dir))
+        return out;
+    auto add = [&](const std::string& path, int lod) {
+        const std::string elev = path + "/elev.s376dem";
+        if (!std::filesystem::exists(elev))
+            return;
+        try {
+            CacheTileRef t;
+            t.path = path;
+            t.lod = lod;
+            const auto hdr = DemGrid::peek(elev);
+            t.west = hdr.west;
+            t.south = hdr.south;
+            t.east = hdr.east;
+            t.north = hdr.north;
+            t.dem_w = hdr.w;
+            t.dem_h = hdr.h;
+            t.dem_bytes = std::filesystem::file_size(elev);
+            const std::string dds = path + "/imagery.dds";
+            if (std::filesystem::exists(dds))
+                t.dds_bytes = std::filesystem::file_size(dds);
+            out.push_back(std::move(t));
+        } catch (...) {
+        }
+    };
+    for (int lod = 0; lod <= 2; ++lod) {
+        const std::string base = dir + "/lod" + std::to_string(lod);
+        add(base, lod);
+        if (!std::filesystem::is_directory(base))
+            continue;
+        for (const auto& e : std::filesystem::directory_iterator(base)) {
+            if (!e.is_directory())
+                continue;
+            const std::string name = e.path().filename().string();
+            if (name.size() < 2 || name[0] != 't')
+                continue;
+            add(e.path().string(), lod);
+        }
+    }
+    add(dir, 1); // coarse root
+    return out;
+}
+
+#ifndef _WIN32
+#include <unistd.h>
+#endif
+
+static std::uint64_t proc_status_kb(const char* key) {
+#ifndef _WIN32
+    std::ifstream in("/proc/self/status");
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.rfind(key, 0) != 0)
+            continue;
+        std::size_t i = 0;
+        while (i < line.size() && (line[i] < '0' || line[i] > '9'))
+            ++i;
+        if (i >= line.size())
+            return 0;
+        return std::strtoull(line.c_str() + i, nullptr, 10);
+    }
+#endif
+    return 0;
+}
+
+std::uint64_t current_rss_bytes() {
+    return proc_status_kb("VmRSS:") * 1024ull;
+}
+std::uint64_t peak_rss_bytes() {
+    const auto kb = proc_status_kb("VmHWM:");
+    return kb * 1024ull;
 }
 
 } // namespace s376

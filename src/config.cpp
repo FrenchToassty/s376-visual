@@ -123,6 +123,9 @@ void apply_quality_preset(RenderConfig& r, const std::string& name) {
         r.ssao = true;
         r.shadows = true;
         r.exposure = 1.05f;
+        r.ram_mb = std::max(r.ram_mb, 3072);
+        r.vram_mb = std::max(r.vram_mb, 10240);
+        r.mesh_n = std::max(r.mesh_n, 128);
         return;
     }
     // gtx980ti (default): 60 Hz × 1 on 6 GB Maxwell (one projector PC).
@@ -137,6 +140,9 @@ void apply_quality_preset(RenderConfig& r, const std::string& name) {
     r.ssao = true;
     r.shadows = false;
     r.exposure = 1.0f;
+    r.ram_mb = 2048;
+    r.vram_mb = 5120;
+    r.mesh_n = 96;
 }
 
 AppConfig default_config() {
@@ -224,6 +230,12 @@ static void fill_render(RenderConfig& r, const std::unordered_map<std::string, s
         r.exposure = static_cast<float>(std::stod(kv.at("render.exposure")));
     if (kv.count("render.sync_to_host"))
         parse_bool(kv.at("render.sync_to_host"), r.sync_to_host);
+    if (kv.count("render.ram_mb"))
+        r.ram_mb = std::stoi(kv.at("render.ram_mb"));
+    if (kv.count("render.vram_mb"))
+        r.vram_mb = std::stoi(kv.at("render.vram_mb"));
+    if (kv.count("render.mesh_n"))
+        r.mesh_n = std::stoi(kv.at("render.mesh_n"));
 }
 
 static ChannelConfig fill_channel(const std::unordered_map<std::string, std::string>& kv) {
@@ -323,6 +335,9 @@ std::string dump_config(const AppConfig& cfg, const std::vector<std::string>& se
     o << "render.ssao=" << (cfg.render.ssao ? "true" : "false") << "\n";
     o << "render.shadows=" << (cfg.render.shadows ? "true" : "false") << "\n";
     o << "render.sync_to_host=" << (cfg.render.sync_to_host ? "true" : "false") << "\n";
+    o << "render.ram_mb=" << cfg.render.ram_mb << "\n";
+    o << "render.vram_mb=" << cfg.render.vram_mb << "\n";
+    o << "render.mesh_n=" << cfg.render.mesh_n << "\n";
     if (!selected.empty()) {
         o << "selected=";
         for (std::size_t i = 0; i < selected.size(); ++i) {

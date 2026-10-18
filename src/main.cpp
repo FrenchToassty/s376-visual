@@ -282,6 +282,19 @@ int main(int argc, char** argv) {
                       shot.icao.c_str(), shot.rwy.empty() ? "-" : shot.rwy.c_str(), shot.lat,
                       shot.lon, shot.alt_ft, shot.hdg_true_deg, shot.pitch_deg, shot.roll_deg,
                       shot.dist_nm);
+        if (cfg.render.cache_dir.empty()) {
+            const auto found = s376::resolve_cache_dir({}, shot.icao);
+            if (!found.empty()) {
+                cfg.render.cache_dir = found;
+                S376_LOG_INFO("ig", "auto cache_dir %s (from --at %s)", found.c_str(),
+                              shot.icao.c_str());
+            } else {
+                S376_LOG_WARN("ig",
+                              "no cache/%s — renderer will use a synth KSEA DEM. "
+                              "Run `s376-cache fetch %s` or pass --cache-dir",
+                              shot.icao.c_str(), shot.icao.c_str());
+            }
+        }
     }
     if (!screenshot_path.empty() && !have_shot && self_test_shot.empty()) {
         std::cerr << "--screenshot needs --at ICAO[:RWY[:dist_nm]]\n";

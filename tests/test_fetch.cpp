@@ -76,7 +76,24 @@ void test_fetch() {
     CHECK(s376::safety::is_allowed_data_host("tiles.maps.eox.at"));
     CHECK(s376::safety::is_allowed_data_host("dl.polyhaven.org"));
     CHECK(s376::safety::is_allowed_data_host("ambientcg.com"));
+    CHECK(s376::safety::is_allowed_data_host("orthos.its.ny.gov"));
+    CHECK(s376::safety::is_allowed_data_host("its.ny.gov"));
+    CHECK(s376::safety::is_allowed_data_host("imagery.nationalmap.gov"));
     CHECK(!s376::safety::is_allowed_data_host("10.1.95.1"));
+    CHECK(s376::imagery_covers_nys(40.64, -73.78));
+    CHECK(!s376::imagery_covers_nys(47.45, -122.31));
+    s376::GeoBox nyc;
+    nyc.west = -73.90;
+    nyc.south = 40.60;
+    nyc.east = -73.70;
+    nyc.north = 40.70;
+    const auto nys_url = s376::imagery_export_url("nys", nyc, 512, 512);
+    CHECK(nys_url.find("orthos.its.ny.gov") != std::string::npos);
+    CHECK(s376::curl_glob_safe(nys_url));
+    s376::safety::check_data_url(nys_url);
+    const auto hro_url = s376::imagery_export_url("hro", nyc, 512, 512);
+    CHECK(hro_url.find("USGSNAIPPlus") != std::string::npos);
+    s376::safety::check_data_url(hro_url);
 
     s376::FetchRequest req;
     req.icao = "KSEA";
@@ -122,6 +139,20 @@ void test_fetch() {
     plan = s376::plan_fetch(req);
     CHECK(plan.dem_kind == "glo30");
     CHECK(plan.img_kind == "s2");
+
+    req.icao = "KJFK";
+    req.imagery = "auto";
+    plan = s376::plan_fetch(req);
+    CHECK(plan.dem_kind == "3dep");
+    CHECK(plan.img_kind == "nys");
+    bool saw_nys = false;
+    for (const auto& u : plan.urls) {
+        CHECK(s376::curl_glob_safe(u));
+        if (u.find("orthos.its.ny.gov") != std::string::npos)
+            saw_nys = true;
+    }
+    CHECK(saw_nys);
+    CHECK(plan.attribution.find("NYS") != std::string::npos);
 
     auto src = s376::generate_ksea_cache();
     const auto tmp = (std::filesystem::temp_directory_path() / "s376-lod-test").string();
