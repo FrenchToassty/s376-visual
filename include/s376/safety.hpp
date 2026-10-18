@@ -38,4 +38,10 @@ Endpoint check_destination(const std::string& host, std::uint16_t port, const st
 Endpoint check_bind(const std::string& host, std::uint16_t port, const std::string& purpose,
                     bool allow_sim_lan, bool allow_lan);
 
+// Public DEM/imagery hosts (AWS Open Data, USGS, EOX, Overpass, …).
+// IPv4 sim-LAN literals are still refused. Hostnames must match the list.
+bool is_allowed_data_host(const std::string& host);
+void check_data_url(const std::string& url); // throws UnsafeEndpoint
+bool parse_url_host(const std::string& url, std::string& host);
+
 } // namespace s376::safety

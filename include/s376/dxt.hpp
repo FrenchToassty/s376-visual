@@ -16,14 +16,22 @@ struct RgbImage {
 };
 
 // Encode tightly packed RGB8 (row-major, top-down) to a DDS BC1 file.
-void write_dds_bc1(const std::string& path, const std::uint8_t* rgb, int w, int h);
+// `mips` writes a full mip chain (box filter) for GPU minification.
+void write_dds_bc1(const std::string& path, const std::uint8_t* rgb, int w, int h,
+                   bool mips = false);
 
-// Encode and also return the raw BC1 blocks (no header) for tests.
+// BC7 mode-6 (opaque). Larger blocks, better near-field colour. DX10 DDS.
+void write_dds_bc7(const std::string& path, const std::uint8_t* rgb, int w, int h,
+                   bool mips = false);
+
 std::vector<std::uint8_t> encode_bc1(const std::uint8_t* rgb, int w, int h);
-
-// Decode BC1 blocks back to RGB8 (for tests / fallback if OSG has no DDS plugin).
+std::vector<std::uint8_t> encode_bc7(const std::uint8_t* rgb, int w, int h);
 std::vector<std::uint8_t> decode_bc1(const std::uint8_t* blocks, int w, int h);
 
+std::vector<std::uint8_t> downsample2(const std::uint8_t* rgb, int w, int h, int& ow, int& oh);
+
 std::size_t bc1_size(int w, int h);
+std::size_t bc7_size(int w, int h);
+int mip_count(int w, int h);
 
 } // namespace s376::dxt

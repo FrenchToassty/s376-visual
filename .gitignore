@@ -19,6 +19,9 @@ compile_commands.json
 /logs/
 /recordings/
 /cache/
+/downloads/
+*.tif
+*.tiff
 *.jsonl
 
 # Local overrides (may contain LAN addresses)

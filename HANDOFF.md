@@ -8,9 +8,8 @@ account may stop mid-run — treat this file as the source of truth.
 
 ## Verified in this run
 
-- `s376-tests`: **1984 passed, 0 failed** (VAX floats, encodings, HAT host-side
-  decode, live DEM-sampled HAT on loopback ≈433 ft / 14 ft AGL, safety, TOML,
-  channels, DEM/BC1/GDAL, KSEA runways + light groups).
+- `s376-tests`: **2018 passed, 0 failed** (previous suite plus fetch URL
+  builders, public-data host allowlist, LOD/BC7 pack).
 - `s376-visual --headless --demo --duration 2`: 40 datagrams / 40 eyepoints,
   KSEA 16L, env TOD 14.5 / vis 60760 ft.
 - `s376-visual --demo` under Xvfb: OSG window "front" 1920×1080, 50×32.5 FOV,
@@ -24,6 +23,16 @@ account may stop mid-run — treat this file as the source of truth.
 - GitHub Actions `ci / linux` on `d3f6dfc` (HAT + KSEA + cache): **green**
   (ubuntu-24.04, 1984 tests, doctor, headless demo, sim-LAN refusal,
   `s376-cache` smoke). Optional osgEarth job is `workflow_dispatch` only.
+
+## Milestone: real GLO-30 / 3DEP + NAIP fetch (2026-10-18)
+
+`s376-cache fetch ICAO` downloads USGS 3DEP (CONUS) or Copernicus GLO-30
+and NAIP / Sentinel-2 cloudless, then packs a LOD pyramid (BC7 + mips
+near the field, BC1 farther out). Verified live: 8 km KSEA 3DEP+NAIP,
+ARP sample 391 ft MSL, packed tiles ~1.4 MiB after dropping raw COGs.
+`--dry-run` prints allow-listed URLs. Licences in `docs/SOURCES.md`.
+Downloaded rasters stay under `cache/` (gitignored). Synth `--lods`
+still works offline for CI.
 
 ## Milestone: real HAT / HOT (2026-10-18)
 
@@ -82,8 +91,8 @@ are unit-tested.
 - Minimal OSG renderer: WGS84 globe, host-driven camera, exp2 fog, sun
   from TOD. Local DEM patch + BC1 drape. osgEarth earth file is loaded
   when the lib is present.
-- `s376-cache`: `synth-ksea` / `from-geotiff` / `info`. Packed KSEA box
-  is tens of KiB, not 857 GB.
+- `s376-cache`: `fetch` / `synth-ksea --lods` / `from-geotiff` / `info`.
+  Real 3DEP+NAIP or GLO-30+S2; LOD pyramid with BC1/BC7 mips.
 - Airport rebuild plan: `docs/AIRPORTS.md`. Terrain sources: `docs/SOURCES.md`.
 - Safety: `10.1.95.0/24` and `192.168.173.0/24` refused unless
   `host.allow_sim_lan` / `S376_ALLOW_SIM_LAN=1`. Tests never set that.
@@ -100,11 +109,11 @@ are unit-tested.
 
 ## Next 5 concrete steps (in order)
 
-1. **Build osgEarth** on the hangar box and confirm `s376.earth` drapes.
-2. **KSFO / KLAS** airport meshes using the same generator.
-3. **Asymmetric / off-axis projection** if ViewAngles overlap is not enough.
-4. **NLIM / edge blend** — later.
-5. **Capture/replay** on loopback only; never commit pcaps.
+1. **KSFO / KLAS** airport meshes using the same generator.
+2. **s376-doctor** cache-size + per-channel frame time.
+3. **Build osgEarth** on the hangar box and confirm `s376.earth` drapes.
+4. **Asymmetric / off-axis projection** if ViewAngles overlap is not enough.
+5. **NLIM / edge blend** — later.
 
 ## How to build / run / test (Linux Mint 22)
 

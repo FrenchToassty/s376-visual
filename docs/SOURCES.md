@@ -37,24 +37,45 @@ NAIP / Sentinel-2 GeoTIFF) for a real region — tens of MiB, not the
 With osgEarth, add an elevation layer to `s376.earth` and the same
 camera path rides the streamed mesh.
 
+## Licences and attribution
+
+| Product | Licence | How we cite it |
+|---|---|---|
+| Copernicus GLO-30 | [Copernicus DEM licence](https://spacedata.copernicus.eu) (© European Union) | `ATTRIBUTION.txt` in each packed cache |
+| USGS 3DEP | US government work, public domain | same |
+| USDA NAIP (via USGS National Map) | US government work, public domain | same |
+| EOX Sentinel-2 cloudless | [CC BY 4.0](https://s2maps.eu/) + Copernicus Sentinel | same |
+| OurAirports runways.csv | public domain | airport TOML / `airport.hpp` |
+| OpenStreetMap aeroway=* | [ODbL](https://www.openstreetmap.org/copyright) | OSM taxi/apron ways; attribute OSM |
+
+Do **not** commit downloaded GeoTIFFs, JPEGs, or packed `cache/` trees.
+`cache/` and `*.tif` are gitignored. `s376-cache fetch` writes
+`ATTRIBUTION.txt` next to the tiles.
+
 ## Caching
 
 ```bash
 # synthetic KSEA (no download, CI and laptops)
-./build/s376-cache synth-ksea --out cache/ksea
+./build/s376-cache synth-ksea --out cache/ksea --lods
 
-# real Copernicus GLO-30 + optional imagery (GDAL)
-./build/s376-cache from-geotiff ~/data/glo30-ksea.tif \
-    --imagery ~/data/naip-ksea.tif --out cache/ksea
+# real data: GLO-30 or USGS 3DEP + NAIP (CONUS) / Sentinel-2 cloudless
+./build/s376-cache fetch KSEA --radius-km 25 --out cache/ksea
+./build/s376-cache fetch KSFO --out cache/ksfo
+./build/s376-cache fetch EGLL --dem glo30 --imagery s2 --out cache/egll
+
+# preview the public URLs without downloading
+./build/s376-cache fetch KSEA --dry-run
 ```
 
-Then set `render.cache_dir = "cache/ksea"` (or `--cache-dir`). Packed
-files are `elev.s376dem`, `imagery.dds` (BC1), and `region.toml`.
-KTX2/Basis is a later swap for the same drape slot; BC1 is the v0
-GPU format because OSG 3.6 already understands DXT1.
+`fetch` packs a LOD pyramid: high-res (~8 km, BC7 + mips) near the
+field, mid (~25 km, BC1), optional coarse far ring. Root
+`elev.s376dem` is the finest LOD so HAT still works. A 25 km box is
+tens of MiB, not the 857 GB uncompressed RSI CERTS farm.
+
+Then set `render.cache_dir = "cache/ksea"` (or `--cache-dir`).
 
 osgEarth's own file cache is separate and is enough for a hangar box
-that has the library. Do not commit downloaded tiles.
+that has the library.
 
 ## What we will not ship
 

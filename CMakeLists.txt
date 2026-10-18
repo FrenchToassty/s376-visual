@@ -32,6 +32,7 @@ set(S376_CORE_SRC
     src/terrain.cpp
     src/dxt.cpp
     src/airport.cpp
+    src/fetch.cpp
 )
 
 if(S376_WITH_GDAL)
@@ -111,6 +112,7 @@ add_executable(s376-tests
     tests/test_terrain.cpp
     tests/test_airport.cpp
     tests/test_hat.cpp
+    tests/test_fetch.cpp
 )
 target_link_libraries(s376-tests PRIVATE s376_core)
 

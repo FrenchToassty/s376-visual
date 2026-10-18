@@ -394,12 +394,35 @@ class OsgRenderer final : public Renderer {
         root->addChild(make_procedural_globe());
 #endif
         {
-            const CacheRegion cache = load_or_synth_cache(cfg.render.cache_dir);
-            if (auto* patch = make_dem_patch(cache)) {
-                root->addChild(patch);
-                S376_LOG_INFO("render", "draped %s DEM  %.3f,%.3f .. %.3f,%.3f  BC1/hillshade",
-                              cache.name.empty() ? "region" : cache.name.c_str(), cache.dem.west,
-                              cache.dem.south, cache.dem.east, cache.dem.north);
+            const std::string dir = cfg.render.cache_dir;
+            bool any_lod = false;
+            if (!dir.empty()) {
+                for (int i = 2; i >= 0; --i) {
+                    const std::string lod = dir + "/lod" + std::to_string(i);
+                    if (!std::filesystem::exists(lod + "/elev.s376dem"))
+                        continue;
+                    try {
+                        auto cache = load_cache(lod);
+                        if (auto* patch = make_dem_patch(cache)) {
+                            root->addChild(patch);
+                            any_lod = true;
+                            S376_LOG_INFO("render", "draped LOD%d  %dx%d  %.3f,%.3f .. %.3f,%.3f", i,
+                                          cache.dem.w, cache.dem.h, cache.dem.west, cache.dem.south,
+                                          cache.dem.east, cache.dem.north);
+                        }
+                    } catch (const std::exception& ex) {
+                        S376_LOG_WARN("render", "LOD%d: %s", i, ex.what());
+                    }
+                }
+            }
+            if (!any_lod) {
+                const CacheRegion cache = load_or_synth_cache(dir);
+                if (auto* patch = make_dem_patch(cache)) {
+                    root->addChild(patch);
+                    S376_LOG_INFO("render", "draped %s DEM  %.3f,%.3f .. %.3f,%.3f  BC1/hillshade",
+                                  cache.name.empty() ? "region" : cache.name.c_str(), cache.dem.west,
+                                  cache.dem.south, cache.dem.east, cache.dem.north);
+                }
             }
         }
         {

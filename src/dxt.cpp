@@ -151,12 +151,150 @@ std::vector<std::uint8_t> decode_bc1(const std::uint8_t* blocks, int w, int h) {
     return rgb;
 }
 
-void write_dds_bc1(const std::string& path, const std::uint8_t* rgb, int w, int h) {
-    auto blocks = encode_bc1(rgb, w, h);
-    std::ofstream o(path, std::ios::binary);
-    if (!o)
-        throw std::runtime_error("cannot write " + path);
-    // DDS header (128 bytes), DXTn
+std::size_t bc7_size(int w, int h) {
+    const int bw = (w + 3) / 4;
+    const int bh = (h + 3) / 4;
+    return static_cast<std::size_t>(bw * bh * 16);
+}
+
+int mip_count(int w, int h) {
+    int n = 1;
+    while (w > 1 || h > 1) {
+        w = std::max(1, w / 2);
+        h = std::max(1, h / 2);
+        ++n;
+    }
+    return n;
+}
+
+std::vector<std::uint8_t> downsample2(const std::uint8_t* rgb, int w, int h, int& ow, int& oh) {
+    ow = std::max(1, w / 2);
+    oh = std::max(1, h / 2);
+    std::vector<std::uint8_t> out(static_cast<std::size_t>(ow * oh * 3));
+    for (int y = 0; y < oh; ++y) {
+        for (int x = 0; x < ow; ++x) {
+            int r = 0, g = 0, b = 0, n = 0;
+            for (int dy = 0; dy < 2; ++dy) {
+                const int iy = std::min(h - 1, y * 2 + dy);
+                for (int dx = 0; dx < 2; ++dx) {
+                    const int ix = std::min(w - 1, x * 2 + dx);
+                    const int i = (iy * w + ix) * 3;
+                    r += rgb[i];
+                    g += rgb[i + 1];
+                    b += rgb[i + 2];
+                    ++n;
+                }
+            }
+            const int o = (y * ow + x) * 3;
+            out[o] = static_cast<std::uint8_t>(r / n);
+            out[o + 1] = static_cast<std::uint8_t>(g / n);
+            out[o + 2] = static_cast<std::uint8_t>(b / n);
+        }
+    }
+    return out;
+}
+
+void encode_bc7_block(const std::uint8_t px[16 * 3], std::uint8_t out[16]) {
+    int min_l = 1e9, max_l = -1, min_i = 0, max_i = 0;
+    for (int i = 0; i < 16; ++i) {
+        const int l = px[i * 3] + 2 * px[i * 3 + 1] + px[i * 3 + 2];
+        if (l < min_l) {
+            min_l = l;
+            min_i = i;
+        }
+        if (l > max_l) {
+            max_l = l;
+            max_i = i;
+        }
+    }
+    const int r0 = px[max_i * 3], g0 = px[max_i * 3 + 1], b0 = px[max_i * 3 + 2];
+    const int r1 = px[min_i * 3], g1 = px[min_i * 3 + 1], b1 = px[min_i * 3 + 2];
+    auto q7 = [](int v) { return std::min(127, (v * 127 + 127) / 255); };
+    const int R0 = q7(r0), G0 = q7(g0), B0 = q7(b0);
+    const int R1 = q7(r1), G1 = q7(g1), B1 = q7(b1);
+    int pal_r[16], pal_g[16], pal_b[16];
+    for (int i = 0; i < 16; ++i) {
+        pal_r[i] = (R0 * (15 - i) + R1 * i) * 255 / (15 * 127);
+        pal_g[i] = (G0 * (15 - i) + G1 * i) * 255 / (15 * 127);
+        pal_b[i] = (B0 * (15 - i) + B1 * i) * 255 / (15 * 127);
+    }
+    int idx[16];
+    for (int i = 0; i < 16; ++i) {
+        int best = 0, best_d = 1e9;
+        for (int k = 0; k < 16; ++k) {
+            const int dr = px[i * 3] - pal_r[k];
+            const int dg = px[i * 3 + 1] - pal_g[k];
+            const int db = px[i * 3 + 2] - pal_b[k];
+            const int d = dr * dr + dg * dg + db * db;
+            if (d < best_d) {
+                best_d = d;
+                best = k;
+            }
+        }
+        idx[i] = best;
+    }
+    std::uint64_t lo = 0, hi = 0;
+    auto put = [&](int bit, int nbits, std::uint64_t v) {
+        for (int i = 0; i < nbits; ++i) {
+            const int b = bit + i;
+            const std::uint64_t one = (v >> i) & 1;
+            if (b < 64)
+                lo |= one << b;
+            else
+                hi |= one << (b - 64);
+        }
+    };
+    put(0, 7, 64);
+    put(7, 7, R0);
+    put(14, 7, R1);
+    put(21, 7, G0);
+    put(28, 7, G1);
+    put(35, 7, B0);
+    put(42, 7, B1);
+    put(49, 7, 127);
+    put(56, 7, 127);
+    put(63, 1, 1);
+    put(64, 1, 1);
+    int bit = 65;
+    put(bit, 3, idx[0] & 7);
+    bit += 3;
+    for (int i = 1; i < 16; ++i) {
+        put(bit, 4, idx[i]);
+        bit += 4;
+    }
+    for (int i = 0; i < 8; ++i)
+        out[i] = static_cast<std::uint8_t>(lo >> (8 * i));
+    for (int i = 0; i < 8; ++i)
+        out[8 + i] = static_cast<std::uint8_t>(hi >> (8 * i));
+}
+
+std::vector<std::uint8_t> encode_bc7(const std::uint8_t* rgb, int w, int h) {
+    const int bw = (w + 3) / 4;
+    const int bh = (h + 3) / 4;
+    std::vector<std::uint8_t> out(static_cast<std::size_t>(bw * bh * 16));
+    std::uint8_t block[16 * 3];
+    for (int by = 0; by < bh; ++by) {
+        for (int bx = 0; bx < bw; ++bx) {
+            for (int y = 0; y < 4; ++y) {
+                const int iy = std::min(h - 1, by * 4 + y);
+                for (int x = 0; x < 4; ++x) {
+                    const int ix = std::min(w - 1, bx * 4 + x);
+                    const int si = (iy * w + ix) * 3;
+                    const int di = (y * 4 + x) * 3;
+                    block[di] = rgb[si];
+                    block[di + 1] = rgb[si + 1];
+                    block[di + 2] = rgb[si + 2];
+                }
+            }
+            encode_bc7_block(block, out.data() + (by * bw + bx) * 16);
+        }
+    }
+    return out;
+}
+
+namespace {
+
+void write_dds_header(std::ostream& o, int w, int h, int mips, bool bc7) {
     std::uint8_t hdr[128] = {};
     hdr[0] = 'D';
     hdr[1] = 'D';
@@ -168,20 +306,82 @@ void write_dds_bc1(const std::string& path, const std::uint8_t* rgb, int w, int 
         hdr[off + 2] = static_cast<std::uint8_t>(v >> 16);
         hdr[off + 3] = static_cast<std::uint8_t>(v >> 24);
     };
-    put32(4, 124);                  // dwSize
-    put32(8, 0x00001007);           // caps | height | width | pixelformat
+    std::uint32_t flags = 0x00001007;
+    if (mips > 1)
+        flags |= 0x00020000;
+    put32(4, 124);
+    put32(8, flags);
     put32(12, static_cast<std::uint32_t>(h));
     put32(16, static_cast<std::uint32_t>(w));
-    put32(20, static_cast<std::uint32_t>(std::max(1, (w + 3) / 4) * 8)); // pitch
-    put32(76, 32);                  // pf size
-    put32(80, 0x4);                 // DDPF_FOURCC
-    hdr[84] = 'D';
-    hdr[85] = 'X';
-    hdr[86] = 'T';
-    hdr[87] = '1';
-    put32(108, 0x1000); // DDSCAPS_TEXTURE
+    const int block = bc7 ? 16 : 8;
+    put32(20, static_cast<std::uint32_t>(std::max(1, (w + 3) / 4) * block));
+    put32(28, static_cast<std::uint32_t>(mips));
+    put32(76, 32);
+    put32(80, 0x4);
+    if (bc7) {
+        hdr[84] = 'D';
+        hdr[85] = 'X';
+        hdr[86] = '1';
+        hdr[87] = '0';
+    } else {
+        hdr[84] = 'D';
+        hdr[85] = 'X';
+        hdr[86] = 'T';
+        hdr[87] = '1';
+    }
+    std::uint32_t caps = 0x1000;
+    if (mips > 1)
+        caps |= 0x400008;
+    put32(108, caps);
     o.write(reinterpret_cast<const char*>(hdr), 128);
-    o.write(reinterpret_cast<const char*>(blocks.data()), static_cast<std::streamsize>(blocks.size()));
+    if (bc7) {
+        std::uint8_t dx10[20] = {};
+        auto p = [&](int off, std::uint32_t v) {
+            dx10[off] = static_cast<std::uint8_t>(v);
+            dx10[off + 1] = static_cast<std::uint8_t>(v >> 8);
+            dx10[off + 2] = static_cast<std::uint8_t>(v >> 16);
+            dx10[off + 3] = static_cast<std::uint8_t>(v >> 24);
+        };
+        p(0, 98);
+        p(4, 3);
+        p(12, 1);
+        o.write(reinterpret_cast<const char*>(dx10), 20);
+    }
+}
+
+void write_mip_chain(std::ostream& o, const std::uint8_t* rgb, int w, int h, bool mips, bool bc7) {
+    std::vector<std::uint8_t> cur(rgb, rgb + static_cast<std::size_t>(w * h * 3));
+    int cw = w, ch = h;
+    const int n = mips ? mip_count(w, h) : 1;
+    for (int i = 0; i < n; ++i) {
+        auto blocks = bc7 ? encode_bc7(cur.data(), cw, ch) : encode_bc1(cur.data(), cw, ch);
+        o.write(reinterpret_cast<const char*>(blocks.data()),
+                static_cast<std::streamsize>(blocks.size()));
+        if (i + 1 < n) {
+            int nw = 0, nh = 0;
+            cur = downsample2(cur.data(), cw, ch, nw, nh);
+            cw = nw;
+            ch = nh;
+        }
+    }
+}
+
+} // namespace
+
+void write_dds_bc1(const std::string& path, const std::uint8_t* rgb, int w, int h, bool mips) {
+    std::ofstream o(path, std::ios::binary);
+    if (!o)
+        throw std::runtime_error("cannot write " + path);
+    write_dds_header(o, w, h, mips ? mip_count(w, h) : 1, false);
+    write_mip_chain(o, rgb, w, h, mips, false);
+}
+
+void write_dds_bc7(const std::string& path, const std::uint8_t* rgb, int w, int h, bool mips) {
+    std::ofstream o(path, std::ios::binary);
+    if (!o)
+        throw std::runtime_error("cannot write " + path);
+    write_dds_header(o, w, h, mips ? mip_count(w, h) : 1, true);
+    write_mip_chain(o, rgb, w, h, mips, true);
 }
 
 } // namespace s376::dxt

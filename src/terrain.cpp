@@ -343,6 +343,10 @@ std::shared_ptr<DemGrid> load_or_synth_dem(const std::string& cache_dir) {
             return std::make_shared<DemGrid>(DemGrid::load(cache_dir + "/elev.s376dem"));
         } catch (const std::exception&) {
         }
+        try {
+            return std::make_shared<DemGrid>(DemGrid::load(cache_dir + "/lod0/elev.s376dem"));
+        } catch (const std::exception&) {
+        }
     }
     return std::make_shared<DemGrid>(DemGrid::synth_ksea());
 }

@@ -133,4 +133,50 @@ Endpoint check_bind(const std::string& host, std::uint16_t port, const std::stri
     return check_common(host, port, purpose, allow_sim_lan, allow_lan, true);
 }
 
+bool parse_url_host(const std::string& url, std::string& host) {
+    auto scheme = url.find("://");
+    if (scheme == std::string::npos)
+        return false;
+    const auto start = scheme + 3;
+    auto slash = url.find('/', start);
+    auto colon = url.find(':', start);
+    auto end = url.size();
+    if (slash != std::string::npos)
+        end = slash;
+    if (colon != std::string::npos && colon < end)
+        end = colon;
+    if (end <= start)
+        return false;
+    host = url.substr(start, end - start);
+    return !host.empty();
+}
+
+bool is_allowed_data_host(const std::string& host) {
+    if (host.empty() || is_forbidden(host))
+        return false;
+    static const char* kOk[] = {
+        "amazonaws.com",       "nationalmap.gov", "usgs.gov",        "arcgis.com",
+        "eox.at",              "s2maps-tiles.eu", "overpass-api.de", "openstreetmap.fr",
+        "openstreetmap.org",   "ourairports.com", nullptr};
+    for (int i = 0; kOk[i]; ++i) {
+        const std::string suf = kOk[i];
+        if (host == suf)
+            return true;
+        if (host.size() > suf.size() &&
+            host.compare(host.size() - suf.size() - 1, suf.size() + 1, "." + suf) == 0)
+            return true;
+    }
+    return false;
+}
+
+void check_data_url(const std::string& url) {
+    std::string host;
+    if (!parse_url_host(url, host))
+        throw UnsafeEndpoint("data url: unparseable '" + url + "'");
+    if (is_forbidden(host))
+        throw UnsafeEndpoint("data url: " + host + " is a simulator LAN");
+    if (!is_allowed_data_host(host))
+        throw UnsafeEndpoint("data url: host '" + host + "' is not on the public DEM/imagery list");
+}
+
 } // namespace s376::safety

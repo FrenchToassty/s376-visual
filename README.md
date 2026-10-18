@@ -113,12 +113,14 @@ The IG drapes a local height field even when osgEarth is absent. Pack a
 region once, offline:
 
 ```bash
-# synthetic 25 km Sea-Tac box (no download) — a few hundred KiB
-./build/s376-cache synth-ksea --out cache/ksea
+# synthetic 25 km Sea-Tac box (no download) — CI / laptops
+./build/s376-cache synth-ksea --out cache/ksea --lods
 
-# real Copernicus GLO-30 clip + optional NAIP / Sentinel-2 GeoTIFF
-./build/s376-cache from-geotiff ~/data/glo30-ksea.tif \
-    --imagery ~/data/naip-ksea.tif --out cache/ksea
+# real, freely licensed data (hangar box with a network)
+./build/s376-cache fetch KSEA --radius-km 25 --out cache/ksea
+./build/s376-cache fetch KSFO --out cache/ksfo
+# preview URLs only:
+./build/s376-cache fetch KSEA --dry-run
 
 ./build/s376-visual --demo --cache-dir cache/ksea
 ```

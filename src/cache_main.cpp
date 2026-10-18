@@ -1,4 +1,5 @@
 #include "s376/dxt.hpp"
+#include "s376/fetch.hpp"
 #include "s376/log.hpp"
 #include "s376/safety.hpp"
 #include "s376/terrain.hpp"
@@ -16,13 +17,16 @@ void usage() {
         << "s376-cache " << s376::version()
         << " — offline DEM / imagery packer (no RSI tiles)\n"
            "usage:\n"
-           "  s376-cache synth-ksea [--out DIR] [--size N]\n"
-           "  s376-cache from-geotiff DEM.tif [--imagery FILE] [--out DIR]\n"
+           "  s376-cache fetch ICAO [--radius-km N] [--out DIR] [--dem auto|glo30|3dep]\n"
+           "                       [--imagery auto|naip|s2|hillshade] [--dry-run]\n"
+           "  s376-cache synth-ksea [--out DIR] [--size N] [--lods]\n"
+           "  s376-cache from-geotiff DEM.tif [--imagery FILE] [--out DIR] [--lods]\n"
+           "  s376-cache pack-lods --from DIR --out DIR\n"
            "  s376-cache info DIR\n"
            "\n"
-           "Writes elev.s376dem + imagery.dds (BC1/DXT1) + region.toml.\n"
-           "A 25 km KSEA box is a few hundred KiB; a Copernicus GLO-30 1° clip\n"
-           "is tens of MiB — not the 857 GB uncompressed RSI CERTS farm.\n"
+           "fetch downloads Copernicus GLO-30 (or USGS 3DEP) plus NAIP / Sentinel-2\n"
+           "cloudless into BC1/BC7 tiles with mipmaps. High-res LOD near the field,\n"
+           "coarse far out. Downloaded rasters stay under cache/ (gitignored).\n"
            "Never points at 10.1.95.0/24 or 192.168.173.0/24.\n";
 }
 
@@ -68,7 +72,14 @@ int main(int argc, char** argv) {
     std::string out = "cache/ksea";
     std::string dem_path;
     std::string imagery_path;
+    std::string from_dir;
+    std::string icao;
+    std::string dem_kind = "auto";
+    std::string img_kind = "auto";
     int size = 128;
+    double radius_km = 25;
+    bool lods = false;
+    bool dry = false;
     for (int i = 2; i < argc; ++i) {
         const std::string a = argv[i];
         auto need = [&](const char* flag) -> std::string {
@@ -80,17 +91,31 @@ int main(int argc, char** argv) {
         };
         if (a == "--out")
             out = need("--out");
+        else if (a == "--from")
+            from_dir = need("--from");
         else if (a == "--size")
             size = std::stoi(need("--size"));
+        else if (a == "--radius-km")
+            radius_km = std::stod(need("--radius-km"));
+        else if (a == "--dem")
+            dem_kind = need("--dem");
         else if (a == "--imagery")
-            imagery_path = need("--imagery");
+            img_kind = need("--imagery");
+        else if (a == "--lods")
+            lods = true;
+        else if (a == "--dry-run")
+            dry = true;
         else if (a == "-h" || a == "--help") {
             usage();
             s376::log::shutdown();
             return 0;
-        } else if (dem_path.empty() && a[0] != '-')
-            dem_path = a;
-        else {
+        } else if (a[0] != '-' && icao.empty() && (cmd == "fetch" || cmd == "info" ||
+                                                   cmd == "from-geotiff" || cmd == "pack-lods")) {
+            if (cmd == "fetch")
+                icao = a;
+            else
+                dem_path = a;
+        } else {
             std::cerr << "unknown option " << a << "\n";
             usage();
             s376::log::shutdown();
@@ -100,17 +125,50 @@ int main(int argc, char** argv) {
 
     try {
         refuse_lan_path("cache dest", out);
+        if (cmd == "fetch") {
+            if (icao.empty()) {
+                std::cerr << "fetch needs an ICAO (KSEA, KSFO, KLAS, …)\n";
+                s376::log::shutdown();
+                return 2;
+            }
+            s376::FetchRequest req;
+            req.icao = icao;
+            req.radius_km = radius_km;
+            req.dem = dem_kind;
+            req.imagery = img_kind;
+            req.out_dir = out;
+            req.dry_run = dry;
+            s376::FetchPlan plan;
+            const auto bytes = s376::fetch_and_pack(req, &plan);
+            std::cout << plan.icao << " dem=" << plan.dem_kind << " img=" << plan.img_kind
+                      << " lods=" << plan.lods.size() << "\n";
+            for (const auto& u : plan.urls)
+                std::cout << "  url " << u << "\n";
+            std::cout << plan.attribution;
+            if (dry) {
+                s376::log::shutdown();
+                return 0;
+            }
+            std::cout << "wrote " << out << "  " << bytes << " bytes (BC1/BC7 + s376dem + mips)\n";
+            s376::log::shutdown();
+            return 0;
+        }
         if (cmd == "synth-ksea") {
             s376::CacheRegion r = s376::generate_ksea_cache();
             if (size != 128)
                 r.dem = s376::DemGrid::synth_ksea(size, size);
             r.imagery = s376::ImageRgb::hillshade(r.dem);
             r.name = "ksea";
-            s376::write_cache(r, out);
-            const auto packed = std::filesystem::file_size(out + "/elev.s376dem") +
-                                std::filesystem::file_size(out + "/imagery.dds");
-            std::cout << "wrote " << out << "  " << packed << " bytes (BC1 + s376dem)\n"
-                      << "RSI CERTS for a comparable region was ~857 GB uncompressed.\n";
+            if (lods) {
+                const auto n = s376::pack_lods(r, out, s376::default_lods(25), true);
+                std::cout << "wrote " << out << "  " << n << " bytes (LOD pyramid)\n";
+            } else {
+                s376::write_cache(r, out);
+                const auto packed = std::filesystem::file_size(out + "/elev.s376dem") +
+                                    std::filesystem::file_size(out + "/imagery.dds");
+                std::cout << "wrote " << out << "  " << packed << " bytes (BC1 + s376dem)\n";
+            }
+            std::cout << "RSI CERTS for a comparable region was ~857 GB uncompressed.\n";
             s376::log::shutdown();
             return 0;
         }
@@ -128,13 +186,31 @@ int main(int argc, char** argv) {
             s376::CacheRegion r;
             r.name = "region";
             r.dem = s376::DemGrid::load_geotiff(dem_path);
-            if (!imagery_path.empty())
+            if (!imagery_path.empty() && img_kind != "auto")
+                r.imagery = s376::ImageRgb::load_jpeg_or_png(imagery_path);
+            else if (!imagery_path.empty())
                 r.imagery = s376::ImageRgb::load_jpeg_or_png(imagery_path);
             if (r.imagery.rgb.empty())
                 r.imagery = s376::ImageRgb::hillshade(r.dem);
-            s376::write_cache(r, out);
+            if (lods)
+                s376::pack_lods(r, out, s376::default_lods(25), true);
+            else
+                s376::write_cache(r, out);
             std::cout << "wrote " << out << "  " << r.dem.w << "x" << r.dem.h << " from "
                       << dem_path << "\n";
+            s376::log::shutdown();
+            return 0;
+        }
+        if (cmd == "pack-lods") {
+            const std::string src = from_dir.empty() ? dem_path : from_dir;
+            if (src.empty()) {
+                std::cerr << "pack-lods needs --from DIR\n";
+                s376::log::shutdown();
+                return 2;
+            }
+            auto r = s376::load_cache(src);
+            const auto n = s376::pack_lods(r, out, s376::default_lods(25), true);
+            std::cout << "wrote " << out << "  " << n << " bytes\n";
             s376::log::shutdown();
             return 0;
         }
@@ -144,9 +220,15 @@ int main(int argc, char** argv) {
             std::cout << "name bounds " << r.dem.west << "," << r.dem.south << " .. " << r.dem.east
                       << "," << r.dem.north << "\n"
                       << "grid " << r.dem.w << "x" << r.dem.h << "\n"
-                      << "imagery " << r.imagery.w << "x" << r.imagery.h << " (hillshade fallback)\n"
+                      << "imagery " << r.imagery.w << "x" << r.imagery.h << "\n"
                       << "dds " << r.imagery_dds << "\n"
+                      << "bytes " << s376::directory_bytes(dir) << "\n"
                       << "gdal " << (s376::gdal_available() ? "yes" : "no") << "\n";
+            for (int i = 0; i < 4; ++i) {
+                const auto lod = dir + "/lod" + std::to_string(i);
+                if (std::filesystem::exists(lod + "/elev.s376dem"))
+                    std::cout << "lod" << i << " " << s376::directory_bytes(lod) << " bytes\n";
+            }
             double z = 0;
             if (r.dem.sample_ft(47.4479, -122.3103, z))
                 std::cout << "sample KSEA ARP " << z << " ft MSL\n";
