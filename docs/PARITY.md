@@ -89,7 +89,7 @@ or deep it is. Expensive levers are TOML toggles; `render.quality =
 | Sun shadows | **gap** — `render.shadows` toggle only; CSM not drawn (980 Ti budget) |
 | GPU point sprites for lights | **ok** — GLSL 120 points (no PointSprite / POINT_SMOOTH); still step 0–5 |
 | GL compatibility (not Core) | **ok** — Linux leaves the context version unset (NVIDIA 4.6 compat). Elsewhere 3.3 + `COMPATIBILITY_PROFILE_BIT`. Scene lighting/fog/points are shaders so a CORE context does not emit `invalid enumerant` |
-| `--screenshot PATH --at ICAO[:RWY[:nm]]` | **ok** — `--alt` / `--bank` / `--hdg` / `--pitch`. Defaults to `mid_left`. `--channel front` aliases that |
+| `--screenshot PATH --at ICAO[:RWY[:nm]]` | **ok** — offscreen RGBA8 FBO at the channel's WxH (not the decorated window), `GL_PACK_ALIGNMENT` 1, vertical flip, PPM+PNG via stb. Warm-up until pager idle or `--screenshot-wait` (default 3 s). `--at` does not open a host socket |
 
 ## Channel / desk
 

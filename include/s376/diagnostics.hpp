@@ -40,7 +40,8 @@ struct ChannelFrameTime {
 DoctorReport run_doctor(const AppConfig& cfg, const std::string& config_path, bool listen,
                         bool bench = true);
 std::string format_report(const DoctorReport& r);
-std::string diagnostics_dump(const AppConfig& cfg, const HostState* host = nullptr);
+std::string diagnostics_dump(const AppConfig& cfg, const HostState* host = nullptr,
+                             const std::vector<std::string>& selected = {});
 
 std::string format_byte_count(std::uint64_t n);
 // Known public airports plus any extra packed dirs under `root`.

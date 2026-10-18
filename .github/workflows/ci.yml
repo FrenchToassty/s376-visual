@@ -44,6 +44,29 @@ jobs:
           ./build/s376-visual --headless --channel far_left --duration 0.3 --bind 127.0.0.1:2300 -c config/s376-visual.toml
           ./build/s376-visual --headless --channel mid_left --duration 0.3 --bind 127.0.0.1:2300 -c config/s376-visual.toml
           ./build/s376-visual --headless --demo --duration 0.3 --bind 127.0.0.1:2300 -c config/channels-3.toml
+          ./build/s376-visual --headless --self-test-shot /tmp/s376-shot-self
+          test -s /tmp/s376-shot-self/s376-shot-self.ppm
+          test -s /tmp/s376-shot-self/s376-shot-self.png
+          ./build/s376-visual --diagnostics --channel mid_left -c config/s376-visual.toml \
+            > /tmp/s376-diag-mid.txt
+          grep -q "selected=mid_left" /tmp/s376-diag-mid.txt
+          grep -q "channel mid_left" /tmp/s376-diag-mid.txt
+          if grep -q "channel far_right" /tmp/s376-diag-mid.txt; then
+            echo "diagnostics printed far_right for --channel mid_left" >&2
+            cat /tmp/s376-diag-mid.txt >&2
+            exit 1
+          fi
+          ./build/s376-visual --headless --channel mid_left --at KJFK --alt 12000 --hdg 036 --duration 0.2 \
+            -c config/s376-visual.toml > /tmp/s376-at-mid.log 2>&1
+          grep -q "selected=mid_left" /tmp/s376-at-mid.log
+          grep -q "channel mid_left" /tmp/s376-at-mid.log
+          grep -q "no host socket" /tmp/s376-at-mid.log
+          grep -q "alt_ft=12000" /tmp/s376-at-mid.log
+          if grep -q "channel far_right" /tmp/s376-at-mid.log; then
+            echo "--at --channel mid_left dump printed far_right" >&2
+            cat /tmp/s376-at-mid.log >&2
+            exit 1
+          fi
       - name: SIGTERM stops the IG
         run: |
           set +e

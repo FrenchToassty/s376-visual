@@ -33,6 +33,10 @@ class Renderer {
     virtual bool done() const = 0;
     virtual void request_stop() {}
     virtual bool capture(const std::string&) { return false; }
+    // True when the OSG DatabasePager has nothing left to fetch/compile.
+    virtual bool pager_idle() const { return true; }
+    // CPU (and, when a GL context exists, FBO) solid/gradient pixel check.
+    virtual bool capture_self_test(const std::string& dir, std::string& err);
     virtual void end() = 0;
     virtual std::string name() const = 0;
     virtual std::size_t view_count() const { return 0; }

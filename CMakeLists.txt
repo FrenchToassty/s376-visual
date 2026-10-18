@@ -33,6 +33,7 @@ set(S376_CORE_SRC
     src/dxt.cpp
     src/airport.cpp
     src/fetch.cpp
+    src/image.cpp
 )
 
 if(S376_WITH_GDAL)
@@ -72,6 +73,7 @@ endif()
 
 add_library(s376_core STATIC ${S376_CORE_SRC})
 target_include_directories(s376_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(s376_core PRIVATE ${CMAKE_SOURCE_DIR}/third_party)
 if(WIN32)
     target_link_libraries(s376_core PUBLIC ws2_32)
 endif()
@@ -85,6 +87,14 @@ if(OPENSCENEGRAPH_FOUND)
     endif()
     if(UNIX)
         target_link_libraries(s376_core PUBLIC X11)
+    endif()
+    find_package(OpenGL)
+    if(OPENGL_FOUND)
+        if(TARGET OpenGL::GL)
+            target_link_libraries(s376_core PUBLIC OpenGL::GL)
+        else()
+            target_link_libraries(s376_core PUBLIC ${OPENGL_LIBRARIES})
+        endif()
     endif()
 endif()
 if(GDAL_FOUND)
@@ -122,6 +132,7 @@ add_executable(s376-tests
     tests/test_hat.cpp
     tests/test_fetch.cpp
     tests/test_diagnostics.cpp
+    tests/test_image.cpp
 )
 target_link_libraries(s376-tests PRIVATE s376_core)
 

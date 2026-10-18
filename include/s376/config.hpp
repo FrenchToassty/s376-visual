@@ -94,6 +94,9 @@ struct AppConfig {
 AppConfig default_config();
 AppConfig load_config(const std::string& path); // throws std::runtime_error
 std::string dump_config(const AppConfig& cfg);
+// When `selected` is non-empty, only those channels are printed and a
+// `selected=name` line is added (so --channel mid_left does not look like far_right).
+std::string dump_config(const AppConfig& cfg, const std::vector<std::string>& selected);
 
 // name empty or "all" → every enabled channel; otherwise the named one.
 std::vector<ChannelConfig> select_channels(const AppConfig& cfg, const std::string& name);

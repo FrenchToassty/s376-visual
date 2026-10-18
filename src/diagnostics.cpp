@@ -433,10 +433,11 @@ std::string format_report(const DoctorReport& r) {
     return o.str();
 }
 
-std::string diagnostics_dump(const AppConfig& cfg, const HostState* host) {
+std::string diagnostics_dump(const AppConfig& cfg, const HostState* host,
+                             const std::vector<std::string>& selected) {
     std::ostringstream o;
     o << "s376-visual " << version() << "\n";
-    o << dump_config(cfg);
+    o << dump_config(cfg, selected);
 #ifdef S376_HAS_OSGEARTH
     o << "renderer=osgearth\n";
 #elif defined(S376_HAS_OSG)

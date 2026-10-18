@@ -117,8 +117,10 @@ contact `10.1.95.0/24` or `192.168.173.0/24`.
 | `-v` / `--debug` | verbose / per-packet hex |
 | `--gl-debug` | OSG per-attribute GL error checks (off in Release) |
 | `--quality NAME` | `gtx980ti` (default) / `rtx` / `custom` |
-| `--screenshot PATH` | write the first channel after a few frames and exit |
-| `--at ICAO[:RWY[:nm]]` | pose the eye (`KJFK:04R:0` lined-up, `KJFK:04R:8`, or `KJFK`) |
+| `--screenshot PATH` | write the first channel (offscreen FBO at channel WxH, PPM+PNG) after warmup and exit |
+| `--screenshot-wait SEC` | settle time before capture (default 3; pager idle or this) |
+| `--self-test-shot DIR` | render a known solid/gradient, check pixels, write PPM+PNG |
+| `--at ICAO[:RWY[:nm]]` | pose the eye (`KJFK:04R:0` lined-up, `KJFK:04R:8`, or `KJFK`). No host packets needed |
 | `--alt FT` / `--bank DEG` / `--hdg DEG` / `--pitch DEG` | override the shot pose |
 | `--diagnostics` | dump config and build options |
 | `--doctor` | environment checks (local only) |

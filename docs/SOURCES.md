@@ -49,6 +49,7 @@ camera path rides the streamed mesh.
 | OpenStreetMap aeroway=* / building=* | [ODbL](https://www.openstreetmap.org/copyright) | OSM taxi/apron/building ways; attribute OSM |
 | Poly Haven 1K PBR (asphalt, concrete, grass, dirt) | [CC0 1.0](https://polyhaven.com/license) | `scripts/fetch-textures.sh` → `cache/textures/` (gitignored) |
 | ambientCG (optional extra maps) | [CC0 1.0](https://docs.ambientcg.com/license/) | same cache dir |
+| [stb_image_write](https://github.com/nothings/stb) v1.16 | public domain / MIT | `third_party/stb_image_write.h` — PNG from `--screenshot` / `--self-test-shot` |
 
 Do **not** commit downloaded GeoTIFFs, JPEGs, or packed `cache/` trees.
 `cache/` and `*.tif` are gitignored. `s376-cache fetch` writes

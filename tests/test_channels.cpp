@@ -3,6 +3,8 @@
 
 #include <cmath>
 #include <iostream>
+#include <string>
+#include <vector>
 
 extern int g_fails;
 extern int g_passes;
@@ -65,6 +67,19 @@ void test_channels() {
     no_hat.reply_master.clear();
     CHECK(s376::hat_reply_enabled(no_hat, s376::select_channels(cfg, "far_right")));
     CHECK(s376::default_shot_channel(cfg) == "mid_left");
+
+    {
+        const std::string mid = s376::dump_config(cfg, {"mid_left"});
+        CHECK(mid.find("selected=mid_left") != std::string::npos);
+        CHECK(mid.find("channel mid_left hdg=0") != std::string::npos);
+        CHECK(mid.find("channel far_right") == std::string::npos);
+        std::vector<std::string> alias_names;
+        for (const auto& ch : s376::select_channels(cfg, "front"))
+            alias_names.push_back(ch.name);
+        const std::string alias = s376::dump_config(cfg, alias_names);
+        CHECK(alias.find("selected=mid_left") != std::string::npos);
+        CHECK(alias.find("channel far_right") == std::string::npos);
+    }
 
     cfg.channels[1].enabled = false;
     CHECK(s376::select_channels(cfg, "").size() == 3);

@@ -294,6 +294,10 @@ AppConfig load_config(const std::string& path) {
 }
 
 std::string dump_config(const AppConfig& cfg) {
+    return dump_config(cfg, {});
+}
+
+std::string dump_config(const AppConfig& cfg, const std::vector<std::string>& selected) {
     std::ostringstream o;
     o << "host.bind=" << cfg.host.bind << "\n";
     o << "host.reply_port=" << cfg.host.reply_port << "\n";
@@ -319,7 +323,25 @@ std::string dump_config(const AppConfig& cfg) {
     o << "render.ssao=" << (cfg.render.ssao ? "true" : "false") << "\n";
     o << "render.shadows=" << (cfg.render.shadows ? "true" : "false") << "\n";
     o << "render.sync_to_host=" << (cfg.render.sync_to_host ? "true" : "false") << "\n";
+    if (!selected.empty()) {
+        o << "selected=";
+        for (std::size_t i = 0; i < selected.size(); ++i) {
+            if (i)
+                o << ",";
+            o << selected[i];
+        }
+        o << "\n";
+    }
     for (const auto& ch : cfg.channels) {
+        if (!selected.empty()) {
+            bool want = false;
+            for (const auto& n : selected) {
+                if (n == ch.name)
+                    want = true;
+            }
+            if (!want)
+                continue;
+        }
         o << "channel " << ch.name << " hdg=" << ch.heading_offset_deg << " fov=" << ch.hfov_deg
           << "x" << ch.vfov_deg << " " << ch.width << "x" << ch.height;
         if (ch.eye_right_m != 0.0 || ch.eye_fwd_m != 0.0 || ch.eye_up_m != 0.0)

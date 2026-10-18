@@ -1,3 +1,4 @@
+#include "s376/image.hpp"
 #include "s376/render.hpp"
 
 #include <algorithm>
@@ -18,6 +19,10 @@ GlDisplayPlan plan_gl_display(bool linux_host, bool gl_debug) {
         p.profile_mask = kGlCompatProfileBit;
     }
     return p;
+}
+
+bool Renderer::capture_self_test(const std::string& dir, std::string& err) {
+    return self_test_shot_files(dir, err);
 }
 
 std::unique_ptr<Renderer> make_renderer(const std::string& engine) {

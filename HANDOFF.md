@@ -6,6 +6,49 @@ account may stop mid-run — treat this file as the source of truth.
 **PR:** https://github.com/joeylawell/s376-visual/pull/1
 **Branch:** `cursor/s376-visual-v1-6852`
 
+## Milestone: screenshot FBO + selected channel (2026-10-18)
+
+Hangar GPU test of 8285de8 (Mint, RTX 5060 Ti, NVIDIA 595.99, GL 4.6
+compat): build + 10788 tests (now **10840** after this fix) + zero `detected OpenGL error` + clean
+SIGINT. `--screenshot` wrote a valid-sized P6 but **garbage** (top ~40%
+black, grey/teal/purple stripe noise) at **1920×1008** (decorated
+window, not the channel's 1920×1080). `--channel mid_left` logged
+`channel far_right hdg=-35.25` because `dump_config` printed every
+`[[channels]]` row. `--at` dumped empty `SharedState` (`encoding=le/vax`,
+`datagrams=0`) even though the pose came from `--at`.
+
+- **Shot FBO:** `OsgRenderer::capture` renders into a non-MSAA offscreen
+  FBO at the **channel** WxH (default 1920×1080). Color is post-tonemap
+  LDR **RGBA8**, `glPixelStorei(GL_PACK_ALIGNMENT, 1)`, vertical flip,
+  RGB convert. Writes **PPM + PNG** (`stb_image_write` v1.16, public
+  domain, `third_party/`). Warm-up: ≥8 frames, then until the OSG
+  DatabasePager is idle or `--screenshot-wait` (default 3 s).
+- **Self-test:** `--self-test-shot DIR` (CPU always; GL FBO solid
+  40/80/160 + gradient when a context exists). CI runs the headless
+  CPU path. `tests/test_image.cpp` covers write/read/pixels +
+  `dump_config(..., {mid_left})`. This agent: **10840** unit tests,
+  headless `--self-test-shot` writes PPM+PNG, `--diagnostics --channel
+  mid_left` prints `selected=mid_left` and no `far_right`, `--at` logs
+  `no host socket` and dumps the shot pose. Xvfb still `GLXBadFBConfig`.
+- **Channel log:** `dump_config(cfg, selected)` prints `selected=name`
+  and **only** those channel lines. `--diagnostics --channel mid_left`
+  and the end-of-run dump both use it. Startup also logs
+  `selected mid_left  hdg=0.000  1920x1080`.
+- **`--at`:** no host socket unless `--demo`. End dump uses `shot_host`
+  (`eyepoints=1`, `last_peer=shot`, pose fields). Datagrams stay 0.
+
+Joey's 8285de8 PNG conversion (`refs/new-jfk-12k-v1.png`) is
+**reference only — do not commit**. A real `s376-cache fetch KJFK` is
+running on the Mint box; paste doctor bytes/time here when it finishes.
+
+Re-test on the hangar GPU:
+
+```bash
+./build/s376-visual --self-test-shot /tmp/s376-shot-self
+./build/s376-visual --screenshot /tmp/jfk-12k.ppm --at KJFK --alt 12000 --hdg 036 --channel mid_left
+# expect 1920x1080 P6 + /tmp/jfk-12k.png, log `selected=mid_left`, no far_right
+```
+
 ## Milestone: aerial / bank image quality (2026-10-18)
 
 Joey's second Raster photo (steep bank over a coastal field) is
@@ -417,12 +460,15 @@ are unit-tested.
 | More airports | `docs/AIRPORTS.md` | KSEA / KSFO / KLAS / KLAX / KJFK / KBOS are in. Next: EGLL / EDDF |
 | Per-seat FO eye | `eye_right_m` | Config exists, default 0 (collimated shared eye). Uncomment 0.51 m if Joey wants it |
 | Off-axis frustum | camera is rotated by heading offset | Shared eyepoint + asymmetric projection later |
-| High-res fetch on hangar | `s376-cache fetch KSEA` | Dry-run estimate only on this agent. Need a real download + doctor bytes on the Mint box |
+| High-res fetch on hangar | `s376-cache fetch KSEA` / `KJFK` | Dry-run estimate only on this agent. Joey is running a real full-res `fetch KJFK` on Mint — paste doctor bytes/time here |
+| Screenshot on hangar GPU | `--screenshot --at` | FBO+PNG+warmup landed; 8285de8 window readPixels was garbage. Re-run the 12k/bank commands on the 5060 Ti |
 
 ## Next 5 concrete steps (in order)
 
-1. **Run `s376-cache fetch KSEA` + `osm KSEA` on the hangar box** and
-   paste doctor cache bytes / tile counts back into this file.
+1. **Hangar GPU re-test** the FBO screenshot (`--screenshot /tmp/jfk-12k.ppm
+   --at KJFK --alt 12000 --hdg 036 --channel mid_left`) and paste
+   whether 1920×1080 PNG looks like a scene (not stripe noise). Then
+   **`s376-cache fetch KJFK`** (already running) + doctor bytes/time.
 2. **Close remaining PARITY gaps**: 109 beams, 131 display, 128
    patchy/speed-cue, 124 runway condition, PAPI/taxi, cloud type
    catalog, real storm-cell sizes.

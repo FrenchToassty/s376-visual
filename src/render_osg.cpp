@@ -1,6 +1,7 @@
 #include "s376/airport.hpp"
 #include "s376/dxt.hpp"
 #include "s376/geo.hpp"
+#include "s376/image.hpp"
 #include "s376/log.hpp"
 #include "s376/render.hpp"
 #include "s376/terrain.hpp"
@@ -8,10 +9,12 @@
 #ifdef S376_HAS_OSG
 
 #include <osg/BlendFunc>
+#include <osg/Camera>
 #include <osg/CullFace>
 #include <osg/Depth>
 #include <osg/MatrixTransform>
 #include <osg/DisplaySettings>
+#include <osg/GL>
 #include <osg/Geode>
 #include <osg/Geometry>
 #include <osg/GraphicsContext>
@@ -23,6 +26,7 @@
 #include <osg/Texture2D>
 #include <osg/Uniform>
 #include <osg/Viewport>
+#include <osgDB/DatabasePager>
 #include <osgDB/ReadFile>
 #include <osgDB/WriteFile>
 #include <osgGA/GUIEventAdapter>
@@ -39,6 +43,12 @@
 #endif
 #ifndef GL_VERTEX_PROGRAM_POINT_SIZE
 #define GL_VERTEX_PROGRAM_POINT_SIZE 0x8642
+#endif
+#ifndef GL_RGBA8
+#define GL_RGBA8 0x8058
+#endif
+#ifndef GL_DEPTH_COMPONENT24
+#define GL_DEPTH_COMPONENT24 0x81A6
 #endif
 
 #ifdef S376_HAS_OSGEARTH
@@ -1184,6 +1194,130 @@ void apply_view_camera(osg::Camera* cam, const ChannelConfig& ch, const HostStat
     cam->setViewMatrixAsLookAt(epos, center, upv);
 }
 
+// LDR RGBA8 FBO readback. PACK_ALIGNMENT 1 so a non-multiple-of-4 width
+// cannot shift rows into stripe noise. Image is GL bottom-up.
+struct PackReadback : public osg::Camera::DrawCallback {
+    osg::ref_ptr<osg::Image> img;
+    mutable bool ok = false;
+    PackReadback(int w, int h) {
+        img = new osg::Image;
+        img->allocateImage(std::max(1, w), std::max(1, h), 1, GL_RGBA, GL_UNSIGNED_BYTE);
+        img->setPacking(1);
+        img->setOrigin(osg::Image::BOTTOM_LEFT);
+    }
+    void operator()(osg::RenderInfo&) const override {
+        if (!img)
+            return;
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        img->readPixels(0, 0, img->s(), img->t(), GL_RGBA, GL_UNSIGNED_BYTE);
+        ok = img->data() != nullptr;
+    }
+};
+
+RgbImage rgb_from_fbo(const osg::Image& img) {
+    RgbImage out;
+    out.w = img.s();
+    out.h = img.t();
+    if (out.w < 1 || out.h < 1 || !img.data())
+        return out;
+    const int n = out.w * out.h;
+    out.rgb.resize(static_cast<std::size_t>(n * 3));
+    if (img.getPixelFormat() == GL_RGBA) {
+        std::vector<std::uint8_t> rgba(static_cast<std::size_t>(n * 4));
+        std::memcpy(rgba.data(), img.data(), static_cast<std::size_t>(n * 4));
+        flip_vert(rgba.data(), out.w, out.h, 4);
+        rgba_to_rgb(rgba.data(), n, out.rgb.data());
+    } else if (img.getPixelFormat() == GL_RGB) {
+        std::memcpy(out.rgb.data(), img.data(), static_cast<std::size_t>(n * 3));
+        flip_vert(out.rgb.data(), out.w, out.h, 3);
+    }
+    return out;
+}
+
+const char* kBlitVS = R"(
+#version 120
+varying vec2 vUV;
+void main() {
+    vUV = gl_MultiTexCoord0.xy;
+    gl_Position = ftransform();
+}
+)";
+
+// Integer pixel coords match make_gradient_rgb after the vertical flip.
+const char* kGradFS = R"(
+#version 120
+uniform float uW;
+uniform float uH;
+void main() {
+    float x = floor(gl_FragCoord.x);
+    float y = floor(gl_FragCoord.y);
+    float img_y = uH - 1.0 - y;
+    float den_x = max(uW - 1.0, 1.0);
+    float den_y = max(uH - 1.0, 1.0);
+    gl_FragColor = vec4((x * 255.0 / den_x) / 255.0,
+                        (img_y * 255.0 / den_y) / 255.0,
+                        128.0 / 255.0, 1.0);
+}
+)";
+
+osg::Geode* make_gradient_geode(int w, int h) {
+    osg::ref_ptr<osg::Geometry> g = new osg::Geometry;
+    osg::ref_ptr<osg::Vec3Array> v = new osg::Vec3Array;
+    v->push_back(osg::Vec3(0, 0, 0));
+    v->push_back(osg::Vec3(static_cast<float>(w), 0, 0));
+    v->push_back(osg::Vec3(static_cast<float>(w), static_cast<float>(h), 0));
+    v->push_back(osg::Vec3(0, static_cast<float>(h), 0));
+    g->setVertexArray(v);
+    osg::ref_ptr<osg::Vec2Array> t = new osg::Vec2Array;
+    t->push_back(osg::Vec2(0, 0));
+    t->push_back(osg::Vec2(1, 0));
+    t->push_back(osg::Vec2(1, 1));
+    t->push_back(osg::Vec2(0, 1));
+    g->setTexCoordArray(0, t);
+    g->addPrimitiveSet(new osg::DrawArrays(GL_QUADS, 0, 4));
+    osg::ref_ptr<osg::Program> prog = new osg::Program;
+    prog->addShader(new osg::Shader(osg::Shader::VERTEX, kBlitVS));
+    prog->addShader(new osg::Shader(osg::Shader::FRAGMENT, kGradFS));
+    auto* ss = g->getOrCreateStateSet();
+    ss->setAttributeAndModes(prog, osg::StateAttribute::ON);
+    ss->addUniform(new osg::Uniform("uW", static_cast<float>(w)));
+    ss->addUniform(new osg::Uniform("uH", static_cast<float>(h)));
+    ss->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
+    auto* geode = new osg::Geode;
+    geode->addDrawable(g);
+    return geode;
+}
+
+osg::ref_ptr<osg::Camera> make_shot_fbo(int w, int h, const osg::Vec4& clear,
+                                        PackReadback* cb) {
+    osg::ref_ptr<osg::Camera> rtt = new osg::Camera;
+    rtt->setName("s376-shot-fbo");
+    rtt->setViewport(0, 0, w, h);
+    rtt->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    rtt->setClearColor(clear);
+    rtt->setRenderOrder(osg::Camera::PRE_RENDER, 100);
+    rtt->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
+    rtt->setImplicitBufferAttachmentRenderMask(0);
+    rtt->setImplicitBufferAttachmentResolveMask(0);
+    osg::ref_ptr<osg::Texture2D> color = new osg::Texture2D;
+    color->setTextureSize(w, h);
+    color->setInternalFormat(GL_RGBA8);
+    color->setSourceFormat(GL_RGBA);
+    color->setSourceType(GL_UNSIGNED_BYTE);
+    color->setFilter(osg::Texture::MIN_FILTER, osg::Texture::NEAREST);
+    color->setFilter(osg::Texture::MAG_FILTER, osg::Texture::NEAREST);
+    color->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
+    color->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
+    color->setResizeNonPowerOfTwoHint(false);
+    // samples=0: resolved LDR, not the MSAA window buffer.
+    rtt->attach(osg::Camera::COLOR_BUFFER0, color.get(), 0, 0, false, 0, 0);
+    rtt->attach(osg::Camera::DEPTH_BUFFER, GL_DEPTH_COMPONENT24);
+    rtt->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
+    rtt->setComputeNearFarMode(osg::CullSettings::DO_NOT_COMPUTE_NEAR_FAR);
+    rtt->setPostDrawCallback(cb);
+    return rtt;
+}
+
 class OsgRenderer final : public Renderer {
   public:
     bool begin(const AppConfig& cfg, const std::vector<ChannelConfig>& channels) override {
@@ -1417,6 +1551,7 @@ class OsgRenderer final : public Renderer {
                 geo::lla_to_ecef(host.eye.lat_deg, host.eye.lon_deg, host.eye.alt_ft * geo::kFtToM);
             sky_xf_->setMatrix(osg::Matrix::translate(e.x, e.y, e.z));
         }
+        last_host_ = host;
         for (std::size_t i = 0; i < views_.size() && i < channels_.size(); ++i)
             apply_view_camera(views_[i]->getCamera(), channels_[i], host);
         apply_env(host);
@@ -1434,28 +1569,78 @@ class OsgRenderer final : public Renderer {
         if (viewer_)
             viewer_->setDone(true);
     }
-    bool capture(const std::string& path) override {
-        if (views_.empty() || path.empty())
-            return false;
-        auto* cam = views_.front()->getCamera();
-        if (!cam || !cam->getViewport())
-            return false;
-        const int w = static_cast<int>(cam->getViewport()->width());
-        const int h = static_cast<int>(cam->getViewport()->height());
-        if (w < 8 || h < 8)
-            return false;
-        osg::ref_ptr<osg::Image> img = new osg::Image;
-        img->readPixels(static_cast<int>(cam->getViewport()->x()),
-                        static_cast<int>(cam->getViewport()->y()), w, h, GL_RGB, GL_UNSIGNED_BYTE);
-        if (osgDB::writeImageFile(*img, path))
+    bool pager_idle() const override {
+        if (views_.empty())
             return true;
-        std::ofstream out(path, std::ios::binary);
-        if (!out)
+        for (const auto& view : views_) {
+            osgDB::DatabasePager* pager = view->getDatabasePager();
+            if (!pager)
+                continue;
+            if (pager->getFileRequestListSize() != 0 || pager->getDataToCompileListSize() != 0 ||
+                pager->getDataToMergeListSize() != 0)
+                return false;
+        }
+        return true;
+    }
+
+    bool capture(const std::string& path) override {
+        if (channels_.empty() || path.empty() || !viewer_ || views_.empty())
             return false;
-        out << "P6\n" << w << " " << h << "\n255\n";
-        for (int y = h - 1; y >= 0; --y)
-            out.write(reinterpret_cast<const char*>(img->data() + y * w * 3), w * 3);
-        return static_cast<bool>(out);
+        const ChannelConfig& ch = channels_.front();
+        const int w = std::max(8, ch.width);
+        const int h = std::max(8, ch.height);
+        osg::Vec4 clear(0.35f, 0.50f, 0.72f, 1);
+        if (auto* cam = views_.front()->getCamera())
+            clear = cam->getClearColor();
+        RgbImage im;
+        if (!render_fbo(w, h, clear, root_.get(), false, &ch, &last_host_, im))
+            return false;
+        std::string ppm, png;
+        if (!write_shot_images(path, im, &ppm, &png))
+            return false;
+        S376_LOG_INFO("render", "shot FBO %dx%d channel %s  ppm=%s png=%s", w, h, ch.name.c_str(),
+                      ppm.c_str(), png.c_str());
+        return true;
+    }
+
+    bool capture_self_test(const std::string& dir, std::string& err) override {
+        if (!self_test_shot_files(dir, err))
+            return false;
+        if (!viewer_ || views_.empty())
+            return true;
+        const std::string stem = dir.empty() ? "s376-gl-self" : (dir + "/s376-gl-self");
+        const int w = 64;
+        const int h = 48;
+        const osg::Vec4 solid_clear(40.f / 255.f, 80.f / 255.f, 160.f / 255.f, 1);
+        RgbImage solid;
+        if (!render_fbo(w, h, solid_clear, nullptr, true, nullptr, nullptr, solid)) {
+            err = "GL FBO solid readback failed";
+            return false;
+        }
+        if (!pixels_near_solid(solid, 40, 80, 160, 3)) {
+            err = "GL FBO solid pixels mismatch (format/type readback)";
+            write_shot_images(stem + "-solid-bad.ppm", solid);
+            return false;
+        }
+        osg::ref_ptr<osg::Geode> grad_node = make_gradient_geode(w, h);
+        RgbImage grad;
+        if (!render_fbo(w, h, osg::Vec4(0, 0, 0, 1), grad_node.get(), true, nullptr, nullptr, grad)) {
+            err = "GL FBO gradient readback failed";
+            return false;
+        }
+        if (!pixels_near_gradient(grad, 3)) {
+            err = "GL FBO gradient pixels mismatch (format/type readback)";
+            write_shot_images(stem + "-grad-bad.ppm", grad);
+            return false;
+        }
+        if (!write_shot_images(stem + "-solid.ppm", solid) ||
+            !write_shot_images(stem + "-grad.ppm", grad)) {
+            err = "GL self-test write failed";
+            return false;
+        }
+        err.clear();
+        S376_LOG_INFO("render", "GL FBO self-test ok  %dx%d solid+gradient", w, h);
+        return true;
     }
     void end() override {
         if (viewer_)
@@ -1468,6 +1653,39 @@ class OsgRenderer final : public Renderer {
     std::size_t view_count() const override { return views_.size(); }
 
   private:
+    bool render_fbo(int w, int h, const osg::Vec4& clear, osg::Node* scene, bool ortho,
+                    const ChannelConfig* ch, const HostState* host, RgbImage& out) {
+        if (!viewer_ || views_.empty())
+            return false;
+        osgViewer::View* view = views_.front();
+        osg::Camera* master = view->getCamera();
+        if (!master || !master->getGraphicsContext())
+            return false;
+        osg::ref_ptr<PackReadback> cb = new PackReadback(w, h);
+        osg::ref_ptr<osg::Camera> rtt = make_shot_fbo(w, h, clear, cb.get());
+        rtt->setGraphicsContext(master->getGraphicsContext());
+        if (ortho) {
+            rtt->setProjectionMatrixAsOrtho2D(0, w, 0, h);
+            rtt->setViewMatrix(osg::Matrix::identity());
+        } else if (ch && host) {
+            apply_view_camera(rtt.get(), *ch, *host);
+        }
+        if (scene)
+            rtt->addChild(scene);
+        if (!view->addSlave(rtt.get(), false))
+            return false;
+        const unsigned idx = view->findSlaveIndexForCamera(rtt.get());
+        if (auto* slave = view->getSlave(idx)._camera.get())
+            slave->setGraphicsContext(master->getGraphicsContext());
+        viewer_->frame();
+        view->removeSlave(idx);
+        if (!cb->ok || !cb->img)
+            return false;
+        out = rgb_from_fbo(*cb->img);
+        return out.w == w && out.h == h &&
+               out.rgb.size() >= static_cast<std::size_t>(w * h * 3);
+    }
+
     void apply_env(const HostState& host) {
         float vis_ft = host.have_env ? host.env.visible_range_ft : 528000.f;
         if (host.have_fog && host.fog.select >= 0 && host.fog.rvr_ft > 0)
@@ -1616,6 +1834,7 @@ class OsgRenderer final : public Renderer {
     bool used_earth_ = false;
     bool stripped_ff_ = false;
     bool gl_check_errors_ = false;
+    HostState last_host_;
 };
 
 } // namespace

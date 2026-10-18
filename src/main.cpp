@@ -2,6 +2,7 @@
 #include "s376/config.hpp"
 #include "s376/diagnostics.hpp"
 #include "s376/host.hpp"
+#include "s376/image.hpp"
 #include "s376/log.hpp"
 #include "s376/render.hpp"
 #include "s376/safety.hpp"
@@ -18,7 +19,9 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -49,8 +52,11 @@ void usage() {
            "  --quality NAME        gtx980ti | rtx | custom\n"
            "  --reply-master NAME   only this --channel sends the type-200 HAT reply\n"
            "  --no-hat              never send HAT (overrides reply_master)\n"
-           "  --screenshot PATH     write the first channel after a few frames and exit\n"
+           "  --screenshot PATH     write the first channel (PPM+PNG) after warmup and exit\n"
+           "  --screenshot-wait SEC settle time before capture (default 3; pager idle or this)\n"
+           "  --self-test-shot DIR  render a known solid/gradient, check pixels, write files\n"
            "  --at ICAO[:RWY[:nm]]  pose the eye (KJFK:04R:0 lined-up, KJFK:04R:8, or KJFK)\n"
+           "                        does not wait for host packets\n"
            "  --alt FT              override shot altitude (MSL feet)\n"
            "  --bank DEG            override shot roll (right-wing-down)\n"
            "  --hdg DEG             override shot true heading\n"
@@ -72,6 +78,9 @@ s376::HostState host_from_shot(const s376::ShotPose& p) {
     h.eye.heading_deg = static_cast<float>(-p.hdg_true_deg);
     h.eye.pitch_deg = static_cast<float>(p.pitch_deg);
     h.eye.roll_deg = static_cast<float>(p.roll_deg);
+    h.eyepoints = 1;
+    h.datagrams = 0;
+    h.last_peer = "shot";
     h.have_env = true;
     h.env.tod_select = -1;
     h.env.tod_hours = 14.5f;
@@ -100,6 +109,8 @@ int main(int argc, char** argv) {
     double duration = -1;
     std::string quality_override;
     std::string screenshot_path;
+    std::string self_test_shot;
+    double screenshot_wait = 3.0;
     std::string at_spec;
     s376::ShotOverrides shot_over;
     std::string reply_master_override;
@@ -154,6 +165,10 @@ int main(int argc, char** argv) {
             no_hat = true;
         else if (a == "--screenshot")
             screenshot_path = need(a.c_str());
+        else if (a == "--screenshot-wait")
+            screenshot_wait = std::stod(need(a.c_str()));
+        else if (a == "--self-test-shot")
+            self_test_shot = need(a.c_str());
         else if (a == "--at")
             at_spec = need(a.c_str());
         else if (a == "--alt") {
@@ -240,7 +255,11 @@ int main(int argc, char** argv) {
         return rep.fails ? 1 : 0;
     }
     if (do_diag) {
-        std::cout << s376::diagnostics_dump(cfg, nullptr);
+        const auto chans = s376::select_channels(cfg, channel_name);
+        std::vector<std::string> names;
+        for (const auto& ch : chans)
+            names.push_back(ch.name);
+        std::cout << s376::diagnostics_dump(cfg, nullptr, names);
         s376::log::shutdown();
         return 0;
     }
@@ -264,7 +283,7 @@ int main(int argc, char** argv) {
                       shot.lon, shot.alt_ft, shot.hdg_true_deg, shot.pitch_deg, shot.roll_deg,
                       shot.dist_nm);
     }
-    if (!screenshot_path.empty() && !have_shot) {
+    if (!screenshot_path.empty() && !have_shot && self_test_shot.empty()) {
         std::cerr << "--screenshot needs --at ICAO[:RWY[:dist_nm]]\n";
         s376::log::shutdown();
         return 2;
@@ -276,6 +295,8 @@ int main(int argc, char** argv) {
         if (!parent.empty())
             std::filesystem::create_directories(parent);
     }
+    if (!self_test_shot.empty())
+        std::filesystem::create_directories(self_test_shot);
 
     const auto channels = s376::select_channels(cfg, channel_name);
     if (channels.empty()) {
@@ -285,6 +306,12 @@ int main(int argc, char** argv) {
     }
     const bool hat_on = s376::hat_reply_enabled(cfg.host, channels);
     cfg.host.hat_responder = hat_on;
+    std::vector<std::string> selected_names;
+    for (const auto& ch : channels) {
+        selected_names.push_back(ch.name);
+        S376_LOG_INFO("ig", "selected %s  hdg=%.3f  %dx%d  fov=%.1fx%.1f", ch.name.c_str(),
+                      ch.heading_offset_deg, ch.width, ch.height, ch.hfov_deg, ch.vfov_deg);
+    }
     if (channels.size() > 1) {
         S376_LOG_INFO("ig",
                       "opening %zu channels on one process (laptop/desk). "
@@ -294,6 +321,22 @@ int main(int argc, char** argv) {
     S376_LOG_INFO("ig", "HAT reply %s  master='%s'  this=%s", hat_on ? "on" : "off",
                   cfg.host.reply_master.c_str(),
                   channels.size() == 1 ? channels.front().name.c_str() : "all");
+
+    if (!self_test_shot.empty()) {
+        std::string err;
+        if (!s376::self_test_shot_files(self_test_shot, err)) {
+            S376_LOG_ERROR("ig", "self-test-shot failed: %s", err.c_str());
+            s376::log::shutdown();
+            return 1;
+        }
+        S376_LOG_INFO("ig", "self-test-shot CPU ok  %s", self_test_shot.c_str());
+        if (headless) {
+            const s376::HostState* hp = have_shot ? &shot_host : nullptr;
+            S376_LOG_INFO("ig", "%s", s376::diagnostics_dump(cfg, hp, selected_names).c_str());
+            s376::log::shutdown();
+            return 0;
+        }
+    }
 
     std::signal(SIGINT, on_sig);
     std::signal(SIGTERM, on_sig);
@@ -305,7 +348,11 @@ int main(int argc, char** argv) {
     S376_LOG_INFO("ig", "HAT DEM %dx%d  %.3f,%.3f .. %.3f,%.3f", dem->w, dem->h, dem->west,
                   dem->south, dem->east, dem->north);
     std::thread synth_th;
-    const bool live_host = screenshot_path.empty();
+    // --at / --screenshot / --self-test-shot pose the eye themselves.
+    // Only --demo still opens a loopback socket (synth).
+    const bool live_host = demo || (!have_shot && screenshot_path.empty() && self_test_shot.empty());
+    if (have_shot && !demo)
+        S376_LOG_INFO("ig", "--at: no host socket (datagrams not required)");
     if (live_host) {
         try {
             rx.start();
@@ -376,7 +423,22 @@ int main(int argc, char** argv) {
         ++frames;
         if (headless)
             std::this_thread::sleep_for(std::chrono::duration<double>(period));
-        if (!screenshot_path.empty() && frames >= 6) {
+        if (!self_test_shot.empty() && frames >= 2) {
+            std::string err;
+            if (!rend->capture_self_test(self_test_shot, err)) {
+                S376_LOG_ERROR("ig", "self-test-shot failed: %s", err.c_str());
+                rc = 1;
+            } else {
+                S376_LOG_INFO("ig", "self-test-shot ok  %s", self_test_shot.c_str());
+            }
+            rend->request_stop();
+            break;
+        }
+        if (!screenshot_path.empty() && frames >= 8) {
+            const double waited =
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+            if (!rend->pager_idle() && waited < screenshot_wait)
+                continue;
             if (!rend->capture(screenshot_path)) {
                 S376_LOG_ERROR("ig", "screenshot failed: %s", screenshot_path.c_str());
                 rc = 1;
@@ -384,15 +446,19 @@ int main(int argc, char** argv) {
                 rend->request_stop();
                 break;
             }
-            S376_LOG_INFO("ig", "wrote %s", screenshot_path.c_str());
+            S376_LOG_INFO("ig", "wrote %s (FBO %dx%d, waited %.2fs pager=%s)",
+                          screenshot_path.c_str(), channels.front().width, channels.front().height,
+                          waited, rend->pager_idle() ? "idle" : "timeout");
             rend->request_stop();
             break;
         }
         if (frames % 300 == 0 && host.have_eyepoint) {
-            S376_LOG_INFO("ig", "%s", s376::diagnostics_dump(cfg, &host).c_str());
+            S376_LOG_INFO("ig", "%s", s376::diagnostics_dump(cfg, &host, selected_names).c_str());
         }
     }
 
+    if (!self_test_shot.empty() && frames == 0)
+        S376_LOG_WARN("ig", "self-test-shot: no GL frames (CPU already passed; hangar GPU for FBO)");
     if (g_stop)
         rend->request_stop();
     rend->end();
@@ -401,10 +467,10 @@ int main(int argc, char** argv) {
     if (synth_th.joinable())
         synth_th.join();
     {
-        const auto host = state.load();
+        const s376::HostState host = have_shot ? shot_host : state.load();
         S376_LOG_INFO("ig", "stopped after %llu frames\n%s",
                       static_cast<unsigned long long>(frames),
-                      s376::diagnostics_dump(cfg, &host).c_str());
+                      s376::diagnostics_dump(cfg, &host, selected_names).c_str());
     }
     s376::log::shutdown();
     return rc;

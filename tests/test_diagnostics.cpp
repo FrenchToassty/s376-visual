@@ -113,4 +113,18 @@ void test_diagnostics() {
     CHECK(text.find("frame-mid_right") != std::string::npos);
     CHECK(text.find("frame-far_right") != std::string::npos);
     CHECK(report.fails == 0);
+
+    {
+        s376::HostState shot;
+        shot.have_eyepoint = true;
+        shot.eyepoints = 1;
+        shot.datagrams = 0;
+        shot.eye.alt_ft = 12000;
+        const auto dump = s376::diagnostics_dump(cfg, &shot, {"mid_left"});
+        CHECK(dump.find("selected=mid_left") != std::string::npos);
+        CHECK(dump.find("channel mid_left") != std::string::npos);
+        CHECK(dump.find("channel far_right") == std::string::npos);
+        CHECK(dump.find("eyepoints=1") != std::string::npos);
+        CHECK(dump.find("alt_ft=12000") != std::string::npos);
+    }
 }
