@@ -151,9 +151,13 @@ float range_visibility(LightKind kind, float range_m) {
     case LightKind::Vasi:
         floor = 0.78f;
         break;
+    case LightKind::Edge:
+    case LightKind::Centerline:
+        floor = 0.18f; // HIRL + CL must hold at 0.6 nm
+        break;
     case LightKind::Threshold:
     case LightKind::End:
-        floor = 0.14f;
+        floor = 0.22f;
         break;
     default:
         floor = 0.05f;
@@ -188,6 +192,10 @@ float papi_eye_angle_deg(double eye_lat, double eye_lon, double eye_alt_m, doubl
 float type_size_boost(LightKind kind) {
     if (kind == LightKind::Vasi)
         return 2.3f; // ~6.4 px at the Raster floor; 4 boxes stay distinct
+    if (kind == LightKind::Edge)
+        return 1.28f; // HIRL both sides at 0.6 nm; still < 8 px far
+    if (kind == LightKind::Centerline || kind == LightKind::Threshold)
+        return 1.18f; // CAT II/III CL + TDZ
     return 1.f;
 }
 

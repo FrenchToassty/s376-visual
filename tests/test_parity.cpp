@@ -25,8 +25,7 @@ void test_parity() {
     const auto list = s376::format_scenery_checklist();
     CHECK(list.find("C1") != std::string::npos);
     CHECK(list.find("T5") != std::string::npos);
-    CHECK(list.find("15 m") != std::string::npos || list.find("15m") != std::string::npos ||
-          list.find("night") != std::string::npos);
+    CHECK(list.find("night") != std::string::npos || list.find("street") != std::string::npos);
 
     const auto jfk = s376::kjfk_public();
     const auto c = s376::count_parity(jfk);
@@ -44,8 +43,8 @@ void test_parity() {
     CHECK(c.docking >= 3);
     CHECK(c.marshallers >= 3);
     CHECK(c.routes >= 12);
-    CHECK(c.night_spacing_m == 15);
-    CHECK(c.night_points > 50);
+    CHECK(c.night_spacing_m >= 25 && c.night_spacing_m <= 50);
+    CHECK(c.night_points > 20);
     CHECK(c.alsf2 && c.malsr && c.rlls && c.papi && c.tdz);
     CHECK(c.roads >= 4 && c.has_van_wyck && c.has_belt && c.has_jfk_terminal_rd);
     const auto text = s376::format_parity_counts(c);

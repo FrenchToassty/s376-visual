@@ -37,7 +37,7 @@ struct ParityCounts {
     int routes = 0;
     int marshallers = 0;
     int night_points = 0;
-    double night_spacing_m = 15;
+    double night_spacing_m = 35;
     bool has_tower = false;
     bool has_beacon = false;
     bool has_t5 = false;

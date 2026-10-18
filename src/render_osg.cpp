@@ -371,6 +371,12 @@ void main() {
     }
     float lit = (mat < 0.5 || (mat > 1.5 && mat < 2.5)) ? mix(0.72, ndl, 0.28) : ndl;
     vec3 col = albedo * (uAmbient + uDiffuse * lit);
+    if (mat < 0.5 && uNight > 0.05) {
+        // Faint HIRL/CL wash so CAT II/III asphalt reads as lit, not a black wedge.
+        float sheen = (0.07 + 0.09 * noise(vPos.xy * 0.18)) * uNight;
+        float fres = pow(1.0 - clamp(dot(n, normalize(vView)), 0.0, 1.0), 2.8);
+        col += vec3(0.58, 0.60, 0.68) * sheen * (0.65 + 0.55 * fres);
+    }
     float g = 1.0 - clamp(abs(dot(n, normalize(uUp))), 0.0, 1.0);
     float h = uFogDensity + uHaze * (0.12 + 0.45 * g);
     float f = exp(-h * h * vEyeDist * vEyeDist);
@@ -2014,6 +2020,11 @@ void apply_light_steps(LightGpu& g, const HostState& host) {
             sz = std::min(8.f, std::max(5.8f, sz));
             k = std::max(k, 1.15f); // 2W2R must bloom a little in daylight
         }
+        if (night > 0.20f && (kind == LightKind::Edge || kind == LightKind::Centerline ||
+                              kind == LightKind::Threshold)) {
+            k *= 1.f + 0.28f * night; // HIRL / CL / TDZ over the asphalt sheen
+            sz = std::min(8.f, sz);
+        }
         if (g.sizes && i < g.sizes->size())
             (*g.sizes)[static_cast<unsigned>(i)] = osg::Vec2(sz, 0.f);
         if (kind == LightKind::Beacon && !lights::beacon_on(t_s))
@@ -2479,6 +2490,7 @@ class OsgRenderer final : public Renderer {
                                   std::filesystem::file_size(cfg.render.cache_dir + "/osm.json") /
                                       (1024.0 * 1024.0),
                                   cfg.render.cache_dir.c_str());
+                generate_lights(apt);
                 apply_skyline_era(apt.buildings, active_skyline_era());
                 if (auto* mesh = make_airport_geode(build_airport_mesh(
                         apt, cfg.render.buildings, cfg.render.markings))) {

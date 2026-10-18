@@ -39,6 +39,9 @@ void test_traffic() {
           s376::class_weight(s376::RoadClass::Secondary));
     CHECK(s376::class_speed_mps(s376::RoadClass::Motorway) >
           s376::class_speed_mps(s376::RoadClass::Primary));
+    CHECK(s376::class_lamp_spacing_m(s376::RoadClass::Motorway) >
+          s376::class_lamp_spacing_m(s376::RoadClass::Secondary));
+    CHECK(s376::class_lamp_spacing_m(s376::RoadClass::Primary) >= 30.f);
     CHECK(std::string(s376::road_class_name(s376::RoadClass::Trunk)) == "trunk");
 
     const std::string mw = "{\"tags\":{\"highway\":\"motorway\"}}";

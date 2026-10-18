@@ -2,6 +2,7 @@
 #include "s376/geo.hpp"
 #include "s376/traffic.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -140,23 +141,35 @@ void plant_trees(Airport& a) {
     }
 }
 
+// Raster's 15 m ARP grid was a fake lattice (including marsh/bay). Street
+// lamps are emitted in add_street_lights from roads / buildings / aprons.
 void fill_night_layer(Airport& a) {
-    a.night.spacing_m = 15;
+    a.night.spacing_m = 35;
     a.night.points = 0;
-    const double span = 1800.0;
-    const double step = 60.0; // 980 Ti: subsample the 15 m layer
-    int n = 0;
-    for (double n_m = -span; n_m <= span && n < 2200; n_m += step) {
-        for (double e_m = -span; e_m <= span && n < 2200; e_m += step) {
-            double lat, lon;
-            offset_m(a.arp_lat, a.arp_lon, 0.0, n_m, lat, lon);
-            offset_m(lat, lon, 90.0, e_m, lat, lon);
-            if (geo::land_coverage(lat, lon) < 0.45)
-                continue;
-            ++n;
-        }
+}
+
+double dist_to_seg_m(double lat, double lon, double a0, double o0, double a1, double o1) {
+    const double mx = geo::kDeg * geo::kWgsA;
+    const double my = mx * std::cos(geo::deg2rad(a0));
+    const double px = (lon - o0) * my;
+    const double py = (lat - a0) * mx;
+    const double sx = (o1 - o0) * my;
+    const double sy = (a1 - a0) * mx;
+    const double sl2 = sx * sx + sy * sy;
+    double t = sl2 > 1e-6 ? (px * sx + py * sy) / sl2 : 0.0;
+    t = std::max(0.0, std::min(1.0, t));
+    const double dx = px - sx * t;
+    const double dy = py - sy * t;
+    return std::sqrt(dx * dx + dy * dy);
+}
+
+bool near_runway(const Airport& a, double lat, double lon, double pad_m) {
+    for (const auto& rw : a.runways) {
+        const double lim = rw.width_m * 0.5 + pad_m;
+        if (dist_to_seg_m(lat, lon, rw.le_lat, rw.le_lon, rw.he_lat, rw.he_lon) < lim)
+            return true;
     }
-    a.night.points = n;
+    return false;
 }
 
 void add_shared_routes(Airport& a) {
@@ -230,6 +243,96 @@ void add_kewr_public_scenery(Airport& a) {
     add_public_ny_roads(a);
 }
 
+void add_street_lights(Airport& a) {
+    // Accuracy-first: city/street lamps follow real roads (public NY + OSM
+    // highway class) and OSM building density. Never a regular grid, never
+    // over water/marsh. Airport floods come from official/OSM apron rings.
+    constexpr int kMaxNightLamps = 800; // 980 Ti point-sprite budget
+    constexpr float kLandMin = 0.50f;
+    auto push = [&](double lat, double lon, double alt_m, float r, float g, float b) {
+        LightPoint p;
+        p.lat = lat;
+        p.lon = lon;
+        p.alt_m = alt_m;
+        p.r = r;
+        p.g = g;
+        p.b = b;
+        p.switch_num = kSwTaxiEdge;
+        p.kind = LightKind::Night;
+        a.lights.push_back(p);
+    };
+    int n = 0;
+    for (const auto& road : a.roads) {
+        if (road.path.size() < 2 || road.length_m < 40.0)
+            continue;
+        const double step = static_cast<double>(class_lamp_spacing_m(road.cls));
+        int side = 0;
+        for (double s = step * 0.5; s < road.length_m && n < kMaxNightLamps; s += step) {
+            double lat = 0, lon = 0, hdg = 0;
+            if (!sample_road(road, s, lat, lon, hdg))
+                continue;
+            double plat = lat, plon = lon;
+            offset_m(lat, lon, hdg + (side ? 90.0 : -90.0), 6.5, plat, plon);
+            side = 1 - side;
+            if (geo::land_coverage(plat, plon) < kLandMin)
+                continue;
+            if (near_runway(a, plat, plon, 25.0))
+                continue;
+            push(plat, plon, a.elev_m + 8.0, 1.f, 0.78f, 0.38f);
+            ++n;
+        }
+    }
+    int osm_left = kMaxNightLamps - n;
+    int osm_seen = 0;
+    int osm_keep = std::max(1, osm_left);
+    for (const auto& b : a.buildings) {
+        if (n >= kMaxNightLamps)
+            break;
+        if (b.kind != BuildingKind::Osm)
+            continue;
+        ++osm_seen;
+        const int stride = std::max(1, static_cast<int>(a.buildings.size()) / osm_keep);
+        if ((osm_seen % stride) != 0)
+            continue;
+        double lat = 0, lon = 0;
+        building_centroid(b, lat, lon);
+        if (geo::land_coverage(lat, lon) < kLandMin)
+            continue;
+        if (near_runway(a, lat, lon, 40.0))
+            continue;
+        const double z = a.elev_m + std::min(18.0, std::max(6.0, static_cast<double>(b.height_m)));
+        push(lat, lon, z, 1.f, 0.72f, 0.40f);
+        ++n;
+    }
+    for (const auto& ap : a.aprons) {
+        if (n >= kMaxNightLamps || ap.ring.size() < 3)
+            continue;
+        double clat = 0, clon = 0;
+        for (const auto& p : ap.ring) {
+            clat += p.first;
+            clon += p.second;
+        }
+        clat /= static_cast<double>(ap.ring.size());
+        clon /= static_cast<double>(ap.ring.size());
+        if (geo::land_coverage(clat, clon) >= kLandMin && !near_runway(a, clat, clon, 15.0)) {
+            push(clat, clon, a.elev_m + 12.0, 1.f, 0.92f, 0.78f);
+            ++n;
+        }
+        const std::size_t ring_step = std::max<std::size_t>(1, ap.ring.size() / 4);
+        for (std::size_t i = 0; i < ap.ring.size() && n < kMaxNightLamps; i += ring_step) {
+            const auto& p = ap.ring[i];
+            if (geo::land_coverage(p.first, p.second) < kLandMin)
+                continue;
+            if (near_runway(a, p.first, p.second, 20.0))
+                continue;
+            push(p.first, p.second, a.elev_m + 12.0, 1.f, 0.92f, 0.78f);
+            ++n;
+        }
+    }
+    a.night.spacing_m = 35;
+    a.night.points = n;
+}
+
 void add_scenery_lights(Airport& a) {
     auto push = [&](double lat, double lon, float r, float g, float b, int sw, LightKind kind) {
         LightPoint p;
@@ -265,26 +368,7 @@ void add_scenery_lights(Airport& a) {
     }
     for (const auto& h : a.hold_bars)
         push(h.lat, h.lon, 1.f, 0.2f, 0.15f, kSwStopBar, LightKind::Rwsl);
-    // 15 m night layer is a KJFK/KEWR Raster-2023 item. Other fields skip it
-    // so the 980 Ti light budget stays on the pad the host is at.
-    if (a.icao != "KJFK" && a.icao != "KEWR")
-        return;
-    const double span = 1800.0;
-    const double step = 60.0;
-    int n = 0;
-    for (double n_m = -span; n_m <= span && n < 2200; n_m += step) {
-        for (double e_m = -span; e_m <= span && n < 2200; e_m += step) {
-            double lat, lon;
-            offset_m(a.arp_lat, a.arp_lon, 0.0, n_m, lat, lon);
-            offset_m(lat, lon, 90.0, e_m, lat, lon);
-            if (geo::land_coverage(lat, lon) < 0.45)
-                continue;
-            push(lat, lon, 1.f, 0.72f, 0.28f, kSwTaxiEdge, LightKind::Night);
-            ++n;
-        }
-    }
-    a.night.spacing_m = 15;
-    a.night.points = n;
+    add_street_lights(a);
 }
 
 } // namespace s376

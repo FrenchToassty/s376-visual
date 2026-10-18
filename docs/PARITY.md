@@ -93,7 +93,7 @@ type, PAPI side, length). Tracked in code (`s376::scenery_parity_items`,
 | Road traffic | yes | **ok** | Instanced cars on OSM motorway/trunk/primary/secondary (class-weighted). Van Wyck, Belt Parkway, JFK terminal roads, NJ Turnpike seeded. TOD density, night lamps, 7 km cull, 280-car 980 Ti batch |
 | Summer imagery | CERTS | **partial** | Per-airport public table; Raster-local via `import-raster` |
 | Winter imagery | second season | **partial** | `s376-cache fetch --season winter` → `cache/<ICAO>/winter` |
-| 15 m night lights | layer | **partial** | Spacing recorded 15 m; GPU subsample 60 m |
+| Road-derived street lights | OSM / public roads | **ok** | Highway-class lamps + building density + apron floods. Never a 60 m lattice; never over water/marsh |
 | Full KEWR | yes | **partial** | FAA both ends + scenery stand-ins |
 | Classic NYC skyline (easter egg) | n/a | **ok** | Hidden version×7 unlock. Stylized pre-2001 Lower Manhattan (accuracy not required). Draws only in the NYC geofence; stays on for the session; clears on channel reset / refresh_channels |
 | Missiles (easter egg) | n/a | **ok** | Same unlock / session. Off until Missiles On. PTT = type 112 switch 255 (or type 109 bit 7 / desk key). Visual only — no host damage. Classic-active: 10 sm keep-out around 40.7115 N, 74.0134 W |

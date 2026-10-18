@@ -214,7 +214,9 @@ double light_alt_m(double lat, double lon, double runway_elev_m) {
     const float cover = geo::land_coverage(lat, lon);
     if (cover < 0.35f)
         return std::max(ground, 0.25) + 2.4; // ALS pier over water
-    return std::max(ground, runway_elev_m) + 0.6;
+    // Elevated HIRL / CL / taxi fixtures sit above the asphalt so a 3°
+    // short-final does not bury them in the pavement depth buffer.
+    return std::max(ground, runway_elev_m) + 0.85;
 }
 
 void push_light(Airport& a, double lat, double lon, double alt_m, float r, float g, float b,
@@ -257,8 +259,8 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
     const int sw_tdz = lights::runway_switch(k, lights::kOffTdz);
     const int sw_app_b = lights::runway_switch(k, lights::kOffApproachB);
     const int sw_strobe_b = lights::runway_switch(k, lights::kOffStrobeB);
-    const double step_edge = 60.0;
-    const double step_cl = 15.0;
+    const double step_edge = 60.0; // HIRL ~200 ft
+    const double step_cl = 15.0;   // CAT II/III centerline
     const int n_edge = std::max(2, static_cast<int>(std::floor(rw.length_m / step_edge)));
     for (int i = 0; i <= n_edge; ++i) {
         const double d = rw.length_m * i / n_edge;
@@ -467,14 +469,15 @@ void lights_for_taxi(Airport& a) {
                 const double lat = a0 + (a1 - a0) * t;
                 const double lon = o0 + (o1 - o0) * t;
                 double elat, elon, clat = lat, clon = lon;
+                // FAA AC 150/5340-30: taxi edge aviation blue, CL aviation green.
                 offset_m(lat, lon, hdg + 90.0, tw.width_m * 0.5, elat, elon);
-                push_light(a, elat, elon, light_alt_m(elat, elon, a.elev_m), 0.15f, 0.85f, 0.25f,
+                push_light(a, elat, elon, light_alt_m(elat, elon, a.elev_m), 0.15f, 0.40f, 1.00f,
                            a.sw_taxi_edge, LightKind::TaxiEdge);
                 offset_m(lat, lon, hdg - 90.0, tw.width_m * 0.5, elat, elon);
-                push_light(a, elat, elon, light_alt_m(elat, elon, a.elev_m), 0.15f, 0.85f, 0.25f,
+                push_light(a, elat, elon, light_alt_m(elat, elon, a.elev_m), 0.15f, 0.40f, 1.00f,
                            a.sw_taxi_edge, LightKind::TaxiEdge);
                 if (i % 2 == 0)
-                    push_light(a, clat, clon, light_alt_m(clat, clon, a.elev_m), 1.f, 0.85f, 0.15f,
+                    push_light(a, clat, clon, light_alt_m(clat, clon, a.elev_m), 0.10f, 1.00f, 0.22f,
                                a.sw_taxi_centerline, LightKind::TaxiCenterline);
             }
             if (s == 1) {
@@ -789,6 +792,8 @@ Airport klax_public() {
 Airport kjfk_public() {
     Airport a = airport_from_faa_ref(faa_kjfk());
     a.taxiways.push_back(parallel_taxi("A", a.runways[0], 80.0));
+    // Taxi B sits ~80 m left of 04R (toward 04L). Its green CL is the
+    // line left of 04R at night — not a misplaced runway edge.
     a.taxiways.push_back(parallel_taxi("B", a.runways[1], -80.0));
     a.taxiways.push_back(parallel_taxi("Z", a.runways[3], 80.0));
     a.aprons.push_back(box_apron("T4", 40.6445, -73.7780, 40.0, 1000, 450, a.elev_m));

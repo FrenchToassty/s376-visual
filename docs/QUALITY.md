@@ -56,7 +56,7 @@ Joey's Mint PC is back.
 | water | `render.water` | **0.80** | Jamaica Bay / ocean, Fresnel, glint, wave scroll, foam |
 | detail | `render.detail_textures` | **0.55** | land-cover atlas under ortho (near field) |
 | buildings | `render.buildings` | **1.10** | OSM facades/roofs by type, night windows |
-| runway PBR | `render.markings` | **0.30** | asphalt/concrete + rubber + wet from type 124 |
+| runway PBR | `render.markings` | **0.30** | asphalt/concrete + rubber + wet + night HIRL sheen (+0.05 ALU, absorbed) |
 | bloom | `render.bloom` | **0.70** | Raster fog-halo on lights + city glow |
 | filmic | `render.filmic` | **0.15** | lift/gamma/gain after ACES |
 | FXAA | `render.fxaa` | **0.35** | window only (screenshot FBO stays MSAA-off) |
@@ -65,7 +65,17 @@ Joey's Mint PC is back.
 
 `quality_gpu_budget_total_ms(false)` = **12.20 ms** (default hangar).
 `quality_gpu_budget_total_ms(true)` = **14.00 ms** (`rtx`). Both fit
-under 16.67 ms. Official geometry and light placement are not changed.
+under 16.67 ms. Official runway/taxi coordinates are not changed.
+
+Night-light GPU impact on the 980 Ti (same point-sprite path):
+
+| Change | GPU ms | Why |
+|---|---|---|
+| drop 60 m ARP lattice (~2200 Night pts) | **−0.15** | fewer sprites in the night pass |
+| OSM/public-road street lamps (~400, cap 800) | in base | real roads, not a new draw |
+| runway night asphalt sheen | **+0.05** | few ALU ops in existing `kLitColorFS` |
+
+Net **−0.10 ms**. Budgeted total stays **12.20 ms**.
 
 ## Why a 1 GB KJFK pack used 14 GB RAM
 
@@ -172,6 +182,8 @@ Hangar 980 Ti / 1 m pack is offline. These are software-GL proxies.
 | runway dry/wet | `kjfk_04r_0.15nm_dry.png` | `kjfk_04r_0.15nm_wet.png` (`--rwy-cond 2`) |
 | dusk | `kjfk_04r_0.6nm_dusk_before.png` (`--tod 19` was day) | `kjfk_04r_0.6nm_dusk.png` (`--tod 19`) |
 | night | `kjfk_04r_0.6nm_night_before.png` | `kjfk_04r_0.6nm_night.png` (`--tod 3`) + `kjfk_04r_2.99nm_night.png` |
+| night streets / 04R HIRL | `kjfk_04r_0.6nm_night.png` (60 m yellow lattice) | `kjfk_04r_0.6nm_night_after.png` |
+| dusk streets / 04R HIRL | `kjfk_04r_0.6nm_dusk.png` (same lattice) | `kjfk_04r_0.6nm_dusk_after.png` |
 
 Host type-124 TOD drives the **visual** sun elevation (day / dusk / night)
 regardless of date and longitude. `--tod 19` is dusk; `--tod 3` is night

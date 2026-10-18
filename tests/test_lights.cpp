@@ -103,6 +103,9 @@ void test_lights() {
     CHECK(tod_visibility(s376::LightKind::Vasi, 14.5f) > 0.80f);
     CHECK_NEAR(type_size_boost(s376::LightKind::Vasi), 2.3, 1e-4);
     CHECK_NEAR(type_size_boost(s376::LightKind::Approach), 1.0, 1e-4);
+    CHECK_NEAR(type_size_boost(s376::LightKind::Edge), 1.28, 1e-4);
+    CHECK_NEAR(type_size_boost(s376::LightKind::Centerline), 1.18, 1e-4);
+    CHECK_NEAR(type_size_boost(s376::LightKind::Threshold), 1.18, 1e-4);
     CHECK(tod_visibility(s376::LightKind::Threshold, 14.5f) > 0.35f);
     CHECK(papi_box_white(3.0f, 0, 3.0f) && papi_box_white(3.0f, 1, 3.0f));
     CHECK(!papi_box_white(3.0f, 2, 3.0f) && !papi_box_white(3.0f, 3, 3.0f));
@@ -198,6 +201,27 @@ void test_lights() {
                 ++n_04l_edge;
         }
         CHECK(n_04l_edge >= 20);
+        int n_04r_edge = 0, n_04r_cl = 0, n_04r_tdz = 0;
+        int n_taxi_green_left = 0;
+        for (const auto& L : jfk.lights) {
+            const auto hp = s376::geo::project_lla(view, L.lat, L.lon, L.alt_m, 1920, 1200);
+            if (L.runway_k == 2 && hp.in_frame && hp.ndc_y < 0.35) {
+                if (L.kind == s376::LightKind::Edge)
+                    ++n_04r_edge;
+                if (L.kind == s376::LightKind::Centerline)
+                    ++n_04r_cl;
+                if (L.kind == s376::LightKind::Threshold)
+                    ++n_04r_tdz;
+            }
+            if (L.kind == s376::LightKind::TaxiCenterline && L.g > 0.70f && hp.in_frame &&
+                hp.ndc_x < -0.02 && hp.ndc_y < 0.40)
+                ++n_taxi_green_left;
+        }
+        CHECK(n_04r_edge >= 16);
+        CHECK(n_04r_cl >= 20);
+        CHECK(n_04r_tdz >= 12);
+        // Green line left of 04R is taxi B centerline (aviation green).
+        CHECK(n_taxi_green_left >= 8);
         int n_lm = 0;
         int nlm = 0;
         const s376::Landmark* lms = s376::nyc_landmarks(&nlm);

@@ -155,6 +155,20 @@ float class_weight(RoadClass c) {
     return 2.f;
 }
 
+float class_lamp_spacing_m(RoadClass c) {
+    switch (c) {
+    case RoadClass::Motorway:
+        return 45.f;
+    case RoadClass::Trunk:
+        return 40.f;
+    case RoadClass::Primary:
+        return 35.f;
+    case RoadClass::Secondary:
+        return 30.f;
+    }
+    return 35.f;
+}
+
 float traffic_density(float tod_hours) {
     float h = tod_hours;
     if (!std::isfinite(h))

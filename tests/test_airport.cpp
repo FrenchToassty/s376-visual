@@ -247,7 +247,8 @@ void test_airport() {
     CHECK(jfk.has_beacon && jfk.tower_h_m > 10.f);
     CHECK(jfk.roads.size() >= 4);
     CHECK(jfk.routes.size() >= 12);
-    CHECK(jfk.night.spacing_m == 15);
+    CHECK(jfk.night.spacing_m >= 25 && jfk.night.spacing_m <= 50);
+    CHECK(jfk.night.points > 20 && jfk.night.points <= 800);
     check_runway_length(jfk.runways[0]);
     check_runway_length(jfk.runways[3]);
     check_lights(jfk, 200, 400);
@@ -290,6 +291,84 @@ void test_airport() {
         CHECK(n_side >= 20);
         CHECK(n_papi >= 4);
         CHECK(n_tdz >= 30);
+        int n_edge = 0, n_cl = 0, n_edge_l = 0, n_edge_r = 0;
+        for (const auto& L : jfk.lights) {
+            if (L.runway_k != 2)
+                continue;
+            double hdg = 0;
+            const double d = s376::geo::inverse_wgs84(rw.le_lat, rw.le_lon, L.lat, L.lon, &hdg);
+            double along = d * std::cos(s376::geo::deg2rad(hdg - rw.heading_deg));
+            double across = d * std::sin(s376::geo::deg2rad(hdg - rw.heading_deg));
+            if (along < -20.0 || along > rw.length_m + 20.0)
+                continue;
+            if (L.kind == s376::LightKind::Edge) {
+                ++n_edge;
+                if (across < -rw.width_m * 0.15)
+                    ++n_edge_l;
+                if (across > rw.width_m * 0.15)
+                    ++n_edge_r;
+            }
+            if (L.kind == s376::LightKind::Centerline && std::fabs(across) < 8.0)
+                ++n_cl;
+        }
+        CHECK(n_edge >= 80); // HIRL both sides, ~60 m
+        CHECK(n_edge_l >= 30 && n_edge_r >= 30);
+        CHECK(n_cl >= 140); // CAT III CL ~15 m on ~2560 m 04R
+    }
+    {
+        // Street lamps follow public NY roads; never a 60 m ARP lattice
+        // and never Jamaica Bay / marsh south of the field.
+        int n_night = 0, n_grid = 0, n_bay = 0, n_wet = 0;
+        for (const auto& L : jfk.lights) {
+            if (L.kind != s376::LightKind::Night)
+                continue;
+            ++n_night;
+            if (s376::geo::land_coverage(L.lat, L.lon) < 0.50f)
+                ++n_wet;
+            if (L.lat > 40.588 && L.lat < 40.625 && L.lon > -73.812 && L.lon < -73.742)
+                ++n_bay;
+            const double n_m = (L.lat - jfk.arp_lat) * s376::geo::kDeg * s376::geo::kWgsA;
+            const double e_m = (L.lon - jfk.arp_lon) * s376::geo::kDeg * s376::geo::kWgsA *
+                               std::cos(s376::geo::deg2rad(jfk.arp_lat));
+            const double ns = std::fabs(std::fmod(n_m, 60.0));
+            const double es = std::fabs(std::fmod(e_m, 60.0));
+            if ((ns < 4.0 || ns > 56.0) && (es < 4.0 || es > 56.0))
+                ++n_grid;
+        }
+        CHECK(n_night == jfk.night.points);
+        CHECK(n_night > 20);
+        CHECK(n_wet == 0);
+        CHECK(n_bay == 0);
+        CHECK(n_grid < n_night / 4); // not a regular ENU lattice
+        bool taxi_b = false;
+        const auto& rw04r = jfk.runways[1];
+        for (const auto& t : jfk.taxiways) {
+            if (t.name != "B" || t.path.size() < 2)
+                continue;
+            taxi_b = true;
+            const double mlat = 0.5 * (t.path.front().first + t.path.back().first);
+            const double mlon = 0.5 * (t.path.front().second + t.path.back().second);
+            double hdg = 0;
+            const double d =
+                s376::geo::inverse_wgs84(rw04r.le_lat, rw04r.le_lon, mlat, mlon, &hdg);
+            const double across = d * std::sin(s376::geo::deg2rad(hdg - rw04r.heading_deg));
+            CHECK(across < -50.0 && across > -110.0); // 04L-side of 04R
+        }
+        CHECK(taxi_b);
+        int n_blue_edge = 0, n_green_cl = 0, n_wrong_edge = 0;
+        for (const auto& L : jfk.lights) {
+            if (L.kind == s376::LightKind::TaxiEdge) {
+                if (L.b > 0.70f && L.g < 0.55f)
+                    ++n_blue_edge;
+                if (L.g > 0.70f && L.b < 0.45f)
+                    ++n_wrong_edge;
+            }
+            if (L.kind == s376::LightKind::TaxiCenterline && L.g > 0.70f && L.b < 0.45f)
+                ++n_green_cl;
+        }
+        CHECK(n_blue_edge > 40);
+        CHECK(n_green_cl > 20);
+        CHECK(n_wrong_edge == 0);
     }
 
     s376::SolidBvh jfk_solids;

@@ -135,8 +135,11 @@ copied across a pair). We do not copy RSI / CAE coordinates.
 | NONE | No approach bar (04L, 22R, 31L at JFK; 11/29 at EWR) |
 | PAPI | Four boxes ~350 ft past the **landing** threshold (after displaced), left or right of edge per P4L / P4R |
 | REIL | Paired white strobes at the landing threshold |
-| TDZ | White bar pairs for the first 3000 ft on charted ends |
+| TDZ | White bar pairs for the first 3000 ft on charted ends (04R / 22L / 13L) |
 | End / threshold | Green landing bar at the displaced threshold; red end bar at the physical DER (bidirectional) |
+| HIRL / CL | 04R is CAT III: white edge both sides (amber last 2000 ft / 600 m), 15 m CL, TDZ. Not a black wedge |
+| Taxi | FAA AC 150/5340-30: edge aviation **blue**, centreline aviation **green**. KJFK taxi B is the 04L-side taxi ~80 m left of 04R |
+| City / street | OSM/public highway class (or `lit=yes` when tagged) + building density. **Never** a regular grid; **never** over water or marsh (`land_coverage` ≥ 0.50). Apron floods from official/OSM apron rings only |
 
 ## Re-fetch (KJFK cache was SW-shifted)
 

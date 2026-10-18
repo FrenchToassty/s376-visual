@@ -210,7 +210,7 @@ struct Marshaller {
 };
 
 struct NightLayer {
-    double spacing_m = 15;
+    double spacing_m = 35; // typical lit-highway cobra-head spacing, not a grid
     int points = 0;
 };
 
@@ -364,6 +364,9 @@ void generate_lights(Airport& a);
 void add_kjfk_public_scenery(Airport& a); // 2022 taxi names, T5, tower, trees…
 void add_kewr_public_scenery(Airport& a);
 void add_scenery_lights(Airport& a);
+// City/street lamps from a.roads + OSM building density + apron floods.
+// Never a regular grid. Never over water/marsh (land_coverage floor).
+void add_street_lights(Airport& a);
 AirportMesh build_airport_mesh(const Airport& a, bool buildings = true, bool markings = true);
 
 // GeoJSON FeatureCollection (runways / taxi / aprons) for an osgEarth

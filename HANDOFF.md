@@ -28,25 +28,36 @@ from tests/CI. `scripts/check-no-rsi.sh` fails the build if
 
 ## Current state (2026-10-18, this increment)
 
-**Quality defect pass (merge PR #4 → PR #1):** Four reviewed-frame
-fixes. Official light/runway coordinates unchanged. Hangar 1 m pack
-still not on this box (`/tmp/kjfk-tiny` ~8 m). Mint on a phone
-hotspot — do not wait.
+**Night streets / 04R HIRL (on PR #1):** Three defects from
+`kjfk_04r_0.6nm_night.png` / `_dusk.png`. Official runway/taxi
+coordinates unchanged. Hangar 1 m pack still not on this box
+(`/tmp/kjfk-tiny` ~8 m). Mint on a phone hotspot — do not wait.
 
-1. **Night `--tod 3`:** visual sun at −55° (navy/black, faint city
-   glow). ALS / edge / PAPI use a 9 px night disc, VS halo scale,
-   and skip ACES on cores so the lights are the brightest thing.
-2. **`--tod 19` is dusk:** host type-124 buckets/hours map to sun
-   elevation independent of date/lon. `render.solar_astronomy` /
-   `--solar-astronomy` keeps `sun_ecef`.
-3. **Day 0.6 nm green slab:** Jamaica Bay in the 8 m pack, not a
-   mask bleed over the pad. Tightened the wet chroma test; water
-   keeps 32 % ortho.
-4. **Left-horizon black bars:** the long line is official **04L edge
-   lights** (parallel left of 04R). The solid rectangle was the
-   nearest of those plus 0.11 m ALS pier-leg mesh seen edge-on.
-   Pier mesh removed; 04L/04R lights stay. NYC landmarks are
-   outside the 50° front.
+1. **Fake yellow lattice gone.** `add_scenery_lights` no longer
+   stamps a 60 m ENU grid around the ARP (that painted marsh/bay
+   south of JFK). City/street lamps now sample `a.roads` (public NY
+   + OSM highway class) at cobra-head spacing, plus OSM building
+   density and official/OSM apron floods. `land_coverage` < 0.50
+   skips water/marsh. Cap 800 Night points (980 Ti).
+2. **04R HIRL + CL + TDZ read.** CAT III 04R already had FAA edge
+   (60 m), CL (15 m), TDZ (30 bars / 900 m). Lattice drowned them
+   and the asphalt was a black wedge. Night size boost + range
+   floor + 0.85 m fixture height + `kLitColorFS` HIRL sheen.
+3. **Green line left of 04R is taxi B centreline.** Taxi B is
+   `parallel_taxi("B", 04R, −80 m)` on the 04L side. Taxi colours
+   were inverted (edge green / CL amber). Now FAA: edge aviation
+   **blue**, CL aviation **green**.
+
+**980 Ti GPU:** lattice ~2200 pts → ~400 road lamps **−0.15 ms**;
+asphalt sheen **+0.05 ms** in existing markings pass. Net **−0.10**.
+Budgeted total stays **12.20 ms** shadows-off.
+
+Before (reviewed lattice): `kjfk_04r_0.6nm_night.png`,
+`kjfk_04r_0.6nm_dusk.png`. After: `kjfk_04r_0.6nm_night_after.png`,
+`kjfk_04r_0.6nm_dusk_after.png`.
+
+**Previous quality defect pass (merged):** visual TOD, dusk `--tod
+19`, Jamaica Bay 8 m slab, left-horizon 04L edge (no pier mesh).
 
 **Quality pass (gtx980ti budget):** GTA V-level levers, each toggleable
 and budgeted for one 980 Ti channel at 1920×1200 / 60 Hz. Official
@@ -461,8 +472,8 @@ OpenGL, 60 Hz at one channel (1920×1080, 50×32.5). `render.quality =
   DEM; pager uses 96². Runtime OSM is `osm.bin` only.
 - 980 Ti scenery caps: OSM **mesh** bake 8 k buildings; mesh nearest
   800 full / 2500 far. Collision is `solids.bin` (all footprints,
-  ~50 MiB at 548 k). Night layer recorded at 15 m, drawn at 60 m /
-  2200 pts.
+  ~50 MiB at 548 k). Night lamps follow OSM/public roads (cap 800);
+  no 60 m ARP lattice.
 - Skip the display-correction GPU pass when the ramp is identity.
 - `gtx980ti`: HDR/atmosphere/markings/detail/buildings on; SSAO cheap
   wall darken; shadows **off** (no CSM yet).
@@ -533,7 +544,7 @@ had; local-only comparer; CI guard; FAA still wins.
 - Checklist: `docs/PARITY.md` + `s376::scenery_parity_items`.
 - Public stand-ins: 2022 taxi names C1–C6 / U1–U3 (no CC), signs,
   hold bars, T5, jetbridges, docking, parked, ATCT+beacon, trees,
-  12 routes, marshallers, 15 m night layer.
+  12 routes, marshallers, road-derived street lights (no lattice).
 - `s376-raster-parity --ours | PATH` — positions via IEEE doubles
   that look like lat/lon. Refuses sim-LAN paths. Warns if PATH is
   this repo.

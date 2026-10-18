@@ -44,6 +44,8 @@ RoadClass parse_osm_highway(const std::string& tags); // Secondary if not a kept
 bool osm_tags_are_road(const std::string& tags);
 float class_speed_mps(RoadClass c);
 float class_weight(RoadClass c); // cars per km at density 1
+// Typical cobra-head spacing on a lit highway of that class (metres).
+float class_lamp_spacing_m(RoadClass c);
 float traffic_density(float tod_hours);
 bool traffic_night(float tod_hours);
 
