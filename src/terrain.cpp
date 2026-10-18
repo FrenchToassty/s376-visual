@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -180,6 +181,40 @@ DemGrid DemGrid::load_subsampled(const std::string& path, int max_n) {
         }
     }
     return d;
+}
+
+bool DemGrid::sample_file_m(const std::string& path, double lat, double lon, double& z_m_out) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in)
+        return false;
+    DemGrid d;
+    if (!read_dem_header(in, d))
+        return false;
+    if (lat < d.south || lat > d.north || lon < d.west || lon > d.east)
+        return false;
+    const double u = (lon - d.west) / (d.east - d.west) * (d.w - 1);
+    const double v = (d.north - lat) / (d.north - d.south) * (d.h - 1);
+    const int x0 = std::max(0, std::min(d.w - 2, static_cast<int>(std::floor(u))));
+    const int y0 = std::max(0, std::min(d.h - 2, static_cast<int>(std::floor(v))));
+    const double tx = u - x0;
+    const double ty = v - y0;
+    auto rd = [&](int x, int y) -> float {
+        const std::uint64_t off =
+            48ull + static_cast<std::uint64_t>(y) * static_cast<std::uint64_t>(d.w) * 4ull +
+            static_cast<std::uint64_t>(x) * 4ull;
+        in.seekg(static_cast<std::streamoff>(off));
+        float z = 0;
+        in.read(reinterpret_cast<char*>(&z), 4);
+        return z;
+    };
+    const float a = rd(x0, y0);
+    const float b = rd(x0 + 1, y0);
+    const float c = rd(x0, y0 + 1);
+    const float e = rd(x0 + 1, y0 + 1);
+    if (!in)
+        return false;
+    z_m_out = a * (1 - tx) * (1 - ty) + b * tx * (1 - ty) + c * (1 - tx) * ty + e * tx * ty;
+    return std::isfinite(z_m_out);
 }
 
 #ifdef S376_HAS_GDAL
@@ -640,6 +675,16 @@ std::uint64_t current_rss_bytes() {
 std::uint64_t peak_rss_bytes() {
     const auto kb = proc_status_kb("VmHWM:");
     return kb * 1024ull;
+}
+
+void limit_gdal_cache_mb(int mb) {
+#ifdef S376_HAS_GDAL
+    GDALAllRegister();
+    const int cap = std::max(16, mb);
+    CPLSetConfigOption("GDAL_CACHEMAX", std::to_string(cap).c_str());
+#else
+    (void)mb;
+#endif
 }
 
 } // namespace s376

@@ -77,6 +77,10 @@ struct FetchEstimate {
 
 // USGS 3DEP / NYS ImageServer reject ~4k F32/JPG exports (500/504).
 constexpr int kMaxServiceExportPx = 2048;
+// Fetch is streaming: one decoded tile in RAM. Peak RSS must stay inside
+// this regardless of how many tiles are on disk (KJFK lod0 is hundreds).
+constexpr std::uint64_t kFetchRssBoundBytes = 2ull << 30;
+constexpr int kFetchRssLogEvery = 16;
 
 struct PlannedTile {
     int lod = 0;
@@ -157,5 +161,16 @@ DemGrid resample_dem(const DemGrid& src, const GeoBox& box, int w, int h);
 ImageRgb resample_rgb(const ImageRgb& src, int w, int h);
 
 std::uint64_t directory_bytes(const std::string& dir);
+
+// ARP-centered coarse DEM from packed tiles. Holds at most one tile DEM.
+DemGrid merge_root_dem_from_cache(const std::string& cache_dir, const GeoBox& box, int n = 256);
+void log_fetch_rss(const char* where, std::size_t packed, std::size_t planned);
+// Write one tile (overlay + DDS/DEM) and drop the rasters. Used by fetch
+// and the RSS bound bench. Pass-by-value so the caller can move in.
+void write_streamed_cache_tile(const std::string& tile_dir, DemGrid dem, ImageRgb img,
+                               const GeoBox& box, const std::string& icao, bool bc7, bool mips);
+// Synth N large tiles the way fetch does (write + drop + merge). Returns
+// peak RSS observed during the loop.
+std::uint64_t bench_stream_pack_rss(const std::string& dir, int tiles, int dem_n, int img_n);
 
 } // namespace s376

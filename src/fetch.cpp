@@ -829,6 +829,110 @@ void write_lod_dir(const std::string& dir, const DemGrid& dem, const ImageRgb& i
 
 } // namespace
 
+namespace {
+
+void splat_dem(DemGrid& dst, const DemGrid& src, std::vector<char>& hit, bool overwrite) {
+    if (src.empty() || dst.empty())
+        return;
+    for (int y = 0; y < dst.h; ++y) {
+        const double la = dst.north - (dst.north - dst.south) * y / std::max(1, dst.h - 1);
+        for (int x = 0; x < dst.w; ++x) {
+            const double lo = dst.west + (dst.east - dst.west) * x / std::max(1, dst.w - 1);
+            double z = 0;
+            if (!src.sample_m(la, lo, z))
+                continue;
+            const std::size_t i = static_cast<std::size_t>(y * dst.w + x);
+            if (hit[i] && !overwrite)
+                continue;
+            dst.z_m[i] = static_cast<float>(z);
+            hit[i] = 1;
+        }
+    }
+}
+
+} // namespace
+
+void write_streamed_cache_tile(const std::string& tile_dir, DemGrid dem, ImageRgb img,
+                               const GeoBox& box, const std::string& icao, bool bc7, bool mips) {
+    if (img.rgb.empty() && !dem.empty())
+        img = ImageRgb::hillshade(dem);
+    apply_correction_overlay_icao(img, box, icao);
+    write_lod_dir(tile_dir, dem, img, bc7, mips);
+}
+
+void log_fetch_rss(const char* where, std::size_t packed, std::size_t planned) {
+    const double now_mib = static_cast<double>(current_rss_bytes()) / (1024.0 * 1024.0);
+    const double peak_mib = static_cast<double>(peak_rss_bytes()) / (1024.0 * 1024.0);
+    S376_LOG_INFO("cache", "rss %s  tiles=%zu/%zu  now=%.0f MiB  peak=%.0f MiB",
+                  where ? where : "fetch", packed, planned, now_mib, peak_mib);
+}
+
+DemGrid merge_root_dem_from_cache(const std::string& cache_dir, const GeoBox& box, int n) {
+    DemGrid merged;
+    merged.w = std::max(8, n);
+    merged.h = merged.w;
+    merged.west = box.west;
+    merged.south = box.south;
+    merged.east = box.east;
+    merged.north = box.north;
+    merged.z_m.assign(static_cast<std::size_t>(merged.w * merged.h), 0.f);
+    std::vector<char> hit(static_cast<std::size_t>(merged.w * merged.h), 0);
+    auto tiles = scan_cache_tiles(cache_dir);
+    std::sort(tiles.begin(), tiles.end(), [](const CacheTileRef& a, const CacheTileRef& b) {
+        if (a.lod != b.lod)
+            return a.lod < b.lod;
+        return a.dem_w * a.dem_h > b.dem_w * b.dem_h;
+    });
+    for (const auto& t : tiles) {
+        try {
+            // One subsampled tile at a time — never the full 2048² stack.
+            const DemGrid d = DemGrid::load_subsampled(t.path + "/elev.s376dem", 96);
+            splat_dem(merged, d, hit, false);
+        } catch (...) {
+        }
+    }
+    return merged;
+}
+
+std::uint64_t bench_stream_pack_rss(const std::string& dir, int tiles, int dem_n, int img_n) {
+    ensure_dir(dir);
+    const int n = std::max(1, tiles);
+    const int dn = std::max(8, dem_n);
+    const int in = std::max(8, img_n);
+    std::uint64_t peak = current_rss_bytes();
+    for (int i = 0; i < n; ++i) {
+        const int ix = i % 8;
+        const int iy = i / 8;
+        GeoBox box;
+        box.west = -73.80 + ix * 0.01;
+        box.east = box.west + 0.01;
+        box.south = 40.60 + iy * 0.01;
+        box.north = box.south + 0.01;
+        DemGrid dem;
+        dem.w = dn;
+        dem.h = dn;
+        dem.west = box.west;
+        dem.south = box.south;
+        dem.east = box.east;
+        dem.north = box.north;
+        dem.z_m.assign(static_cast<std::size_t>(dn * dn), 12.f);
+        ImageRgb img;
+        img.w = in;
+        img.h = in;
+        img.rgb.assign(static_cast<std::size_t>(in * in * 3), 80);
+        const std::string tdir = dir + "/lod0/t" + std::to_string(iy) + "_" + std::to_string(ix);
+        write_streamed_cache_tile(tdir, std::move(dem), std::move(img), box, "", false, false);
+        peak = std::max(peak, current_rss_bytes());
+        if ((i + 1) % kFetchRssLogEvery == 0 || i + 1 == n)
+            log_fetch_rss("bench", static_cast<std::size_t>(i + 1), static_cast<std::size_t>(n));
+    }
+    const GeoBox uni{-73.80, 40.60, -73.80 + 8 * 0.01, 40.60 + ((n + 7) / 8) * 0.01};
+    DemGrid root = merge_root_dem_from_cache(dir, uni, 64);
+    root.save(dir + "/elev.s376dem");
+    peak = std::max(peak, current_rss_bytes());
+    return peak;
+}
+
 std::uint64_t pack_lods(const CacheRegion& src, const std::string& dir, const std::vector<LodSpec>& lods,
                         bool mips) {
     ensure_dir(dir);
@@ -899,8 +1003,9 @@ std::uint64_t fetch_and_pack(const FetchRequest& in, FetchPlan* plan_out) {
 
     const std::string raw = out + "/raw";
     ensure_dir(raw);
-    std::vector<DemGrid> dems;
+    limit_gdal_cache_mb(64);
     ImageRgb imagery;
+    log_fetch_rss("start", 0, plan.tiles.size());
 
     auto try_get = [&](const std::string& url, const std::string& dest) -> bool {
         try {
@@ -917,6 +1022,11 @@ std::uint64_t fetch_and_pack(const FetchRequest& in, FetchPlan* plan_out) {
 
     std::size_t packed_tiles = 0;
     std::size_t missing = 0;
+    auto maybe_rss = [&]() {
+        if (packed_tiles == 1 || packed_tiles == plan.tiles.size() ||
+            packed_tiles % static_cast<std::size_t>(kFetchRssLogEvery) == 0)
+            log_fetch_rss("tile", packed_tiles, plan.tiles.size());
+    };
     if (plan.dem_kind == "3dep" || tiled_img) {
         for (const auto& t : plan.tiles) {
             const std::string tdir = out + "/lod" + std::to_string(t.lod) + "/t" +
@@ -924,6 +1034,7 @@ std::uint64_t fetch_and_pack(const FetchRequest& in, FetchPlan* plan_out) {
             if (cache_tile_ready(tdir)) {
                 S376_LOG_INFO("cache", "resume skip %s", tdir.c_str());
                 ++packed_tiles;
+                maybe_rss();
                 continue;
             }
             DemGrid tile_dem;
@@ -957,26 +1068,12 @@ std::uint64_t fetch_and_pack(const FetchRequest& in, FetchPlan* plan_out) {
                 ++missing;
                 continue;
             }
-            if (tile_img.rgb.empty())
-                tile_img = ImageRgb::hillshade(tile_dem);
-            apply_correction_overlay_icao(tile_img, t.box, apt.icao);
-            write_lod_dir(tdir, tile_dem, tile_img, t.lod == 0, req.mips);
+            if (imagery.rgb.empty() && !tile_img.rgb.empty())
+                imagery = resample_rgb(tile_img, 256, 256);
+            write_streamed_cache_tile(tdir, std::move(tile_dem), std::move(tile_img), t.box,
+                                      apt.icao, t.lod == 0, req.mips);
             ++packed_tiles;
-            dems.push_back(std::move(tile_dem));
-            if (imagery.rgb.empty())
-                imagery = tile_img;
-        }
-    }
-    if (dems.empty() && (plan.dem_kind == "glo30" || plan.dem_kind == "3dep")) {
-        for (const auto& url : glo30_urls_for_box(box_from_radius(apt.lat, apt.lon, req.radius_km))) {
-            const auto dest = raw + "/glo30-" + std::to_string(dems.size()) + ".tif";
-            if (try_get(url, dest) && gdal_available()) {
-                try {
-                    dems.push_back(DemGrid::load_geotiff(dest));
-                } catch (const std::exception& ex) {
-                    S376_LOG_WARN("cache", "GLO-30 read: %s", ex.what());
-                }
-            }
+            maybe_rss();
         }
     }
 
@@ -1030,53 +1127,40 @@ std::uint64_t fetch_and_pack(const FetchRequest& in, FetchPlan* plan_out) {
 
     CacheRegion region;
     region.name = apt.icao;
-    if (dems.empty()) {
-        for (const auto& t : scan_cache_tiles(out)) {
+    const GeoBox root_box = box_from_radius(apt.lat, apt.lon, req.radius_km);
+    // Stream packed tiles (one subsampled DEM at a time). Never hold the
+    // full 2048² stack — that is what OOM-killed the 4 GB KJFK fetch.
+    region.dem = merge_root_dem_from_cache(out, root_box, 256);
+    bool have_dem = false;
+    for (float z : region.dem.z_m) {
+        if (z != 0.f) {
+            have_dem = true;
+            break;
+        }
+    }
+    if (!have_dem && (plan.dem_kind == "glo30" || plan.dem_kind == "3dep")) {
+        std::vector<char> hit(static_cast<std::size_t>(region.dem.w * region.dem.h), 0);
+        int gi = 0;
+        for (const auto& url : glo30_urls_for_box(root_box)) {
+            const auto dest = raw + "/glo30-" + std::to_string(gi++) + ".tif";
+            if (!try_get(url, dest) || !gdal_available())
+                continue;
             try {
-                dems.push_back(DemGrid::load(t.path + "/elev.s376dem"));
-            } catch (...) {
+                DemGrid g = DemGrid::load_geotiff(dest);
+                splat_dem(region.dem, g, hit, false);
+                have_dem = true;
+            } catch (const std::exception& ex) {
+                S376_LOG_WARN("cache", "GLO-30 read: %s", ex.what());
             }
         }
     }
-    if (!dems.empty()) {
-        // Always resample onto an ARP-centered box. Never pack_lods from
-        // dems.front() — tile_raster iy=0 is the SW tile, which shifted the
-        // KJFK region.toml ~20 km SW of the field.
-        const GeoBox box = box_from_radius(apt.lat, apt.lon, req.radius_km);
-        DemGrid merged;
-        merged.w = 256;
-        merged.h = 256;
-        merged.west = box.west;
-        merged.south = box.south;
-        merged.east = box.east;
-        merged.north = box.north;
-        merged.z_m.assign(256 * 256, 0.f);
-        for (int y = 0; y < 256; ++y) {
-            const double la = merged.north - (merged.north - merged.south) * y / 255.0;
-            for (int x = 0; x < 256; ++x) {
-                const double lo = merged.west + (merged.east - merged.west) * x / 255.0;
-                double z = 0;
-                bool ok = sample_cache_elev_m(out, la, lo, z);
-                if (!ok) {
-                    for (const auto& t : dems) {
-                        if (t.sample_m(la, lo, z)) {
-                            ok = true;
-                            break;
-                        }
-                    }
-                }
-                merged.z_m[static_cast<std::size_t>(y * 256 + x)] =
-                    ok ? static_cast<float>(z) : 0.f;
-            }
-        }
-        region.dem = std::move(merged);
-    } else {
+    if (!have_dem) {
         S376_LOG_WARN("cache", "no DEM downloaded; packing synth pad for %s", apt.icao.c_str());
         region.dem = DemGrid::synth_ksea();
-        region.dem.west = box_from_radius(apt.lat, apt.lon, req.radius_km).west;
-        region.dem.east = box_from_radius(apt.lat, apt.lon, req.radius_km).east;
-        region.dem.south = box_from_radius(apt.lat, apt.lon, req.radius_km).south;
-        region.dem.north = box_from_radius(apt.lat, apt.lon, req.radius_km).north;
+        region.dem.west = root_box.west;
+        region.dem.east = root_box.east;
+        region.dem.south = root_box.south;
+        region.dem.north = root_box.north;
     }
     region.imagery = imagery.rgb.empty() ? ImageRgb::hillshade(region.dem) : imagery;
     // Coarse root + lodN/elev for HAT / fallback. High-res tiles already
@@ -1086,6 +1170,7 @@ std::uint64_t fetch_and_pack(const FetchRequest& in, FetchPlan* plan_out) {
     S376_LOG_INFO("cache", "packed %s  %llu bytes  %zu tiles  dem=%s img=%s", apt.icao.c_str(),
                   static_cast<unsigned long long>(packed), packed_tiles, plan.dem_kind.c_str(),
                   plan.img_kind.c_str());
+    log_fetch_rss("pack", packed_tiles, plan.tiles.size());
     (void)bytes;
 
     try {

@@ -274,4 +274,29 @@ void test_fetch() {
     CHECK(s376::dxt::mip_count(16, 16) == 5);
 
     std::filesystem::remove_all(tmp);
+
+    // Streaming fetch: many large DEM tiles must not accumulate in RSS.
+    // 48 × 1024² float = 192 MiB if kept; one tile is ~4 MiB.
+    const auto rdir = (std::filesystem::temp_directory_path() / "s376-fetch-rss").string();
+    std::filesystem::remove_all(rdir);
+    const auto rss0 = s376::current_rss_bytes();
+    const auto peak = s376::bench_stream_pack_rss(rdir, 48, 1024, 128);
+    CHECK(peak > 0);
+    CHECK(peak < s376::kFetchRssBoundBytes);
+    CHECK(peak < rss0 + (128ull << 20));
+    CHECK(std::filesystem::exists(rdir + "/elev.s376dem"));
+    CHECK(s376::count_cache_tiles(rdir) >= 40);
+    {
+        s376::GeoBox uni;
+        uni.west = -73.80;
+        uni.south = 40.60;
+        uni.east = -73.72;
+        uni.north = 40.68;
+        const auto merged = s376::merge_root_dem_from_cache(rdir, uni, 32);
+        CHECK(merged.w == 32 && merged.h == 32);
+        double z = 0;
+        CHECK(merged.sample_m(40.605, -73.795, z));
+        CHECK_NEAR(z, 12.0, 0.5);
+    }
+    std::filesystem::remove_all(rdir);
 }

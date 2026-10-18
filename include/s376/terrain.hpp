@@ -28,6 +28,8 @@ struct DemGrid {
     static DemGrid peek(const std::string& path);
     // Load a mesh-sized grid (max_n per side) without keeping the full raster.
     static DemGrid load_subsampled(const std::string& path, int max_n);
+    // One bilinear sample without loading the full raster (header + 4 floats).
+    static bool sample_file_m(const std::string& path, double lat, double lon, double& z_m_out);
     void save(const std::string& path) const;
 
     static DemGrid load_geotiff(const std::string& path); // throws if no GDAL / bad file
@@ -112,6 +114,8 @@ bool cache_dir_looks_packed(const std::string& dir);
 // Process RSS (Linux VmRSS / VmHWM). 0 if unavailable.
 std::uint64_t current_rss_bytes();
 std::uint64_t peak_rss_bytes();
+// Cap GDAL's block cache so a long fetch cannot grow it with tile count.
+void limit_gdal_cache_mb(int mb);
 
 // HAT = eyepoint MSL − terrain MSL. HOT is the terrain elevation.
 // If src is null or the point is off the DEM, elev=0 and hat=alt (stand-in).

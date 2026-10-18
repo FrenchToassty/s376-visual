@@ -177,11 +177,15 @@ native). Pager still caps resident 2 GiB / 5 GiB. See
 Road traffic (`3e99c97`), accuracy core (`702adb3`), and the scenery
 checklist / raster-parity guard (`700659c`) are landed.
 
-This increment: unit tests **129684 passed, 0 failed**. Doctor
+This increment: unit tests **129695 passed, 0 failed**. Doctor
 `faa-*` + `imagery-official-*` pass for all 18 official airports.
 Hangar re-fetch is still priority 1 — use the resume command below
-(2048 px, do not pass `--max-export 4000`). KJFK `--near-m 0.3` is
-queued after that validates. For VNKT/SKRG/KRNO Raster-local:
+(2048 px, do not pass `--max-export 4000`). Fetch is **streaming**:
+one decoded tile in RAM, root DEM merged from disk (subsampled),
+RSS logged every 16 tiles. Bound is 2 GiB regardless of tile count
+(the e2f6af6 4 GB OOM was `dems` keeping every 2048² float grid).
+KJFK `--near-m 0.3` is queued after the current resume validates.
+For VNKT/SKRG/KRNO Raster-local:
 
 ```bash
 ./build/s376-cache import-raster /path/to/Raster/VNKT --out cache/VNKT
@@ -411,8 +415,13 @@ CI accuracy suite; datum/geoid/UTM; Raster-difference list.
 - **Geodesy:** EGM96/EGM2008 undulation, orthometric↔ellipsoid, UTM
   round-trip, Vincenty inverse. Tested in `test_geo`.
 - **Cache centering:** `fetch_and_pack` no longer packs from
-  `dems.front()` (SW tile, iy=0). Root DEM is ARP-centered.
-  Fetch **throws** if ARP or any runway end is outside lod0.
+  `dems.front()` (SW tile, iy=0). Root DEM is ARP-centered from
+  packed tiles (`merge_root_dem_from_cache`, one subsampled tile
+  at a time). Fetch **throws** if ARP or any runway end is outside lod0.
+- **Streaming fetch:** decoded DEM/imagery are written and dropped
+  per tile. Do not keep a `vector<DemGrid>` of 2048² tiles (that
+  OOM-killed KJFK at 258 lod0 / 4 GB). Log `rss tile N/M now/peak`
+  every 16 tiles. Bound: `kFetchRssBoundBytes` (2 GiB).
 - **Re-fetch** (hangar KJFK pack was ~20 km SW; no lod0 north of 40.614):
 
 ```bash

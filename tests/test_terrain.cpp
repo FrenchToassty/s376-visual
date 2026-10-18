@@ -59,6 +59,10 @@ void test_terrain() {
     double z2 = 0;
     CHECK(loaded.sample_m(47.4479, -122.3103, z2));
     CHECK_NEAR(z2, z_m, 1e-4);
+    double zf = 0;
+    CHECK(s376::DemGrid::sample_file_m(dem_path, 47.4479, -122.3103, zf));
+    CHECK_NEAR(zf, z2, 1e-3);
+    CHECK(!s376::DemGrid::sample_file_m(dem_path, 0, 0, zf));
 
     s376::DemHeightSource src(std::make_shared<s376::DemGrid>(dem));
     double elev = -1;

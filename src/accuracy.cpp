@@ -253,19 +253,9 @@ bool sample_cache_elev_m(const std::string& cache_dir, double lat, double lon, d
         if (!best || t.lod < best->lod || (t.lod == best->lod && t.dem_w * t.dem_h > best->dem_w * best->dem_h))
             best = &t;
     }
-    if (best) {
-        try {
-            const DemGrid d = DemGrid::load(best->path + "/elev.s376dem");
-            return d.sample_m(lat, lon, z_m);
-        } catch (...) {
-        }
-    }
-    try {
-        const DemGrid root = DemGrid::load(cache_dir + "/elev.s376dem");
-        return root.sample_m(lat, lon, z_m);
-    } catch (...) {
-    }
-    return false;
+    if (best && DemGrid::sample_file_m(best->path + "/elev.s376dem", lat, lon, z_m))
+        return true;
+    return DemGrid::sample_file_m(cache_dir + "/elev.s376dem", lat, lon, z_m);
 }
 
 std::string format_acc_report(const AccReport& r) {
