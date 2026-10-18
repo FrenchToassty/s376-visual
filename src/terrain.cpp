@@ -541,21 +541,32 @@ std::vector<CacheTileRef> scan_cache_tiles(const std::string& dir) {
         } catch (...) {
         }
     };
+    bool any_leaf = false;
     for (int lod = 0; lod <= 2; ++lod) {
         const std::string base = dir + "/lod" + std::to_string(lod);
-        add(base, lod);
-        if (!std::filesystem::is_directory(base))
-            continue;
-        for (const auto& e : std::filesystem::directory_iterator(base)) {
-            if (!e.is_directory())
-                continue;
-            const std::string name = e.path().filename().string();
-            if (name.size() < 2 || name[0] != 't')
-                continue;
-            add(e.path().string(), lod);
+        std::vector<std::string> leaves;
+        if (std::filesystem::is_directory(base)) {
+            for (const auto& e : std::filesystem::directory_iterator(base)) {
+                if (!e.is_directory())
+                    continue;
+                const std::string name = e.path().filename().string();
+                if (name.size() < 2 || name[0] != 't')
+                    continue;
+                leaves.push_back(e.path().string());
+            }
+        }
+        if (!leaves.empty()) {
+            for (const auto& p : leaves)
+                add(p, lod);
+            any_leaf = true;
+        } else {
+            add(base, lod); // untiled lodN/ (synth packs)
         }
     }
-    add(dir, 1); // coarse root
+    // Root elev.s376dem is HAT-only when a tiled pyramid exists. Paging it
+    // in as a 96² mesh over the whole field hides the near tY_X tiles.
+    if (!any_leaf)
+        add(dir, 1);
     return out;
 }
 

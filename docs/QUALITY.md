@@ -43,9 +43,11 @@ Runtime rules now:
 
 - **Page** `lodN/tY_X` by distance and a coarse heading frustum.
 - **Subsample** each resident DEM to `mesh_n` (`DemGrid::load_subsampled`).
-- **Upload BC/DXT compressed.** `dxt::read_dds` keeps the block payload;
-  OSG `setUnRefImageDataAfterApply(true)` drops the CPU copy after the
-  first apply. No RGBA inflate.
+- **Upload DXT1 through OSG 3.6.** `dxt::read_dds` keeps the block
+  payload. BC7 (BPTC) is transcoded block-by-block to DXT1 because
+  apt OSG 3.6 does not treat `GL_COMPRESSED_RGBA_BPTC_UNORM` as
+  compressed (`glTexImage2D` → `invalid enumerant`). No 48 MB RGBA
+  inflate. `setUnRefImageDataAfterApply(true)` drops the CPU copy.
 - **`osm.bin` only.** `s376-cache osm` / `bake-osm` stream-parses
   Overpass JSON (no full slurp) into a compact `S376OSM1` sidecar. The
   IG never opens `osm.json`.

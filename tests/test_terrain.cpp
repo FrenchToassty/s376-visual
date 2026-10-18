@@ -125,9 +125,43 @@ void test_terrain() {
     CHECK(dds_img.w == 8 && dds_img.h == 8);
     CHECK(dds_img.fmt == s376::dxt::BlockFmt::Bc1);
     CHECK(dds_img.blocks.size() == 32);
+    {
+        const auto bc7p = (tmp / "red7.dds").string();
+        s376::dxt::write_dds_bc7(bc7p, red.data(), 8, 8);
+        s376::dxt::CompressedImage c7{};
+        CHECK(s376::dxt::read_dds(bc7p, c7));
+        CHECK(c7.fmt == s376::dxt::BlockFmt::Bc7);
+        auto rgb7 = s376::dxt::decode_bc7(c7.blocks.data(), 8, 8);
+        CHECK(rgb7.size() == red.size());
+        CHECK(rgb7[0] > 140 && rgb7[1] < 90 && rgb7[2] < 90);
+        s376::dxt::make_osg_safe(c7);
+        CHECK(c7.fmt == s376::dxt::BlockFmt::Bc1);
+        CHECK(c7.blocks.size() == s376::dxt::bc1_size(8, 8));
+    }
 
     const auto tiles = s376::scan_cache_tiles(cdir);
     CHECK(!tiles.empty());
+    {
+        const auto leaf = cdir + "/lod0/t0_0";
+        std::filesystem::create_directories(leaf);
+        std::filesystem::copy_file(cdir + "/elev.s376dem", leaf + "/elev.s376dem",
+                                   std::filesystem::copy_options::overwrite_existing);
+        std::filesystem::copy_file(cdir + "/elev.s376dem", cdir + "/lod0/elev.s376dem",
+                                   std::filesystem::copy_options::overwrite_existing);
+        const auto scanned = s376::scan_cache_tiles(cdir);
+        bool saw_leaf = false, saw_parent = false, saw_root = false;
+        for (const auto& t : scanned) {
+            if (t.path == leaf)
+                saw_leaf = true;
+            if (t.path == cdir + "/lod0")
+                saw_parent = true;
+            if (t.path == cdir)
+                saw_root = true;
+        }
+        CHECK(saw_leaf);
+        CHECK(!saw_parent); // parent lod0/ must not page in over tY_X
+        CHECK(!saw_root);
+    }
     CHECK(s376::cache_dir_looks_packed(cdir));
     CHECK(s376::resolve_cache_dir(cdir, "KSEA") == cdir);
     CHECK(s376::resolve_cache_dir("", "XXXX").empty());

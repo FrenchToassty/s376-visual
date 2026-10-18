@@ -127,7 +127,7 @@ vec3 aces(vec3 x) {
 }
 float aerial(float dist, vec3 n) {
     float g = 1.0 - clamp(abs(dot(normalize(n), normalize(uUp))), 0.0, 1.0);
-    float h = uFogDensity + uHaze * (0.18 + 2.50 * pow(g, 1.35));
+    float h = uFogDensity + uHaze * (0.10 + 0.55 * pow(g, 1.6));
     return exp(-h * h * dist * dist);
 }
 void main() {
@@ -231,11 +231,13 @@ void main() {
         albedo *= 0.75 + 0.25 * ndl;
         albedo *= mix(1.0, 0.85 + 0.15 * uSsao, 1.0);
     }
-    vec3 col = albedo * (uAmbient + uDiffuse * (mat > 0.5 && mat < 1.5 ? 1.0 : ndl));
-    if (mat > 0.5 && mat < 1.5)
-        col = albedo * (0.55 + 0.55 * max(ndl, 0.35));
+    if (mat > 0.5 && mat < 1.5) {
+        float fade = clamp(1.0 - vEyeDist / 4500.0, 0.0, 1.0);
+        albedo = mix(vec3(0.17, 0.17, 0.18), albedo, fade);
+    }
+    vec3 col = albedo * (uAmbient + uDiffuse * ndl);
     float g = 1.0 - clamp(abs(dot(n, normalize(uUp))), 0.0, 1.0);
-    float h = uFogDensity + uHaze * (0.30 + 1.10 * g);
+    float h = uFogDensity + uHaze * (0.12 + 0.45 * g);
     float f = exp(-h * h * vEyeDist * vEyeDist);
     col = mix(uFogColor, col, clamp(f, 0.0, 1.0));
     gl_FragColor = vec4(aces(col * uExposure), 1.0);
@@ -336,16 +338,22 @@ void main() {
     float h = clamp(dot(d, up), -1.0, 1.0);
     vec3 sun = normalize(uSunDir);
     float m = max(dot(d, sun), 0.0);
-    vec3 zenith = vec3(0.12, 0.32, 0.72);
-    vec3 horiz = vec3(0.62, 0.74, 0.88);
-    vec3 ground = vec3(0.40, 0.48, 0.58);
-    vec3 sky = mix(horiz, zenith, pow(clamp(h, 0.0, 1.0), 0.65));
+    vec3 zenith = vec3(0.10, 0.38, 0.92);
+    vec3 horiz = vec3(0.55, 0.72, 0.95);
+    vec3 ground = vec3(0.28, 0.38, 0.52);
+    vec3 sky = mix(horiz, zenith, pow(clamp(h, 0.0, 1.0), 0.55));
     if (h < 0.0)
         sky = mix(horiz, ground, clamp(-h * 2.0, 0.0, 1.0));
     sky += vec3(1.0, 0.92, 0.75) * pow(m, 32.0) * 0.55;
     sky += vec3(1.0, 0.85, 0.55) * pow(m, 8.0) * 0.12;
     float hz = pow(1.0 - abs(h), 1.25);
-    sky = mix(sky, uFogColor, 0.48 * hz);
+    sky = mix(sky, uFogColor, 0.16 * hz);
+    // Cheap painted cumulus (Raster-style scattered puffs, not a weather packet).
+    vec2 cuv = vec2(d.x + d.z, d.y * 0.35 + d.z) * 2.4;
+    float cl = hash(floor(cuv)) * 0.55 + hash(cuv * 1.7) * 0.45;
+    float band = smoothstep(0.04, 0.16, h) * smoothstep(0.55, 0.22, h);
+    float cloud = smoothstep(0.58, 0.78, cl) * band;
+    sky = mix(sky, vec3(0.93, 0.95, 0.98), cloud * 0.85);
     float night = clamp(-dot(sun, up) * 2.0, 0.0, 1.0);
     vec3 moon = normalize(-sun + 0.15 * up);
     float mm = max(dot(d, moon), 0.0);
@@ -671,22 +679,23 @@ osg::Image* image_from_compressed_dds(const std::string& path) {
     dxt::CompressedImage c;
     if (!dxt::read_dds(path, c) || c.blocks.empty())
         return nullptr;
-    const GLenum fmt = (c.fmt == dxt::BlockFmt::Bc7) ? GL_COMPRESSED_RGBA_BPTC_UNORM_ARB
-                                                     : GL_COMPRESSED_RGB_S3TC_DXT1_EXT;
+    // OSG 3.6 does not treat BPTC as compressed — glTexImage2D(BPTC) is
+    // GL_INVALID_ENUM. Transcode our mode-6 BC7 to DXT1 (block-by-block).
+    dxt::make_osg_safe(c);
+    const GLenum fmt = GL_COMPRESSED_RGB_S3TC_DXT1_EXT;
     auto* data = new unsigned char[c.blocks.size()];
     std::memcpy(data, c.blocks.data(), c.blocks.size());
     auto* img = new osg::Image;
     img->setImage(c.w, c.h, 1, fmt, fmt, GL_UNSIGNED_BYTE, data, osg::Image::USE_NEW_DELETE);
     if (c.mips > 1) {
         osg::Image::MipmapDataType offs;
-        std::size_t o = (c.fmt == dxt::BlockFmt::Bc7) ? dxt::bc7_size(c.w, c.h)
-                                                      : dxt::bc1_size(c.w, c.h);
+        std::size_t o = dxt::bc1_size(c.w, c.h);
         int w = c.w, h = c.h;
         for (int i = 1; i < c.mips; ++i) {
             offs.push_back(o);
             w = std::max(1, w / 2);
             h = std::max(1, h / 2);
-            o += (c.fmt == dxt::BlockFmt::Bc7) ? dxt::bc7_size(w, h) : dxt::bc1_size(w, h);
+            o += dxt::bc1_size(w, h);
         }
         img->setMipmapLevels(offs);
     }
@@ -849,6 +858,8 @@ osg::Node* make_local_ground(double lat0, double lon0, double radius_km, float a
     tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
     tex->setMaxAnisotropy(std::max(1.f, aniso));
     tex->setLODBias(-0.4f);
+    tex->setResizeNonPowerOfTwoHint(false);
+    tex->setUnRefImageDataAfterApply(true);
     attach_lit_tex(geom->getOrCreateStateSet(), tex);
     geode->addDrawable(geom);
     return geode;
@@ -1390,6 +1401,21 @@ osg::ref_ptr<osg::Camera> make_shot_fbo(int w, int h, const osg::Vec4& clear,
     rtt->setComputeNearFarMode(osg::CullSettings::DO_NOT_COMPUTE_NEAR_FAR);
     rtt->setInheritanceMask(osg::CullSettings::ALL_VARIABLES &
                             ~osg::CullSettings::COMPUTE_NEAR_FAR_MODE);
+    struct FboPreClear : public osg::Camera::DrawCallback {
+        int w = 0, h = 0;
+        osg::Vec4 clear;
+        FboPreClear(int ww, int hh, const osg::Vec4& c) : w(ww), h(hh), clear(c) {}
+        void operator()(osg::RenderInfo&) const override {
+            glViewport(0, 0, w, h);
+            glScissor(0, 0, w, h);
+            glEnable(GL_SCISSOR_TEST);
+            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+            glDepthMask(GL_TRUE);
+            glClearColor(clear.r(), clear.g(), clear.b(), clear.a());
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        }
+    };
+    rtt->setPreDrawCallback(new FboPreClear(w, h, clear));
     rtt->setPostDrawCallback(cb);
     return rtt;
 }
@@ -1451,6 +1477,7 @@ class OsgRenderer final : public Renderer {
             tiles_root_ = new osg::Group;
             root->addChild(tiles_root_);
             tile_index_ = scan_cache_tiles(dir);
+            tiles_ready_ = tile_index_.empty();
             ram_budget_ = static_cast<std::uint64_t>(std::max(256, cfg.render.ram_mb)) * 1024ull *
                           1024ull;
             vram_budget_ = static_cast<std::uint64_t>(std::max(256, cfg.render.vram_mb)) * 1024ull *
@@ -1477,7 +1504,7 @@ class OsgRenderer final : public Renderer {
                 page_tiles(true); // coarse lod first; lod0 pages in on frame()
             }
         }
-        if (!used_earth_) {
+        if (!used_earth_ && tile_index_.empty()) {
             const float an = static_cast<float>(cfg.render.aniso);
             for (const auto& apt : all_public_airports()) {
                 if (auto* g = make_local_ground(apt.arp_lat, apt.arp_lon, 40.0, an)) {
@@ -1485,6 +1512,8 @@ class OsgRenderer final : public Renderer {
                     S376_LOG_INFO("render", "%s local ground  40 km", apt.icao.c_str());
                 }
             }
+        } else if (!used_earth_ && !tile_index_.empty()) {
+            S376_LOG_INFO("render", "skip local-ground patches — packed tiles cover the field");
         }
         {
             Airport merged;
@@ -1644,6 +1673,8 @@ class OsgRenderer final : public Renderer {
             viewer_->setDone(true);
     }
     bool pager_idle() const override {
+        if (!tiles_ready_)
+            return false;
         if (views_.empty())
             return true;
         for (const auto& view : views_) {
@@ -1841,6 +1872,19 @@ class OsgRenderer final : public Renderer {
             }
             load_one_tile(*s.t);
         }
+        if (!coarse_only) {
+            int need = 0, have = 0;
+            for (const auto& s : want) {
+                if (s.t->lod != 0 || s.score > 30.0)
+                    continue;
+                ++need;
+                if (tile_resident(s.t->path))
+                    ++have;
+                if (need >= 8)
+                    break;
+            }
+            tiles_ready_ = (need == 0) || (have >= std::min(need, 4));
+        }
     }
 
     bool render_fbo(int w, int h, const osg::Vec4& clear, osg::Node* scene, bool ortho,
@@ -1851,6 +1895,9 @@ class OsgRenderer final : public Renderer {
         osg::Camera* master = view->getCamera();
         if (!master || !master->getGraphicsContext())
             return false;
+        osg::ref_ptr<osg::Viewport> saved_vp =
+            master->getViewport() ? new osg::Viewport(*master->getViewport()) : nullptr;
+        master->setViewport(0, 0, w, h);
         osg::ref_ptr<PackReadback> cb = new PackReadback(w, h);
         osg::ref_ptr<osg::Camera> rtt = make_shot_fbo(w, h, clear, cb.get());
         rtt->setGraphicsContext(master->getGraphicsContext());
@@ -1884,6 +1931,8 @@ class OsgRenderer final : public Renderer {
         }
         viewer_->frame();
         view->removeSlave(idx);
+        if (saved_vp)
+            master->setViewport(saved_vp);
         if (!cb->ok || !cb->img)
             return false;
         out = rgb_from_fbo(*cb->img);
@@ -1928,12 +1977,12 @@ class OsgRenderer final : public Renderer {
             alt_k = std::min(1.f, static_cast<float>(host.eye.alt_ft) / 16000.f);
         float haze = 0.f;
         if (cfg_.render.atmosphere)
-            haze = 3.2e-6f + 1.8e-5f * alt_k;
+            haze = 1.1e-6f + 2.4e-6f * alt_k;
         if (env_u_.haze)
             env_u_.haze->set(haze);
         if (env_u_.fog_color)
-            env_u_.fog_color->set(osg::Vec3(0.62f + 0.10f * alt_k, 0.70f + 0.08f * alt_k,
-                                            0.78f + 0.08f * alt_k));
+            env_u_.fog_color->set(osg::Vec3(0.42f + 0.06f * alt_k, 0.60f + 0.06f * alt_k,
+                                            0.86f + 0.04f * alt_k));
 
         float tod = host.have_env ? host.env.tod_hours : 14.5f;
         // Type-124 tod_select: −1 = continuous hours; 0 day / 1 dusk / 2 dawn / 3 night.
@@ -2010,8 +2059,8 @@ class OsgRenderer final : public Renderer {
                                           0.04f + 0.12f * dayf + flash * 0.4f,
                                           0.06f + 0.12f * dayf + flash * 0.5f));
         const float t = 0.25f + 0.55f * dayf;
-        const osg::Vec4 sky(0.15f + 0.25f * t + flash * 0.4f, 0.22f + 0.35f * t + flash * 0.4f,
-                            0.35f + 0.40f * t + flash * 0.3f, 1);
+        const osg::Vec4 sky(0.12f + 0.18f * t + flash * 0.4f, 0.32f + 0.28f * t + flash * 0.4f,
+                            0.72f + 0.22f * t + flash * 0.2f, 1);
         for (auto& view : views_) {
             if (auto* cam = view->getCamera())
                 cam->setClearColor(sky);
@@ -2054,6 +2103,7 @@ class OsgRenderer final : public Renderer {
     std::uint64_t resident_cpu_ = 0;
     std::uint64_t resident_vram_ = 0;
     int mesh_n_ = 96;
+    bool tiles_ready_ = true;
 };
 
 } // namespace

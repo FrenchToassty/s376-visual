@@ -268,6 +268,39 @@ void encode_bc7_block(const std::uint8_t px[16 * 3], std::uint8_t out[16]) {
         out[8 + i] = static_cast<std::uint8_t>(hi >> (8 * i));
 }
 
+void decode_bc7_block(const std::uint8_t in[16], std::uint8_t px[16 * 3]) {
+    std::uint64_t lo = 0, hi = 0;
+    for (int i = 0; i < 8; ++i)
+        lo |= static_cast<std::uint64_t>(in[i]) << (8 * i);
+    for (int i = 0; i < 8; ++i)
+        hi |= static_cast<std::uint64_t>(in[8 + i]) << (8 * i);
+    auto get = [&](int bit, int nbits) -> int {
+        int v = 0;
+        for (int i = 0; i < nbits; ++i) {
+            const int b = bit + i;
+            const std::uint64_t one = (b < 64) ? ((lo >> b) & 1) : ((hi >> (b - 64)) & 1);
+            v |= static_cast<int>(one) << i;
+        }
+        return v;
+    };
+    const int R0 = get(7, 7), R1 = get(14, 7);
+    const int G0 = get(21, 7), G1 = get(28, 7);
+    const int B0 = get(35, 7), B1 = get(42, 7);
+    int idx[16];
+    idx[0] = get(65, 3);
+    int bit = 68;
+    for (int i = 1; i < 16; ++i) {
+        idx[i] = get(bit, 4);
+        bit += 4;
+    }
+    for (int i = 0; i < 16; ++i) {
+        const int k = std::max(0, std::min(15, idx[i]));
+        px[i * 3] = static_cast<std::uint8_t>((R0 * (15 - k) + R1 * k) * 255 / (15 * 127));
+        px[i * 3 + 1] = static_cast<std::uint8_t>((G0 * (15 - k) + G1 * k) * 255 / (15 * 127));
+        px[i * 3 + 2] = static_cast<std::uint8_t>((B0 * (15 - k) + B1 * k) * 255 / (15 * 127));
+    }
+}
+
 std::vector<std::uint8_t> encode_bc7(const std::uint8_t* rgb, int w, int h) {
     const int bw = (w + 3) / 4;
     const int bh = (h + 3) / 4;
@@ -382,6 +415,65 @@ void write_dds_bc7(const std::string& path, const std::uint8_t* rgb, int w, int 
         throw std::runtime_error("cannot write " + path);
     write_dds_header(o, w, h, mips ? mip_count(w, h) : 1, true);
     write_mip_chain(o, rgb, w, h, mips, true);
+}
+
+std::vector<std::uint8_t> decode_bc7(const std::uint8_t* blocks, int w, int h) {
+    std::vector<std::uint8_t> rgb(static_cast<std::size_t>(w * h * 3));
+    const int bw = (w + 3) / 4;
+    const int bh = (h + 3) / 4;
+    std::uint8_t px[16 * 3];
+    for (int by = 0; by < bh; ++by) {
+        for (int bx = 0; bx < bw; ++bx) {
+            decode_bc7_block(blocks + (by * bw + bx) * 16, px);
+            for (int y = 0; y < 4; ++y) {
+                const int iy = by * 4 + y;
+                if (iy >= h)
+                    continue;
+                for (int x = 0; x < 4; ++x) {
+                    const int ix = bx * 4 + x;
+                    if (ix >= w)
+                        continue;
+                    const int di = (iy * w + ix) * 3;
+                    const int si = (y * 4 + x) * 3;
+                    rgb[di] = px[si];
+                    rgb[di + 1] = px[si + 1];
+                    rgb[di + 2] = px[si + 2];
+                }
+            }
+        }
+    }
+    return rgb;
+}
+
+std::vector<std::uint8_t> transcode_bc7_to_bc1(const std::uint8_t* blocks, int w, int h) {
+    const int bw = (w + 3) / 4;
+    const int bh = (h + 3) / 4;
+    std::vector<std::uint8_t> out(static_cast<std::size_t>(bw * bh * 8));
+    std::uint8_t px[16 * 3];
+    for (int by = 0; by < bh; ++by) {
+        for (int bx = 0; bx < bw; ++bx) {
+            decode_bc7_block(blocks + (by * bw + bx) * 16, px);
+            encode_block(px, out.data() + (by * bw + bx) * 8);
+        }
+    }
+    return out;
+}
+
+void make_osg_safe(CompressedImage& img) {
+    if (img.fmt != BlockFmt::Bc7 || img.blocks.empty())
+        return;
+    std::vector<std::uint8_t> bc1;
+    const std::uint8_t* p = img.blocks.data();
+    int w = img.w, h = img.h;
+    for (int i = 0; i < img.mips; ++i) {
+        auto level = transcode_bc7_to_bc1(p, w, h);
+        p += bc7_size(w, h);
+        bc1.insert(bc1.end(), level.begin(), level.end());
+        w = std::max(1, w / 2);
+        h = std::max(1, h / 2);
+    }
+    img.fmt = BlockFmt::Bc1;
+    img.blocks = std::move(bc1);
 }
 
 bool read_dds(const std::string& path, CompressedImage& out) {

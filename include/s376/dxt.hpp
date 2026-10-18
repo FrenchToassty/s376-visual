@@ -27,6 +27,10 @@ void write_dds_bc7(const std::string& path, const std::uint8_t* rgb, int w, int 
 std::vector<std::uint8_t> encode_bc1(const std::uint8_t* rgb, int w, int h);
 std::vector<std::uint8_t> encode_bc7(const std::uint8_t* rgb, int w, int h);
 std::vector<std::uint8_t> decode_bc1(const std::uint8_t* blocks, int w, int h);
+// Mode-6 only (matches encode_bc7). Used to fall back to DXT1 for OSG 3.6,
+// which does not treat BPTC as a compressed format (glTexImage2D → invalid enumerant).
+std::vector<std::uint8_t> decode_bc7(const std::uint8_t* blocks, int w, int h);
+std::vector<std::uint8_t> transcode_bc7_to_bc1(const std::uint8_t* blocks, int w, int h);
 
 std::vector<std::uint8_t> downsample2(const std::uint8_t* rgb, int w, int h, int& ow, int& oh);
 
@@ -47,5 +51,7 @@ struct CompressedImage {
 };
 
 bool read_dds(const std::string& path, CompressedImage& out);
+// In-place: every mip becomes BC1 so OSG can glCompressedTexImage2D.
+void make_osg_safe(CompressedImage& img);
 
 } // namespace s376::dxt

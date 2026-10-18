@@ -330,6 +330,18 @@ void test_airport() {
     CHECK(from_bin.buildings.size() == 1);
     CHECK_NEAR(from_bin.buildings.back().height_m, 18.0, 0.1);
     {
+        const auto jfk = tmp + "/KJFK";
+        std::filesystem::create_directories(jfk);
+        std::filesystem::copy_file(tmp + "/osm.bin", jfk + "/osm.bin",
+                                   std::filesystem::copy_options::overwrite_existing);
+        s376::Airport sea;
+        sea.icao = "KSEA";
+        CHECK(s376::try_load_osm(sea, jfk) == 0);
+        s376::Airport jf;
+        jf.icao = "KJFK";
+        CHECK(s376::try_load_osm(jf, jfk) == 3);
+    }
+    {
         const auto huge = tmp + "/huge";
         std::filesystem::create_directories(huge);
         {

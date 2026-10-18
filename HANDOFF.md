@@ -6,6 +6,42 @@ account may stop mid-run — treat this file as the source of truth.
 **PR:** https://github.com/joeylawell/s376-visual/pull/1
 **Branch:** `cursor/s376-visual-v1-6852`
 
+## Milestone: hangar 72df5f5 follow-up — tiles, FBO, BC1, sky (2026-10-18)
+
+OOM is fixed on Mint / RTX 5060 Ti (rss peak 36 MiB, 4 GB cap, no
+crash). The 12k mid_left shot was still wrong:
+
+1. **Near field green.** `scan_cache_tiles` paged `cache/KJFK`,
+   `lod0/`, `lod1/` directory roots as 96² meshes over the whole
+   field. A 40 km `make_local_ground` patch sat **on top** of JFK
+   (12 m vs DEM ~4 m). lod0 BC7 failed to upload (see 3) so only
+   distant BC1 tiles showed. Fix: leaf `tY_X` only; skip local-ground
+   when a tiled cache is present; `osm.bin` applies only to the
+   matching ICAO; screenshot waits until near lod0 tiles are resident.
+2. **Top ~7% garbage.** Window is 1920×1008; FBO is 1920×1080. Slave
+   inherited the window viewport/scissor so the top 72 rows were
+   never cleared. Fix: FBO pre-draw `glViewport`+`glScissor`+`glClear`
+   of the full channel size; master viewport temporarily set to WxH.
+3. **16× invalid enumerant.** OSG 3.6 does not treat BPTC as
+   compressed (`glTexImage2D(GL_COMPRESSED_RGBA_BPTC_UNORM)`).
+   `make_osg_safe` transcodes our mode-6 BC7 → DXT1 block-by-block
+   (no 48 MB RGBA tile). 980 Ti / 5060 Ti both get DXT1 through OSG.
+4. **Grey sky.** Altitude haze was `3.2e-6 + 1.8e-5*(alt/16k)` and
+   the horizon term was `2.50*g^1.35` — ~70% fog at 10 nm. Now a
+   weak haze, blue zenith/horizon, light painted cumulus.
+5. **Glowing white runway cross.** Markings no longer get extra
+   lighting and fade to pavement by ~4.5 km.
+
+Re-test:
+
+```bash
+./build/s376-visual --screenshot /tmp/jfk-12k-mid_left.ppm --cache-dir cache/KJFK \
+  --at KJFK --alt 12000 --hdg 036 --channel mid_left --screenshot-wait 5
+# expect: imagery on JFK/Rockaway (not flat green), no top garbage band,
+# zero `invalid enumerant`, blue sky, runways as pavement not a white cross
+./build/s376-doctor --cache-dir cache/KJFK --no-bench
+```
+
 ## Milestone: KJFK OOM — page tiles, osm.bin, RAM budget (2026-10-18)
 
 Hangar Mint box (16 GB RAM, RTX 5060 Ti) OOM-killed
@@ -513,11 +549,9 @@ are unit-tested.
 
 ## Next 5 concrete steps (in order)
 
-1. **Hangar GPU re-test (OOM + shot):** `s376-cache bake-osm cache/KJFK`
-   then `--screenshot /tmp/jfk-12k.ppm --cache-dir cache/KJFK --at KJFK
-   --alt 12000 --hdg 036 --channel mid_left`. Confirm no kernel OOM,
-   peak RSS under ~2 GB (`s376-doctor --cache-dir cache/KJFK`),
-   1920×1080 PNG, no ~7% top bar. Paste doctor `rss` / `cache-tiles`.
+1. **Hangar GPU re-test (tiles + FBO + sky):** screenshot command in
+   the 72df5f5 follow-up milestone. Confirm JFK has ortho (not green),
+   no top band, zero GL invalid enumerant, blue sky, pavement runways.
 2. **Close remaining PARITY gaps**: 109 beams, 131 display, 128
    patchy/speed-cue, 124 runway condition, PAPI/taxi, cloud type
    catalog, real storm-cell sizes.

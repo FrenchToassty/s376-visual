@@ -980,14 +980,28 @@ int try_load_osm(Airport& a, const std::string& cache_dir) {
         c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
     for (char& c : low)
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    auto folder_name = [](const std::string& path) {
+        auto name = std::filesystem::path(path).parent_path().filename().string();
+        for (char& c : name)
+            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        return name;
+    };
+    auto icao_like = [](const std::string& name) {
+        if (name.size() != 4)
+            return false;
+        for (char c : name) {
+            if (!std::isalpha(static_cast<unsigned char>(c)))
+                return false;
+        }
+        return true;
+    };
     std::vector<std::string> paths;
     if (!cache_dir.empty()) {
-        paths.push_back(cache_dir + "/osm.bin");
-        const auto parent = std::filesystem::path(cache_dir).parent_path();
-        if (!parent.empty()) {
-            paths.push_back((parent / id / "osm.bin").string());
-            paths.push_back((parent / low / "osm.bin").string());
-        }
+        const auto p = cache_dir + "/osm.bin";
+        const auto folder = folder_name(p);
+        // cache/KJFK/osm.bin is KJFK only — never merge it into KSEA/KSFO/…
+        if (!icao_like(folder) || folder == id)
+            paths.push_back(p);
     } else {
         paths.push_back("cache/" + id + "/osm.bin");
         paths.push_back("cache/" + low + "/osm.bin");
