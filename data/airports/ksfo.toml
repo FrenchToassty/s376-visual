@@ -1,17 +1,13 @@
-# KSFO — public geometry only.
-# Runway ends / lengths / widths: OurAirports runways.csv (public domain).
-# Lighting systems from the published FAA chart (ALSF-2 on 28R, MALSR on
-# 10L / 28L / 19L / 10R and the 01s). Taxi / apron connectors in the
-# binary are schematic offsets; replace with `s376-cache osm KSFO`
-# (Overpass aeroway=*, ODbL) when you want the real graph.
-# Packet-112 switch numbers are ours, not RSI's.
+# KSFO — official FAA Chart Supplement / NASR 2026-10-02 (src/faa.cpp).
+# 28R ALSF-2; 28L MALSR; 19L MALSF; 10L/01L/01R REIL, no ALS.
+# EMAS on all four 01/19 ends. Packet-112 switch numbers are ours.
 
 icao = "KSFO"
 name = "San Francisco International"
-arp_lat = 37.6188
-arp_lon = -122.3754
+arp_lat = 37.618833
+arp_lon = -122.3755
 elev_ft = 13
-attribution = "OurAirports + FAA charted ALS"
+attribution = "FAA Chart Supplement / NFDC NASR 2026-10-02, cross-checked OurAirports"
 
 [lights]
 edge_switch = 1

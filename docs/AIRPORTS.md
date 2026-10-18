@@ -35,12 +35,12 @@ Plus two generic “anywhere” pads later, for host airport-select fallback.
 
 | Layer | Source | What we take |
 |---|---|---|
-| Airport / runway / displaced threshold | [OurAirports](https://ourairports.com/data/) `airports.csv`, `runways.csv` | ICAO, lat/lon, elev, runway ends, width, surface, lighted flag, heading |
-| US runway + NASR | [FAA 28-day NASR / CIFP](https://www.faa.gov/air_traffic/flight_info/aeronav/digital_products/) | Authoritative US thresholds, TCH, declared distances |
-| European AIP | National AIS (NATS, DFS, ENAIRE, …) and [EUROCONTROL](https://www.eurocontrol.int/) where the product is open | Same, for EGLL / EDDF / LEBL |
+| Airport / runway / displaced threshold | Official FAA NASR / national AIP AD 2. OurAirports is a **cross-check only** | ICAO, lat/lon, elev, runway ends, width, ALS, PAPI, REIL, TDZ |
+| US runway + NASR | [FAA 28-day NASR / Chart Supplement](https://www.faa.gov/air_traffic/flight_info/aeronav/digital_products/) | Authoritative US thresholds, TCH, declared distances, lighting |
+| Non-US AIP AD 2 | DFS Germany, NATS UK, ENAIRE Spain, DGAC Ecuador, Aerocivil Colombia, CAAN Nepal | EDDF / EGLL / LEBL / SEQM / SKBO / SKRG / VNKT |
 | Taxiways, aprons, buildings, parking | [OpenStreetMap](https://www.openstreetmap.org/) via Overpass (`aeroway=*`) | Polygons and lines. ODbL attribution |
 | Terminal / hangar massing | OSM `building` + a later simple extrude. Optional public CityGML | Boxy is fine for v1 |
-| Imagery under the airport | Best free public source per ICAO, else Raster-local — see [SOURCES.md](SOURCES.md) | Draped, not modelled |
+| Imagery under the airport | Best free public source per ICAO, else Raster-local — see [IMAGERY_SOURCES.md](IMAGERY_SOURCES.md) | Draped, not modelled. Official geometry wins over the photo |
 | Elevation under the airport | Copernicus GLO-30, then a local airport flatten | Conform runways to a plane |
 
 ## Lighting — from standards, not from RSI binaries
@@ -75,13 +75,13 @@ scales colour and alpha by `step / 5`. Switch numbers are ours:
 | 3 | Approach (ALSF-2 / MALSR bars) |
 | 4 | Threshold / end |
 
-`kjfk_public()` / `kewr_public()` are built from **both FAA ends**
-(`airport_from_faa`, `data/faa/{kjfk,kewr}.toml`). ALS/PAPI/TDZ/EMAS
-match AIP AD 2.14. The accuracy suite fails CI if an end, heading,
-threshold, ALS type, or PAPI side/angle drifts. Other shipped fields
-(`ksea` / `ksfo` / `klas` / `klax` / `kbos`) still use OurAirports
-ends plus FAA-charted ALS (ALSF-2 on KSEA 16L, KSFO 28R, KLAS 26R/26L,
-KLAX 24s/25s, KBOS 04R/15R; MALSR elsewhere). See
+Every public airport is built from **both official ends**
+(`airport_from_faa` / `faa_all()`). ALS/PAPI/REIL/TDZ/EMAS match the
+current FAA Chart Supplement (US) or national AIP AD 2 (non-US). The
+accuracy suite fails CI if an end, heading, threshold, ALS type, PAPI
+side/angle, REIL, TDZ, or width drifts. Official data wins over
+older charted ALSF-2 guesses (KLAS 26R **MALS**, 26L **MALSF**;
+KLAX 24L **MALSR**; KBOS 15R **MALSR**, 33L **ALSF-2**). See
 [ACCURACY.md](ACCURACY.md) for Raster differences (22R displaced
 **3424 ft**, 13L **200 ft**, 04L/22R ALS **NONE**, 13R **RLLS**).
 

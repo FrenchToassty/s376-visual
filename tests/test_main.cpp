@@ -50,6 +50,7 @@ void test_image();
 void test_display();
 void test_lights();
 void test_accuracy();
+void test_correct();
 void test_parity();
 void test_repo_guard();
 void test_traffic();
@@ -75,6 +76,7 @@ int main() {
     test_display();
     test_lights();
     test_accuracy();
+    test_correct();
     test_parity();
     test_repo_guard();
     test_traffic();

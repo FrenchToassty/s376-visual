@@ -153,8 +153,18 @@ void add_faa_markings(AirportMesh& mesh, const Runway& rw) {
         mark_rect(mesh, rw.le_lat, rw.le_lon, rw.heading_deg, elev, d,
                   std::min(d + 36.0, rw.length_m - 8), -0.22, 0.22, 0.96f, 0.96f, 0.94f);
 
-    auto one_end = [&](double lat, double lon, double hdg, const std::string& ident) {
-        // Threshold bars: 8 (150 ft) or 12 (200 ft) stripes, 45 m × 1.8 m.
+    auto one_end = [&](double lat, double lon, double hdg, const std::string& ident,
+                       double disp_ft) {
+        const double disp_m = disp_ft * geo::kFtToM;
+        if (disp_m > 8.0) {
+            // Yellow chevrons in the displaced area (official THR, not old paint).
+            for (double d = 12.0; d < disp_m - 8.0; d += 24.0) {
+                mark_rect(mesh, lat, lon, hdg, elev, d, d + 10.0, 4.0, 14.0, 0.92f, 0.78f, 0.12f);
+                mark_rect(mesh, lat, lon, hdg, elev, d, d + 10.0, -14.0, -4.0, 0.92f, 0.78f, 0.12f);
+            }
+            offset_m(lat, lon, hdg, disp_m, lat, lon);
+        }
+        // Threshold bars at the landing THR: 8 (150 ft) or 12 (200 ft).
         const int nb = rw.width_m >= 55.0 ? 12 : 8;
         const double bar_w = 1.8;
         const double span = half - 2.0;
@@ -183,8 +193,8 @@ void add_faa_markings(AirportMesh& mesh, const Runway& rw) {
             mark_rect(mesh, lat, lon, hdg, elev, d, d + 22.0, -14.0, -8.0, 0.95f, 0.95f, 0.93f);
         }
     };
-    one_end(rw.le_lat, rw.le_lon, rw.heading_deg, rw.ident_le);
-    one_end(rw.he_lat, rw.he_lon, wrap360(rw.heading_deg + 180.0), rw.ident_he);
+    one_end(rw.le_lat, rw.le_lon, rw.heading_deg, rw.ident_le, rw.le_displaced_ft);
+    one_end(rw.he_lat, rw.he_lon, wrap360(rw.heading_deg + 180.0), rw.ident_he, rw.he_displaced_ft);
     // Rubber deposits in the first 900 m each end (darker asphalt, not a marking).
     strip_quad(mesh, rw.le_lat, rw.le_lon, rw.he_lat, rw.he_lon, rw.heading_deg, half * 0.35,
                rw.le_elev_m + 0.42, rw.he_elev_m + 0.42, 0.10f, 0.09f, 0.09f, 0.f);
@@ -365,11 +375,37 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
                 push_light(a, llat, llon, elev, 1.f, 0.15f, 0.1f, sw, LightKind::Approach, k);
                 push_light(a, rlat, rlon, elev, 1.f, 0.15f, 0.1f, sw, LightKind::Approach, k);
             }
+        } else if (sys == "ALSF-1") {
+            for (int i = 1; i <= 24; ++i)
+                bar5(100.0 * i, LightKind::Approach, (i >= 10) ? (24 - i) : -1);
+            double xlat, xlon;
+            offset_m(lat, lon, back, 1000.0 * geo::kFtToM, xlat, xlon);
+            bar(a, xlat, xlon, hdg, elev, 22.0, 15, 1.f, 1.f, 0.92f, sw, LightKind::Approach, k);
         } else if (sys == "MALSR") {
             for (int i = 1; i <= 7; ++i)
                 bar5(200.0 * i, LightKind::Approach);
             for (int i = 0; i < 5; ++i)
                 bar5(1600.0 + 200.0 * i, LightKind::Flasher, i);
+        } else if (sys == "MALSF") {
+            for (int i = 1; i <= 7; ++i)
+                bar5(200.0 * i, LightKind::Approach);
+            for (int i = 0; i < 5; ++i)
+                bar5(1400.0 + 200.0 * i, LightKind::Flasher, i);
+        } else if (sys == "MALS") {
+            for (int i = 1; i <= 7; ++i)
+                bar5(200.0 * i, LightKind::Approach);
+        } else if (sys == "SALS") {
+            for (int i = 1; i <= 7; ++i)
+                bar5(200.0 * i, LightKind::Approach);
+        } else if (sys == "CAT-I") {
+            for (int i = 1; i <= 10; ++i)
+                bar5(300.0 * i, LightKind::Approach);
+        } else if (sys == "CAT-II") {
+            for (int i = 1; i <= 15; ++i)
+                bar5(200.0 * i, LightKind::Approach, (i >= 8) ? (15 - i) : -1);
+            double xlat, xlon;
+            offset_m(lat, lon, back, 1000.0 * geo::kFtToM, xlat, xlon);
+            bar(a, xlat, xlon, hdg, elev, 18.0, 11, 1.f, 1.f, 0.92f, sw, LightKind::Approach, k);
         } else if (sys == "RLLS") {
             for (int i = 1; i <= 12; ++i) {
                 bar5(500.0 * i, LightKind::Approach, i - 1);
@@ -415,26 +451,6 @@ void lights_for_taxi(Airport& a) {
             }
         }
     }
-}
-
-Runway make_runway(const char* le, const char* he, double le_lat, double le_lon, double le_elev_ft,
-                   double heading, double length_ft, double width_ft, const char* als_le,
-                   const char* als_he) {
-    Runway r;
-    r.ident_le = le;
-    r.ident_he = he;
-    r.le_lat = le_lat;
-    r.le_lon = le_lon;
-    r.le_elev_m = le_elev_ft * geo::kFtToM;
-    r.heading_deg = heading;
-    r.length_m = length_ft * geo::kFtToM;
-    r.width_m = width_ft * geo::kFtToM;
-    r.he_elev_m = r.le_elev_m;
-    r.approach_le = als_le;
-    r.approach_he = als_he;
-    r.heading_he_deg = wrap360(r.heading_deg + 180.0);
-    offset_m(r.le_lat, r.le_lon, r.heading_deg, r.length_m, r.he_lat, r.he_lon);
-    return r;
 }
 
 Runway runway_from_faa_pair(const FaaEnd& le, const FaaEnd& he) {
@@ -583,23 +599,20 @@ const char* light_kind_name(LightKind k) {
     return "?";
 }
 
+void decorate_simple(Airport& a, const char* taxi0, double perp0, const char* taxi1, double perp1,
+                     const char* apron, double alat, double alon, double hdg, double alen,
+                     double awid, const char* bldg, float bh) {
+    if (!a.runways.empty()) {
+        a.taxiways.push_back(parallel_taxi(taxi0, a.runways[0], perp0));
+        if (taxi1 && a.runways.size() > 1)
+            a.taxiways.push_back(parallel_taxi(taxi1, a.runways[1], perp1));
+    }
+    a.aprons.push_back(box_apron(apron, alat, alon, hdg, alen, awid, a.elev_m));
+    a.buildings.push_back(box_building(bldg, alat, alon, hdg, alen * 0.4, 80, bh));
+}
+
 Airport ksea_public() {
-    Airport a;
-    a.icao = "KSEA";
-    a.name = "Seattle-Tacoma International";
-    a.attribution =
-        "OurAirports runways.csv (public domain) + FAA charted ALS; "
-        "taxi connectors schematic from runway geometry (ODbL OSM aeroway=* later)";
-    a.arp_lat = 47.4502;
-    a.arp_lon = -122.3088;
-    a.elev_m = 433.0 * geo::kFtToM;
-    // 16L threshold matches s376-synth. Lengths/widths from OurAirports.
-    a.runways.push_back(make_runway("16L", "34R", 47.463684, -122.307751, 429.0, 180.34, 11901.0,
-                                    150.0, "ALSF-2", "MALSR"));
-    a.runways.push_back(make_runway("16C", "34C", 47.45583, -122.31155, 429.0, 180.3, 9426.0, 150.0,
-                                    "MALSR", "MALSR"));
-    a.runways.push_back(make_runway("16R", "34L", 47.45349, -122.31775, 429.0, 180.3, 8500.0, 150.0,
-                                    "MALSR", "MALSR"));
+    Airport a = airport_from_faa_ref(faa_ksea());
     a.taxiways.push_back(parallel_taxi("T", a.runways[0], 90.0));
     a.taxiways.push_back(parallel_taxi("B", a.runways[1], 80.0));
     a.aprons.push_back(box_apron("main", a.arp_lat, a.arp_lon + 0.004, 90.0, 800, 400, a.elev_m));
@@ -609,23 +622,7 @@ Airport ksea_public() {
 }
 
 Airport ksfo_public() {
-    Airport a;
-    a.icao = "KSFO";
-    a.name = "San Francisco International";
-    a.attribution =
-        "OurAirports runways.csv (public domain) + FAA charted ALS (ALSF-2 28R, "
-        "MALSR 28L/19L/10L); taxi/apron schematic + OSM aeroway=* (ODbL) when fetched";
-    a.arp_lat = 37.6188;
-    a.arp_lon = -122.3754;
-    a.elev_m = 13.0 * geo::kFtToM;
-    a.runways.push_back(make_runway("10L", "28R", 37.62855, -122.39335, 13.0, 118.0, 11870.0, 200.0,
-                                    "MALSR", "ALSF-2"));
-    a.runways.push_back(make_runway("10R", "28L", 37.62540, -122.39250, 13.0, 118.0, 11381.0, 200.0,
-                                    "MALSR", "MALSR"));
-    a.runways.push_back(make_runway("01L", "19R", 37.61350, -122.38950, 11.0, 18.0, 7650.0, 200.0,
-                                    "MALSR", "MALSR"));
-    a.runways.push_back(make_runway("01R", "19L", 37.61180, -122.38680, 11.0, 18.0, 8650.0, 200.0,
-                                    "MALSR", "MALSR"));
+    Airport a = airport_from_faa_ref(faa_ksfo());
     a.taxiways.push_back(parallel_taxi("A", a.runways[0], 80.0));
     a.taxiways.push_back(parallel_taxi("B", a.runways[1], -80.0));
     a.taxiways.push_back(parallel_taxi("C", a.runways[2], 70.0));
@@ -636,23 +633,7 @@ Airport ksfo_public() {
 }
 
 Airport klas_public() {
-    Airport a;
-    a.icao = "KLAS";
-    a.name = "Harry Reid / McCarran International";
-    a.attribution =
-        "OurAirports runways.csv (public domain) + FAA charted ALS (ALSF-2 26R/26L, "
-        "MALSR 19s/08s); taxi/apron schematic + OSM aeroway=* (ODbL) when fetched";
-    a.arp_lat = 36.0801;
-    a.arp_lon = -115.1523;
-    a.elev_m = 2181.0 * geo::kFtToM;
-    a.runways.push_back(make_runway("08L", "26R", 36.08620, -115.17450, 2181.0, 90.0, 14511.0, 150.0,
-                                    "MALSR", "ALSF-2"));
-    a.runways.push_back(make_runway("08R", "26L", 36.08050, -115.16800, 2181.0, 90.0, 10526.0, 150.0,
-                                    "MALSR", "ALSF-2"));
-    a.runways.push_back(make_runway("01L", "19R", 36.07400, -115.16300, 2171.0, 18.0, 8985.0, 150.0,
-                                    "MALSR", "MALSR"));
-    a.runways.push_back(make_runway("01R", "19L", 36.07200, -115.15800, 2171.0, 18.0, 9771.0, 150.0,
-                                    "MALSR", "MALSR"));
+    Airport a = airport_from_faa_ref(faa_klas());
     a.taxiways.push_back(parallel_taxi("A", a.runways[0], 80.0));
     a.taxiways.push_back(parallel_taxi("B", a.runways[1], -80.0));
     a.taxiways.push_back(parallel_taxi("S", a.runways[2], 70.0));
@@ -663,23 +644,7 @@ Airport klas_public() {
 }
 
 Airport klax_public() {
-    Airport a;
-    a.icao = "KLAX";
-    a.name = "Los Angeles International";
-    a.attribution =
-        "OurAirports runways.csv (public domain) + FAA charted ALS (ALSF-2 24R/24L/25R/25L, "
-        "MALSR 06s/07s); taxi/apron schematic + OSM aeroway=* (ODbL) when fetched";
-    a.arp_lat = 33.9425;
-    a.arp_lon = -118.4081;
-    a.elev_m = 128.0 * geo::kFtToM;
-    a.runways.push_back(make_runway("06L", "24R", 33.95020, -118.43190, 117.0, 68.9, 8926.0, 150.0,
-                                    "MALSR", "ALSF-2"));
-    a.runways.push_back(make_runway("06R", "24L", 33.94700, -118.43140, 115.0, 68.9, 10285.0, 150.0,
-                                    "MALSR", "ALSF-2"));
-    a.runways.push_back(make_runway("07L", "25R", 33.93620, -118.41990, 115.0, 68.9, 12923.0, 150.0,
-                                    "MALSR", "ALSF-2"));
-    a.runways.push_back(make_runway("07R", "25L", 33.93350, -118.41870, 102.0, 68.9, 11095.0, 200.0,
-                                    "MALSR", "ALSF-2"));
+    Airport a = airport_from_faa_ref(faa_klax());
     a.taxiways.push_back(parallel_taxi("B", a.runways[0], 80.0));
     a.taxiways.push_back(parallel_taxi("C", a.runways[1], -80.0));
     a.taxiways.push_back(parallel_taxi("S", a.runways[2], 70.0));
@@ -729,38 +694,108 @@ Airport kewr_public() {
 Airport airport_from_faa(const std::string& icao) {
     const FaaAirportRef* ref = faa_airport(icao);
     if (!ref)
-        throw std::runtime_error("no FAA both-end layout for " + icao);
+        throw std::runtime_error("no official FAA/AIP both-end layout for " + icao);
     Airport a = airport_from_faa_ref(*ref);
     generate_lights(a);
     return a;
 }
 
 Airport kbos_public() {
-    Airport a;
-    a.icao = "KBOS";
-    a.name = "Boston Logan International";
-    a.attribution =
-        "OurAirports runways.csv (public domain) + FAA charted ALS (ALSF-2 04R/15R, "
-        "MALSR 04L/33L/27); taxi/apron schematic + OSM aeroway=* / building=* (ODbL)";
-    a.arp_lat = 42.3656;
-    a.arp_lon = -71.0096;
-    a.elev_m = 20.0 * geo::kFtToM;
-    a.runways.push_back(make_runway("04L", "22R", 42.35157, -71.01625, 19.0, 35.0, 7864.0, 150.0,
-                                    "MALSR", "MALSR"));
-    a.runways.push_back(make_runway("04R", "22L", 42.35106, -71.01153, 19.0, 35.0, 10006.0, 150.0,
-                                    "ALSF-2", "MALSR"));
-    a.runways.push_back(
-        make_runway("09", "27", 42.36056, -71.02361, 19.0, 93.0, 7001.0, 150.0, "MALSR", "MALSR"));
-    a.runways.push_back(make_runway("15R", "33L", 42.37444, -71.02389, 16.0, 150.0, 10083.0, 150.0,
-                                    "ALSF-2", "MALSR"));
-    a.runways.push_back(make_runway("15L", "33R", 42.37278, -71.01694, 16.0, 150.0, 2557.0, 100.0,
-                                    "NONE", "NONE"));
+    Airport a = airport_from_faa_ref(faa_kbos());
     a.taxiways.push_back(parallel_taxi("N", a.runways[0], 80.0));
     a.taxiways.push_back(parallel_taxi("E", a.runways[1], -80.0));
     a.aprons.push_back(box_apron("A-gates", 42.3668, -71.0205, 50.0, 900, 420, a.elev_m));
     a.buildings.push_back(box_building("A", 42.3668, -71.0205, 50.0, 360, 80, 22.f));
     a.buildings.push_back(box_building("B", 42.3642, -71.0178, 50.0, 240, 70, 18.f));
     a.buildings.push_back(box_building("E", 42.3695, -71.0228, 150.0, 280, 70, 20.f));
+    generate_lights(a);
+    return a;
+}
+
+Airport kiad_public() {
+    Airport a = airport_from_faa_ref(faa_kiad());
+    decorate_simple(a, "A", 80.0, "B", -80.0, "midfield", a.arp_lat, a.arp_lon, 1.0, 900, 420,
+                    "main", 22.f);
+    generate_lights(a);
+    return a;
+}
+
+Airport kmco_public() {
+    Airport a = airport_from_faa_ref(faa_kmco());
+    decorate_simple(a, "A", 80.0, "B", -80.0, "airside", a.arp_lat, a.arp_lon, 180.0, 1000, 450,
+                    "main", 22.f);
+    generate_lights(a);
+    return a;
+}
+
+Airport kmia_public() {
+    Airport a = airport_from_faa_ref(faa_kmia());
+    decorate_simple(a, "M", 80.0, "N", -80.0, "terminal", a.arp_lat, a.arp_lon, 87.0, 1100, 450,
+                    "main", 22.f);
+    generate_lights(a);
+    return a;
+}
+
+Airport krno_public() {
+    Airport a = airport_from_faa_ref(faa_krno());
+    decorate_simple(a, "A", 80.0, "B", -80.0, "terminal", a.arp_lat, a.arp_lon, 180.0, 700, 350,
+                    "main", 18.f);
+    generate_lights(a);
+    return a;
+}
+
+Airport eddf_public() {
+    Airport a = airport_from_faa_ref(faa_eddf());
+    decorate_simple(a, "N", 80.0, "S", -80.0, "terminal", a.arp_lat, a.arp_lon, 70.0, 1200, 500,
+                    "T1", 24.f);
+    generate_lights(a);
+    return a;
+}
+
+Airport egll_public() {
+    Airport a = airport_from_faa_ref(faa_egll());
+    decorate_simple(a, "A", 80.0, "S", -80.0, "central", a.arp_lat, a.arp_lon, 90.0, 1100, 450,
+                    "T5", 24.f);
+    generate_lights(a);
+    return a;
+}
+
+Airport lebl_public() {
+    Airport a = airport_from_faa_ref(faa_lebl());
+    decorate_simple(a, "T", 80.0, "S", -80.0, "T1", a.arp_lat, a.arp_lon, 66.0, 900, 400, "T1",
+                    20.f);
+    generate_lights(a);
+    return a;
+}
+
+Airport seqm_public() {
+    Airport a = airport_from_faa_ref(faa_seqm());
+    decorate_simple(a, "A", 80.0, nullptr, 0, "terminal", a.arp_lat, a.arp_lon, 180.0, 800, 380,
+                    "main", 18.f);
+    generate_lights(a);
+    return a;
+}
+
+Airport skbo_public() {
+    Airport a = airport_from_faa_ref(faa_skbo());
+    decorate_simple(a, "A", 80.0, "B", -80.0, "terminal", a.arp_lat, a.arp_lon, 127.0, 1000, 420,
+                    "T1", 20.f);
+    generate_lights(a);
+    return a;
+}
+
+Airport skrg_public() {
+    Airport a = airport_from_faa_ref(faa_skrg());
+    decorate_simple(a, "A", 80.0, nullptr, 0, "terminal", a.arp_lat, a.arp_lon, 360.0, 700, 350,
+                    "main", 16.f);
+    generate_lights(a);
+    return a;
+}
+
+Airport vnkt_public() {
+    Airport a = airport_from_faa_ref(faa_vnkt());
+    decorate_simple(a, "A", 70.0, nullptr, 0, "terminal", a.arp_lat, a.arp_lon, 22.0, 600, 300,
+                    "main", 16.f);
     generate_lights(a);
     return a;
 }
@@ -783,12 +818,36 @@ Airport airport_by_icao(const std::string& icao) {
         return kewr_public();
     if (id == "KBOS")
         return kbos_public();
+    if (id == "KIAD")
+        return kiad_public();
+    if (id == "KMCO")
+        return kmco_public();
+    if (id == "KMIA")
+        return kmia_public();
+    if (id == "KRNO")
+        return krno_public();
+    if (id == "EDDF")
+        return eddf_public();
+    if (id == "EGLL")
+        return egll_public();
+    if (id == "LEBL")
+        return lebl_public();
+    if (id == "SEQM")
+        return seqm_public();
+    if (id == "SKBO")
+        return skbo_public();
+    if (id == "SKRG")
+        return skrg_public();
+    if (id == "VNKT")
+        return vnkt_public();
     throw std::runtime_error("no built-in layout for " + icao);
 }
 
 std::vector<Airport> all_public_airports() {
-    return {ksea_public(), ksfo_public(), klas_public(), klax_public(), kjfk_public(),
-            kewr_public(), kbos_public()};
+    return {ksea_public(), ksfo_public(), klas_public(),  klax_public(), kjfk_public(),
+            kewr_public(), kbos_public(), kiad_public(),  kmco_public(), kmia_public(),
+            krno_public(), eddf_public(), egll_public(),  lebl_public(), seqm_public(),
+            skbo_public(), skrg_public(), vnkt_public()};
 }
 
 bool runway_shot_pose(const Airport& a, const std::string& ident, double dist_nm, ShotPose& out) {

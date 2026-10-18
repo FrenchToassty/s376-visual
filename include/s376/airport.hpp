@@ -265,7 +265,7 @@ struct ShotOverrides {
     double pitch_deg = 0;
 };
 
-// Public OurAirports runway ends + FAA-chart lighting systems. Taxi
+// Official FAA NASR / national AIP AD 2 both-end layouts. Taxi
 // connectors are schematic offsets from those runways (stand-in for an
 // Overpass aeroway=* download). No RSI / CAE geometry.
 Airport ksea_public();
@@ -275,8 +275,19 @@ Airport klax_public();
 Airport kjfk_public();
 Airport kewr_public();
 Airport kbos_public();
+Airport kiad_public();
+Airport kmco_public();
+Airport kmia_public();
+Airport krno_public();
+Airport eddf_public();
+Airport egll_public();
+Airport lebl_public();
+Airport seqm_public();
+Airport skbo_public();
+Airport skrg_public();
+Airport vnkt_public();
 Airport airport_by_icao(const std::string& icao);
-Airport airport_from_faa(const std::string& icao); // KJFK / KEWR from FAA both ends
+Airport airport_from_faa(const std::string& icao); // official FAA/AIP both ends
 std::vector<Airport> all_public_airports();
 
 // `KJFK`, `KJFK:04R`, or `KJFK:04R:3` (nm before the threshold on a 3° path).

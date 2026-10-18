@@ -197,5 +197,34 @@ void test_accuracy() {
 
     CHECK(s376::faa_airport("kjfk") == &jfk_faa);
     CHECK(s376::faa_airport("XXXX") == nullptr);
-    CHECK(s376::faa_all().size() == 2);
+    CHECK(s376::faa_all().size() == 18);
+    CHECK(s376::official_airport("KSEA") == &s376::faa_ksea());
+    CHECK(s376::faa_ksea().effective == "2026-10-02");
+    CHECK(s376::faa_egll().source.find("NATS") != std::string::npos);
+    CHECK(s376::faa_skrg().source.find("Aerocivil") != std::string::npos);
+    CHECK(s376::faa_vnkt().source.find("CAAN") != std::string::npos);
+
+    // Same CI suite on every official airport. Official data wins.
+    for (const auto* faa : s376::faa_all()) {
+        const auto a = s376::airport_by_icao(faa->icao);
+        const auto acc = s376::check_airport_vs_faa(a, *faa);
+        if (!acc.ok())
+            std::cerr << s376::format_acc_report(acc);
+        CHECK(acc.ok());
+        CHECK(acc.checks >= 20);
+        CHECK(!a.source.name.empty());
+        CHECK(!a.source.effective.empty());
+        CHECK(!a.source.retrieved.empty());
+    }
+
+    const auto* las26r = s376::faa_end(s376::faa_klas(), "26R");
+    CHECK(las26r && las26r->als == "MALS");
+    CHECK_NEAR(las26r->length_ft, 14835.0, 0.5);
+    const auto* lax24l = s376::faa_end(s376::faa_klax(), "24L");
+    CHECK(lax24l && lax24l->als == "MALSR");
+    CHECK_NEAR(lax24l->length_ft, 10885.0, 0.5);
+    const auto* bos15r = s376::faa_end(s376::faa_kbos(), "15R");
+    CHECK(bos15r && bos15r->als == "MALSR");
+    const auto* bos33l = s376::faa_end(s376::faa_kbos(), "33L");
+    CHECK(bos33l && bos33l->als == "ALSF-2");
 }

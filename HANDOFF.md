@@ -27,13 +27,45 @@ from tests/CI. `scripts/check-no-rsi.sh` fails the build if
 
 ## Current state (2026-10-18, this increment)
 
-**Per-airport imagery + local `import-raster`.** If no free public
-source at least matches Raster's own imagery, fall back to Joey's
-Raster airport folder on his machine — never something worse. Catalog
-in `docs/SOURCES.md` / `airport_imagery()`. SKRG (no verified public
-source) and VNKT (S2 10 m only) are **Raster-local**: `fetch --imagery
-auto` refuses and tells you to import. KRNO is **either** (NAIP ~0.6 m
-roughly matches).
+**Official geometry + lights for every shipped airport; imagery
+correction layer; `docs/IMAGERY_SOURCES.md`.** Geometry and lights
+always come from FAA NASR (Chart Supplement / NFDC, cycle
+**2026-10-02**, retrieved **2026-10-18**) or national AIP AD 2
+(DFS / NATS / ENAIRE / DGAC Ecuador / Aerocivil / CAAN) — never
+Raster. OurAirports is a cross-check only. Every value carries
+source + effective + retrieved. `check_airport_vs_faa` runs in CI
+on all 18 airports. Where Raster disagrees (KLAS 26R/26L are MALS/
+MALSF not ALSF-2; KLAX 24L is MALSR; KBOS 15R is MALSR / 33L is
+ALSF-2; KLAS 08L/26R is 14835 ft), official wins;
+`s376-raster-parity` flags the difference.
+
+Imagery: sharper of the free public source vs Raster-local. Catalog
+in `docs/IMAGERY_SOURCES.md` (public sources only). Known Raster
+fallback: **KRNO** (only NAIP is free), **SKRG**, **VNKT**. Local-only
+`s376-cache import-raster <dir> --out cache/<ICAO>`. Never commit RSI.
+
+When imagery conflicts with FAA/AIP, `plan_corrections` /
+`apply_correction_overlay` repaint official surface, markings,
+displaced-threshold arrows/bars, and EMAS. Doctor
+`imagery-official-<icao>` flags mismatches above the accuracy
+tolerances.
+
+**Queued after hangar priorities (do not interrupt):** once the
+current KJFK fetch validates (`faa-coverage`, `faa-elev`, 12k shot),
+run a near-field pass at `--near-m 0.3` (NYS/NYC 2024 ~15–30 cm)
+over the airport so we beat Raster ~46 cm. **Do not** change the
+in-flight fetch command to 0.3 m.
+
+```bash
+# AFTER current fetch validates — not now:
+./build/s376-cache fetch KJFK --out cache/KJFK --dem 3dep --imagery nys \
+  --near-m 0.3 --near-dem-m 1 --near-km 5 --approach-nm 10 --radius-km 35
+```
+
+Prior increment: per-airport imagery + local `import-raster`. SKRG
+and VNKT are **Raster-local**. KRNO is **either** (NAIP ~0.6 m
+roughly matches). Catalog also in `docs/SOURCES.md` /
+`airport_imagery()`.
 
 ```bash
 ./build/s376-cache import-raster /path/to/Raster/VNKT --out cache/VNKT
@@ -143,12 +175,11 @@ native). Pager still caps resident 2 GiB / 5 GiB. See
 Road traffic (`3e99c97`), accuracy core (`702adb3`), and the scenery
 checklist / raster-parity guard (`700659c`) are landed.
 
-This increment: unit tests passed via `ctest` from the build dir
-(imagery catalog, import-raster opaque fail + GeoTIFF success,
-SKRG/VNKT raster-local, fetch auto kingco/sanmateo). Doctor
-`faa-kjfk` / `faa-kewr` unchanged. Hangar re-fetch is still
-priority 1 — use the resume command below (2048 px, do not pass
-`--max-export 4000`). For VNKT/SKRG:
+This increment: unit tests **129670 passed, 0 failed**. Doctor
+`faa-*` + `imagery-official-*` pass for all 18 official airports.
+Hangar re-fetch is still priority 1 — use the resume command below
+(2048 px, do not pass `--max-export 4000`). KJFK `--near-m 0.3` is
+queued after that validates. For VNKT/SKRG/KRNO Raster-local:
 
 ```bash
 ./build/s376-cache import-raster /path/to/Raster/VNKT --out cache/VNKT
@@ -313,8 +344,11 @@ OpenGL, 60 Hz at one channel (1920×1080, 50×32.5). `render.quality =
 
 1. **Hangar re-fetch + 12k screenshot** (items 1–2). Blocking for
    anyone looking at the picture. Fetch at **native NYS** (no
-   `--near-m 1`). Keep CI green while it runs.
-2. **Host CSN movers / marshallers** (3) — Raster had 12 moving-model
+   `--near-m 1`). Keep CI green while it runs. **Do not** switch
+   this run to `--near-m 0.3`.
+2. **KJFK near-field 0.3 m** — only after item 1 validates. NYS/NYC
+   2024 ~15–30 cm over the field so we beat Raster ~46 cm.
+3. **Host CSN movers / marshallers** (3) — Raster had 12 moving-model
    routes. Road cars are done.
 3. **Raise OSM building cap toward 30 k** with the existing
    near/far mesh split (5). Stay inside the 980 Ti RSS/VRAM caps.

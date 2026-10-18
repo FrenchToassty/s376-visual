@@ -1,5 +1,6 @@
 #include "s376/parity.hpp"
 
+#include "s376/faa.hpp"
 #include "s376/safety.hpp"
 
 #include <algorithm>
@@ -278,7 +279,28 @@ std::string format_raster_compare(const ParityCounts& ours, const RasterScan& th
     }
     if (theirs.nxt + theirs.nxb + theirs.nx3 == 0)
         o << "gap   no Raster database files at that path\n";
+    if (const FaaAirportRef* faa = faa_airport(ours.icao))
+        o << format_official_vs_raster(*faa, theirs);
     o << format_scenery_checklist();
+    return o.str();
+}
+
+std::string format_official_vs_raster(const FaaAirportRef& faa, const RasterScan& theirs) {
+    std::ostringstream o;
+    o << faa.icao << " official vs Raster  source=" << faa.source << " effective=" << faa.effective
+      << "\n";
+    o << "  rule  official FAA/AIP wins; Raster coords are flagged, never copied\n";
+    for (const auto& e : faa.ends) {
+        o << "  official  " << e.ident << "  " << e.lat << "," << e.lon << "  ALS " << e.als
+          << "  PAPI " << e.papi << "  disp " << e.displaced_ft << " ft\n";
+    }
+    if (theirs.coord_hits > 0) {
+        o << "  FLAG  Raster tree has " << theirs.coord_hits
+          << " geographic doubles. If any disagree with the official ends above, "
+             "keep the official value and treat Raster as a local imagery fallback only.\n";
+    } else if (!theirs.path.empty() && theirs.warning.empty()) {
+        o << "  note  no Raster coordinates decoded at that path\n";
+    }
     return o.str();
 }
 

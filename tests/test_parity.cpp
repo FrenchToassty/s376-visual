@@ -1,4 +1,5 @@
 #include "s376/airport.hpp"
+#include "s376/faa.hpp"
 #include "s376/parity.hpp"
 
 #include <iostream>
@@ -61,6 +62,10 @@ void test_parity() {
     CHECK(!s376::looks_like_s376_repo("/tmp"));
     auto scan = s376::scan_local_raster_tree("/tmp/s376-no-such-raster");
     CHECK(!scan.warning.empty());
+    const auto official = s376::format_official_vs_raster(s376::faa_kjfk(), scan);
+    CHECK(official.find("official") != std::string::npos);
+    CHECK(official.find("22R") != std::string::npos);
+    CHECK(official.find("wins") != std::string::npos);
     const auto root = std::string(__FILE__);
     // Only the path-missing / refuse paths are exercised in CI — never a Raster tree.
     (void)root;

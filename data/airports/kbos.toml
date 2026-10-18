@@ -1,20 +1,18 @@
-# KBOS — public geometry only.
-# Runway ends / lengths / widths: OurAirports runways.csv (public domain).
-# Lighting systems from the published FAA chart (ALSF-2 on 04R/15R,
-# MALSR on 04L/33L/27). Taxi / apron connectors in the binary are schematic
-# offsets; replace with `s376-cache osm KBOS` (Overpass aeroway=* + building=*,
-# ODbL). Packet-112 switch numbers are ours, not RSI's.
+# KBOS — official FAA Chart Supplement / NASR 2026-10-02 (src/faa.cpp).
+# 04R ALSF-2; 33L ALSF-2; 15R MALSR (not ALSF-2); 22L MALSF; 14/32 present.
+# True heading of 04R is ~20°, not the old 35° OurAirports LE+hdg guess.
+# Packet-112 switch numbers are ours, not RSI's.
 #
-# Joey's Raster 4R daytime photo may be this field (hdg 35°, 10006×150,
-# ALSF-2) or KJFK 04R (hdg 31°, 8400×200, MALSR). Compare with
+# Joey's Raster 4R daytime photo may be this field (hdg ~20°, 10006×150,
+# ALSF-2) or KJFK 04R (hdg 31°, 8400×200, ALSF-2). Compare with
 # `s376-visual --screenshot /tmp/bos-04r.ppm --at KBOS:04R:0 --channel mid_left`.
 
 icao = "KBOS"
 name = "Boston Logan International"
-arp_lat = 42.3656
-arp_lon = -71.0096
-elev_ft = 20
-attribution = "OurAirports + FAA charted ALS"
+arp_lat = 42.3630
+arp_lon = -71.006333
+elev_ft = 19
+attribution = "FAA Chart Supplement / NFDC NASR 2026-10-02, cross-checked OurAirports"
 
 [lights]
 edge_switch = 1
@@ -31,8 +29,8 @@ le_elev_ft = 19
 heading_deg = 35.0
 length_ft = 7864
 width_ft = 150
-approach_le = "MALSR"
-approach_he = "MALSR"
+approach_le = "NONE"
+approach_he = "NONE"
 
 [[runways]]
 ident_le = "04R"
@@ -40,11 +38,11 @@ ident_he = "22L"
 le_lat = 42.35106
 le_lon = -71.01153
 le_elev_ft = 19
-heading_deg = 35.0
+heading_deg = 20.0
 length_ft = 10006
 width_ft = 150
 approach_le = "ALSF-2"
-approach_he = "MALSR"
+approach_he = "MALSF"
 
 [[runways]]
 ident_le = "09"
@@ -55,8 +53,8 @@ le_elev_ft = 19
 heading_deg = 93.0
 length_ft = 7001
 width_ft = 150
-approach_le = "MALSR"
-approach_he = "MALSR"
+approach_le = "NONE"
+approach_he = "NONE"
 
 [[runways]]
 ident_le = "15R"
@@ -67,8 +65,8 @@ le_elev_ft = 16
 heading_deg = 150.0
 length_ft = 10083
 width_ft = 150
-approach_le = "ALSF-2"
-approach_he = "MALSR"
+approach_le = "MALSR"
+approach_he = "ALSF-2"
 
 [[runways]]
 ident_le = "15L"

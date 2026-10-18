@@ -60,9 +60,9 @@ numbers in committed airport TOML are **ours**, not RSI's.
 ## KJFK / KEWR 2023 scenery (public rebuild)
 
 What Raster's 2023 KJFK_KEWR pad showed, rebuilt from **FAA / OSM / public**
-data only. **FAA wins** when Raster disagrees (displaced thresholds, ALS
-type, PAPI side). Tracked in code (`s376::scenery_parity_items`) and
-`s376-raster-parity --ours`.
+data only. **FAA/AIP wins** when Raster disagrees (displaced thresholds, ALS
+type, PAPI side, length). Tracked in code (`s376::scenery_parity_items`,
+`format_official_vs_raster`) and `s376-raster-parity --ours --icao ICAO`.
 
 | Item | Raster 2023 had | Status | How we build it |
 |---|---|---|---|

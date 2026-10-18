@@ -31,29 +31,38 @@ CI (`s376-tests` → `test_accuracy`) fails if any of these slip:
 | Runway-end position vs FAA | 3 m |
 | Runway heading vs WGS84 geodesic of the two FAA ends | 0.1° |
 | Displaced threshold vs FAA | 3 m |
-| Approach-light type (NONE / ALSF-2 / MALSR / RLLS) | exact |
+| Approach-light type (NONE / ALSF-2 / ALSF-1 / MALSR / MALSF / MALS / SALS / RLLS / CAT-I / CAT-II) | exact |
 | PAPI side (P4L / P4R / P4L+P4L) and angle | exact / 0.05° |
 | Airport imagery geotransform vs runway geometry | 1 m |
 | Terrain elevation at each runway end vs FAA orthometric | 1 m |
 
-`s376-doctor` runs the same FAA checks on KJFK / KEWR. With
-`--cache-dir cache/KJFK` it also fails if lod0 tiles miss the ARP or
-any runway end (`faa-coverage`), and if the north-up imagery
-geotransform or DEM sample is off.
+`s376-doctor` runs the same official checks on every airport in
+`faa_all()` (US NASR + national AIP). With `--cache-dir cache/KJFK`
+it also fails if lod0 tiles miss the ARP or any runway end
+(`faa-coverage`), if the north-up imagery geotransform or DEM sample
+is off, and if imagery disagrees with official geometry above the
+tolerances (`imagery-official`). The correction layer then repaints
+official surface / markings / displaced-threshold / EMAS over the
+photo. Official always wins; imagery is only texture.
 
 ## Sources
 
 | Field | Authority | File |
 |---|---|---|
-| US runway ends, elevations, displaced thresholds, widths, ALS, PAPI, TCH, EMAS | FAA AIP AD 2 / NFDC (NASR 28-day family) | `data/faa/*.toml`, `src/faa.cpp` |
-| Cross-check | OurAirports `runways.csv` (public domain), AirNav | comments only |
+| US runway ends, elevations, displaced thresholds, widths, ALS, PAPI, REIL, TDZ, EMAS | FAA Chart Supplement + NFDC NASR (28-day family, current cycle) | `data/faa/*.toml`, `src/faa.cpp` |
+| Non-US (EDDF, EGLL, LEBL, SEQM, SKBO, SKRG, VNKT) | National AIP AD 2: DFS Germany, NATS UK, ENAIRE Spain, DGAC Ecuador, Aerocivil Colombia, CAAN Nepal | `src/faa.cpp` |
+| Cross-check | OurAirports `runways.csv` (public domain) | comments only — never the authority |
 | Taxi / apron / buildings | OSM Overpass (ODbL) when fetched | `cache/<ICAO>/osm.bin` |
-| Imagery | NYS Latest ortho (NYC/LI) or NAIP | `s376-cache fetch` |
+| Imagery | Best free public source, else Raster-local | [IMAGERY_SOURCES.md](IMAGERY_SOURCES.md) |
 | Elevation | USGS 3DEP (CONUS), Copernicus GLO-30 elsewhere | same |
 
 Every stored value carries `source`, `effective` (NASR / AIP cycle),
-and `retrieved`. Current KJFK / KEWR cycle: **2026-10-02**, retrieved
-**2026-10-18**.
+and `retrieved`. Current US cycle: **2026-10-02** (Chart Supplement
+NW/NE/SW/SE 3 SEP 2026 to 29 OCT 2026), retrieved **2026-10-18**.
+EGLL NATS AD 2 effective **2025-04-17**. SKBO cites the 2016
+Aerocivil AD 2 (still the published section). SKRG Aerocivil AMDT
+66-24. Where Raster disagrees with FAA/AIP, official wins;
+`s376-raster-parity` flags the difference.
 
 Runways are built from **both physical FAA ends**. Heading and length
 come from Vincenty inverse on WGS84. Do not compute the far end from
@@ -110,6 +119,11 @@ copied across a pair). We do not copy RSI / CAE coordinates.
 | ALSF-2 | 5-light bars every 100 ft to 2400 ft, 1000 ft crossbar, red side-row bars 100–1000 ft, sequenced flashers on the outer bars |
 | MALSR | 5-light bars 200–1400 ft, RAIL / flashers 1600–2400 ft |
 | RLLS | Lead-in groups out to ~6000 ft |
+| ALSF-1 | Same 2400 ft bars + 1000 ft crossbar as ALSF-2, no side-row bars |
+| MALSF | MALS bars 200–1400 ft plus sequenced flashers |
+| MALS | Medium-intensity bars 200–1400 ft, no RAIL |
+| SALS | Short approach bars 200–1400 ft |
+| CAT-I / CAT-II | ICAO simple / CAT II/III approach (AIP ends) |
 | NONE | No approach bar (04L, 22R, 31L at JFK; 11/29 at EWR) |
 | PAPI | Four boxes ~350 ft past the **landing** threshold (after displaced), left or right of edge per P4L / P4R |
 | REIL | Paired white strobes at the landing threshold |

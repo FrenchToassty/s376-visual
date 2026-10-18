@@ -17,6 +17,11 @@ s376-visual streams or caches standard formats.
 
 ## Per-airport imagery (sharper of public vs Raster-local)
 
+See **[IMAGERY_SOURCES.md](IMAGERY_SOURCES.md)** for the approved
+public-source table (NYS / NJOGIS / MassGIS / Loudoun / Clark /
+LA County / OCPA / MDC / KingCo / San Mateo / Hessen DOP20 / EA VAP /
+ICGC / IGM / IDECA) and the Raster-fallback rule (KRNO / SKRG / VNKT).
+
 Pick whichever is sharper. Public sources only in this table. When the
 free source is weaker or missing, use a **local** Raster airport folder
 via `s376-cache import-raster` — never commit those files.

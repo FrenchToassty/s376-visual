@@ -7,10 +7,13 @@
 
 namespace s376 {
 
-// Authoritative runway-end records transcribed from public FAA AIP / NFDC
-// (28-day NASR family) and cross-checked against OurAirports. The accuracy
-// suite compares live airport objects to these rows. Effective dates are the
-// NASR cycle current on the retrieval day.
+// Authoritative runway-end records. Geometry and lights come from official
+// publications only — never Raster:
+//   US  — FAA NASR / NFDC airportDisplay + AIP AD 2 (28-day family)
+//   non-US — national AIP AD 2 (DFS, NATS, ENAIRE, DGAC Ecuador,
+//            Aerocivil Colombia, CAAN Nepal)
+// OurAirports is a cross-check only. The accuracy suite compares live
+// airport objects to these rows. Every value carries source + effective date.
 
 struct FaaEnd {
     std::string icao;
@@ -22,7 +25,7 @@ struct FaaEnd {
     double length_ft = 0;
     double width_ft = 0;
     double displaced_ft = 0;
-    std::string als;  // NONE | ALSF-2 | MALSR | RLLS
+    std::string als;  // NONE | ALSF-2 | ALSF-1 | MALSR | MALSF | MALS | SALS | RLLS | CAT-I | CAT-II
     std::string papi; // P4L | P4R | P4L+P4L
     double papi_deg = 3.0;
     bool reil = false;
@@ -49,7 +52,27 @@ struct FaaAirportRef {
 
 const FaaAirportRef& faa_kjfk();
 const FaaAirportRef& faa_kewr();
+const FaaAirportRef& faa_ksea();
+const FaaAirportRef& faa_ksfo();
+const FaaAirportRef& faa_klas();
+const FaaAirportRef& faa_klax();
+const FaaAirportRef& faa_kbos();
+const FaaAirportRef& faa_kiad();
+const FaaAirportRef& faa_kmco();
+const FaaAirportRef& faa_kmia();
+const FaaAirportRef& faa_krno();
+const FaaAirportRef& faa_eddf();
+const FaaAirportRef& faa_egll();
+const FaaAirportRef& faa_lebl();
+const FaaAirportRef& faa_seqm();
+const FaaAirportRef& faa_skbo();
+const FaaAirportRef& faa_skrg();
+const FaaAirportRef& faa_vnkt();
+
 const FaaAirportRef* faa_airport(const std::string& icao);
+inline const FaaAirportRef* official_airport(const std::string& icao) {
+    return faa_airport(icao);
+}
 std::vector<const FaaAirportRef*> faa_all();
 
 const FaaEnd* faa_end(const FaaAirportRef& a, const std::string& ident);

@@ -29,8 +29,8 @@ struct AccReport {
     bool ok() const { return fails.empty(); }
 };
 
-// Compare a built airport to its FAA reference (ends, heading, displaced
-// threshold, ALS type, PAPI angle and side).
+// Compare a built airport to its official FAA/AIP reference (ends,
+// heading, displaced threshold, ALS type, PAPI, REIL, TDZ, width).
 AccReport check_airport_vs_faa(const Airport& a, const FaaAirportRef& faa);
 
 // Pixel↔geodetic round-trip of a north-up box must stay inside `tol_m`.

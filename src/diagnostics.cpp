@@ -1,5 +1,6 @@
 #include "s376/airport.hpp"
 #include "s376/accuracy.hpp"
+#include "s376/correct.hpp"
 #include "s376/diagnostics.hpp"
 #include "s376/faa.hpp"
 #include "s376/fetch.hpp"
@@ -389,6 +390,23 @@ DoctorReport run_doctor(const AppConfig& cfg, const std::string& config_path, bo
         } catch (const std::exception& ex) {
             add(r, {"faa-" + lower_icao(faa->icao), CheckStatus::Fail, ex.what(),
                     "add airport_from_faa for this ICAO"});
+        }
+        try {
+            const Airport a = airport_by_icao(faa->icao);
+            const CorrectionReport cr = plan_corrections(a, *faa);
+            const AccReport img = check_imagery_vs_official(a, *faa);
+            std::string name = "imagery-official-" + lower_icao(faa->icao);
+            if (img.ok() && cr.ok()) {
+                add(r, {name, CheckStatus::Pass,
+                        std::to_string(cr.items.size()) + " planned corrections; official wins",
+                        ""});
+            } else {
+                add(r, {name, CheckStatus::Fail, format_correction_report(cr),
+                        "correct imagery to FAA/AIP; official data always wins"});
+            }
+        } catch (const std::exception& ex) {
+            add(r, {"imagery-official-" + lower_icao(faa->icao), CheckStatus::Fail, ex.what(),
+                    "rebuild from official both-end geometry"});
         }
     }
 

@@ -1,17 +1,14 @@
-# KLAS — public geometry only.
-# Runway ends / lengths / widths: OurAirports runways.csv (public domain).
-# Lighting systems from the published FAA chart (ALSF-2 on 26R and 26L,
-# MALSR on the 08s and 19s). Taxi / apron connectors in the binary are
-# schematic offsets; replace with `s376-cache osm KLAS` (Overpass
-# aeroway=*, ODbL) when you want the real graph.
+# KLAS — official FAA Chart Supplement / NASR 2026-10-02 (src/faa.cpp).
+# 08L/26R is 14835×150 (not 14511). 26R MALS, 26L MALSF, 01L MALSF —
+# not ALSF-2. Official wins over older charted guesses.
 # Packet-112 switch numbers are ours, not RSI's.
 
 icao = "KLAS"
-name = "Harry Reid / McCarran International"
-arp_lat = 36.0801
-arp_lon = -115.1523
-elev_ft = 2181
-attribution = "OurAirports + FAA charted ALS"
+name = "Harry Reid International"
+arp_lat = 36.080333
+arp_lon = -115.1525
+elev_ft = 2183
+attribution = "FAA Chart Supplement / NFDC NASR 2026-10-02, cross-checked OurAirports"
 
 [lights]
 edge_switch = 1
@@ -26,10 +23,10 @@ le_lat = 36.08620
 le_lon = -115.17450
 le_elev_ft = 2181
 heading_deg = 90.0
-length_ft = 14511
+length_ft = 14835
 width_ft = 150
-approach_le = "MALSR"
-approach_he = "ALSF-2"
+approach_le = "NONE"
+approach_he = "MALS"
 
 [[runways]]
 ident_le = "08R"

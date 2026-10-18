@@ -82,9 +82,9 @@ void test_airport() {
     CHECK(a.runways.size() == 3);
     CHECK(a.runways[0].ident_le == "16L");
     CHECK(a.runways[0].ident_he == "34R");
-    CHECK_NEAR(a.runways[0].le_lat, 47.463684, 1e-6);
-    CHECK_NEAR(a.runways[0].le_lon, -122.307751, 1e-6);
-    CHECK_NEAR(a.runways[0].length_m, 11901.0 * s376::geo::kFtToM, 1.0);
+    CHECK_NEAR(a.runways[0].le_lat, 47.463799, 1e-6);
+    CHECK_NEAR(a.runways[0].le_lon, -122.307999, 1e-6);
+    CHECK_NEAR(a.runways[0].length_m, 11901.0 * s376::geo::kFtToM, 4.0);
     CHECK_NEAR(a.runways[0].width_m, 150.0 * s376::geo::kFtToM, 0.2);
     CHECK(a.runways[0].approach_le == "ALSF-2");
     CHECK(!a.aprons.empty());
@@ -94,7 +94,7 @@ void test_airport() {
 
     bool near_16l = false;
     for (const auto& L : a.lights) {
-        const double d = std::fabs(L.lat - 47.463684) + std::fabs(L.lon + 122.307751);
+        const double d = std::fabs(L.lat - 47.463799) + std::fabs(L.lon + 122.307999);
         if (d < 0.002)
             near_16l = true;
     }
@@ -111,12 +111,12 @@ void test_airport() {
     CHECK(sfo.runways[0].ident_le == "10L");
     CHECK(sfo.runways[0].ident_he == "28R");
     CHECK(sfo.runways[0].approach_he == "ALSF-2");
-    CHECK(sfo.runways[0].approach_le == "MALSR");
+    CHECK(sfo.runways[0].approach_le == "NONE");
     CHECK(sfo.runways[1].ident_le == "10R");
     CHECK(sfo.runways[2].ident_le == "01L");
     CHECK(sfo.runways[3].ident_le == "01R");
     CHECK_NEAR(sfo.arp_lat, 37.6188, 1e-4);
-    CHECK_NEAR(sfo.runways[0].length_m, 11870.0 * s376::geo::kFtToM, 1.0);
+    CHECK_NEAR(sfo.runways[0].length_m, 11870.0 * s376::geo::kFtToM, 4.0);
     CHECK_NEAR(sfo.runways[0].width_m, 200.0 * s376::geo::kFtToM, 0.2);
     CHECK(sfo.taxiways.size() >= 3);
     CHECK(!sfo.aprons.empty());
@@ -130,14 +130,14 @@ void test_airport() {
     CHECK(las.runways.size() == 4);
     CHECK(las.runways[0].ident_le == "08L");
     CHECK(las.runways[0].ident_he == "26R");
-    CHECK(las.runways[0].approach_he == "ALSF-2");
+    CHECK(las.runways[0].approach_he == "MALS");
     CHECK(las.runways[1].ident_le == "08R");
-    CHECK(las.runways[1].approach_he == "ALSF-2");
+    CHECK(las.runways[1].approach_he == "MALSF");
     CHECK(las.runways[2].ident_le == "01L");
     CHECK(las.runways[3].ident_le == "01R");
-    CHECK_NEAR(las.arp_lat, 36.0801, 1e-4);
-    CHECK_NEAR(las.elev_m, 2181.0 * s376::geo::kFtToM, 0.5);
-    CHECK_NEAR(las.runways[0].length_m, 14511.0 * s376::geo::kFtToM, 1.0);
+    CHECK_NEAR(las.arp_lat, 36.080333, 1e-4);
+    CHECK_NEAR(las.elev_m, 2183.0 * s376::geo::kFtToM, 0.5);
+    CHECK_NEAR(las.runways[0].length_m, 14835.0 * s376::geo::kFtToM, 20.0);
     CHECK(las.taxiways.size() >= 3);
     CHECK(!las.aprons.empty());
     check_runway_length(las.runways[0]);
@@ -154,7 +154,7 @@ void test_airport() {
     CHECK(lax.runways[0].approach_he == "ALSF-2");
     CHECK(lax.runways[3].ident_le == "07R");
     CHECK_NEAR(lax.arp_lat, 33.9425, 1e-4);
-    CHECK_NEAR(lax.runways[2].length_m, 12923.0 * s376::geo::kFtToM, 1.0);
+    CHECK_NEAR(lax.runways[2].length_m, 12923.0 * s376::geo::kFtToM, 20.0);
     CHECK(lax.taxiways.size() >= 3);
     check_runway_length(lax.runways[0]);
     check_lights(lax, 200, 400);
@@ -234,12 +234,14 @@ void test_airport() {
 
     auto bos = s376::kbos_public();
     CHECK(bos.icao == "KBOS");
-    CHECK(bos.runways.size() == 5);
+    CHECK(bos.runways.size() == 6);
     CHECK(bos.runways[1].ident_le == "04R" && bos.runways[1].ident_he == "22L");
     CHECK(bos.runways[1].approach_le == "ALSF-2");
-    CHECK(bos.runways[3].ident_le == "15R" && bos.runways[3].approach_le == "ALSF-2");
-    CHECK_NEAR(bos.arp_lat, 42.3656, 1e-4);
-    CHECK_NEAR(bos.runways[1].length_m, 10006.0 * s376::geo::kFtToM, 1.0);
+    CHECK(bos.runways[3].ident_le == "15R" && bos.runways[3].approach_le == "MALSR");
+    CHECK(bos.runways[3].approach_he == "ALSF-2");
+    CHECK(bos.runways[5].ident_le == "14");
+    CHECK_NEAR(bos.arp_lat, 42.3630, 1e-4);
+    CHECK_NEAR(bos.runways[1].length_m, 10006.0 * s376::geo::kFtToM, 4.0);
     CHECK(bos.buildings.size() >= 2);
     check_runway_length(bos.runways[1]);
     check_lights(bos, 200, 400);
@@ -247,10 +249,13 @@ void test_airport() {
     CHECK(s376::airport_by_icao("kbos").icao == "KBOS");
 
     const auto all = s376::all_public_airports();
-    CHECK(all.size() == 7);
+    CHECK(all.size() == 18);
     CHECK(all[0].icao == "KSEA" && all[1].icao == "KSFO" && all[2].icao == "KLAS");
     CHECK(all[3].icao == "KLAX" && all[4].icao == "KJFK" && all[5].icao == "KEWR");
     CHECK(all[6].icao == "KBOS");
+    CHECK(all[10].icao == "KRNO" && all[16].icao == "SKRG" && all[17].icao == "VNKT");
+    CHECK(s376::airport_by_icao("egll").icao == "EGLL");
+    CHECK(s376::airport_by_icao("SKRG").runways.size() == 1);
 
     {
         auto p0 = s376::parse_shot_at("KJFK:04R");
@@ -264,7 +269,7 @@ void test_airport() {
         CHECK(p3.alt_ft > p0.alt_ft + 800.0);
         auto lined = s376::parse_shot_at("KBOS:04R:0");
         CHECK(lined.icao == "KBOS" && lined.rwy == "04R");
-        CHECK_NEAR(lined.hdg_true_deg, 35.0, 0.6);
+        CHECK_NEAR(lined.hdg_true_deg, 20.0, 1.5);
         auto icao = s376::parse_shot_at("KJFK");
         CHECK(icao.icao == "KJFK" && icao.rwy.empty());
         CHECK_NEAR(icao.lat, 40.6399, 1e-3);

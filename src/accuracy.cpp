@@ -112,6 +112,23 @@ AccReport check_airport_vs_faa(const Airport& a, const FaaAirportRef& faa) {
             o << fe.ident << " elev " << elev_ft << " ft vs FAA " << fe.elev_ft;
             fail(r, "end-elev", o.str());
         }
+        const double wid_ft = rw->width_m * geo::kMToFt;
+        ++r.checks;
+        if (std::fabs(wid_ft - fe.width_ft) > 1.0) {
+            std::ostringstream o;
+            o << fe.ident << " width " << wid_ft << " ft vs official " << fe.width_ft;
+            fail(r, "width", o.str());
+        }
+        const bool reil = le ? rw->reil_le : rw->reil_he;
+        ++r.checks;
+        if (reil != fe.reil)
+            fail(r, "reil", fe.ident + std::string(reil ? " on" : " off") + " vs official " +
+                                (fe.reil ? "on" : "off"));
+        const bool tdz = le ? rw->tdz_le : rw->tdz_he;
+        ++r.checks;
+        if (tdz != fe.tdz)
+            fail(r, "tdz", fe.ident + std::string(tdz ? " on" : " off") + " vs official " +
+                               (fe.tdz ? "on" : "off"));
     }
     return r;
 }

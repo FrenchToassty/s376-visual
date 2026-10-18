@@ -1,6 +1,7 @@
 #pragma once
 
 #include "s376/airport.hpp"
+#include "s376/faa.hpp"
 
 #include <string>
 #include <vector>
@@ -77,6 +78,9 @@ std::string format_scenery_checklist();
 // files into the repo.
 RasterScan scan_local_raster_tree(const std::string& path);
 std::string format_raster_compare(const ParityCounts& ours, const RasterScan& theirs);
+// Official FAA/AIP ends vs a local Raster tree. Official wins; the
+// checker flags that Raster coordinates must not replace them.
+std::string format_official_vs_raster(const FaaAirportRef& faa, const RasterScan& theirs);
 
 bool looks_like_s376_repo(const std::string& path);
 

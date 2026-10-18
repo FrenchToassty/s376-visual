@@ -1,4 +1,5 @@
 #include "s376/airport.hpp"
+#include "s376/faa.hpp"
 #include "s376/parity.hpp"
 #include "s376/safety.hpp"
 #include "s376/version.hpp"
@@ -11,10 +12,10 @@
 
 static void usage() {
     std::cerr << "s376-raster-parity " << s376::version()
-              << " — compare our KJFK/KEWR counts to a local Raster tree\n"
+              << " — compare our official FAA/AIP layout to a local Raster tree\n"
                  "usage:\n"
-                 "  s376-raster-parity --ours [--icao KJFK|KEWR]\n"
-                 "  s376-raster-parity PATH [--icao KJFK]\n"
+                 "  s376-raster-parity --ours [--icao ICAO]\n"
+                 "  s376-raster-parity PATH [--icao ICAO]\n"
                  "\n"
                  "PATH is on the caller's disk. Nothing from it is committed.\n"
                  "Never point this at 10.1.95.0/24 or 192.168.173.0/24.\n";
@@ -62,6 +63,10 @@ int main(int argc, char** argv) {
     const auto ours = s376::count_parity(a);
     if (ours_only || path.empty()) {
         std::cout << s376::format_parity_counts(ours);
+        if (const s376::FaaAirportRef* faa = s376::faa_airport(icao)) {
+            s376::RasterScan empty;
+            std::cout << s376::format_official_vs_raster(*faa, empty);
+        }
         std::cout << s376::format_scenery_checklist();
         if (path.empty() && !ours_only)
             std::cout << "pass a local Raster tree to compare file/coord counts\n";

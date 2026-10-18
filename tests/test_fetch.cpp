@@ -39,7 +39,7 @@ void test_fetch() {
     auto ksea = s376::lookup_airport_ref("ksea");
     CHECK(ksea.icao == "KSEA");
     CHECK(ksea.conus);
-    CHECK_NEAR(ksea.lat, 47.4502, 1e-4);
+    CHECK_NEAR(ksea.lat, 47.449833, 1e-4);
     auto sfo = s376::lookup_airport_ref("KSFO");
     CHECK(sfo.conus);
     auto egll = s376::lookup_airport_ref("EGLL");

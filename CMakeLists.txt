@@ -40,6 +40,7 @@ set(S376_CORE_SRC
     src/tod.cpp
     src/faa.cpp
     src/accuracy.cpp
+    src/correct.cpp
     src/scenery.cpp
     src/parity.cpp
     src/repo_guard.cpp
@@ -215,6 +216,7 @@ add_executable(s376-tests
     tests/test_display.cpp
     tests/test_lights.cpp
     tests/test_accuracy.cpp
+    tests/test_correct.cpp
     tests/test_parity.cpp
     tests/test_repo_guard.cpp
     tests/test_traffic.cpp
