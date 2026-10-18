@@ -27,6 +27,12 @@ from tests/CI. `scripts/check-no-rsi.sh` fails the build if
 
 ## Current state (2026-10-18, this increment)
 
+**Doctor AIP labels / stale SKBO+VNKT:** non-US `faa-*` checks print
+`vs DFS|NATS|ENAIRE|DGAC Ecuador|Aerocivil|CAAN <date>`, not
+`vs FAA`. SKBO 2016 and VNKT 2024 are flagged `aip-stale-*` (warn)
+because the current Aerocivil AIRAC AMDT 73/26 and CAAN eAIP AD 2.12
+tables were not fetchable. Geometry is unchanged.
+
 **Channel geometry (this increment):** every screenshot/record uses
 Raster 50° × 32.5° and the per-channel heading offsets
 (+35.515 / 0 / −35.25), including flipped Left. Default output is

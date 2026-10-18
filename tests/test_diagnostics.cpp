@@ -123,7 +123,21 @@ void test_diagnostics() {
     CHECK(text.find("frame-far_right") != std::string::npos);
     CHECK(text.find("rss") != std::string::npos);
     CHECK(text.find("budget") != std::string::npos);
+    CHECK(text.find("vs FAA 2026-10-02") != std::string::npos);
+    CHECK(text.find("vs DFS 2026-10-02") != std::string::npos);
+    CHECK(text.find("vs NATS 2025-04-17") != std::string::npos);
+    CHECK(text.find("vs ENAIRE 2026-10-02") != std::string::npos);
+    CHECK(text.find("vs DGAC Ecuador 2026-10-02") != std::string::npos);
+    CHECK(text.find("vs Aerocivil 2016-01-01") != std::string::npos);
+    CHECK(text.find("vs Aerocivil 2024-11-28") != std::string::npos);
+    CHECK(text.find("vs CAAN 2024-01-01") != std::string::npos);
+    CHECK(text.find("vs FAA 2016") == std::string::npos);
+    CHECK(text.find("vs FAA 2024") == std::string::npos);
+    CHECK(text.find("aip-stale-skbo") != std::string::npos);
+    CHECK(text.find("aip-stale-vnkt") != std::string::npos);
+    CHECK(text.find("aip-stale-skrg") == std::string::npos);
     CHECK(report.fails == 0);
+    CHECK(report.warns >= 2);
 #ifndef _WIN32
     CHECK(s376::current_rss_bytes() > 0);
     CHECK(s376::peak_rss_bytes() >= s376::current_rss_bytes());

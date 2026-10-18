@@ -389,12 +389,21 @@ DoctorReport run_doctor(const AppConfig& cfg, const std::string& config_path, bo
             const Airport a = airport_by_icao(faa->icao);
             const AccReport acc = check_airport_vs_faa(a, *faa);
             std::string name = "faa-" + lower_icao(faa->icao);
+            const std::string auth = official_authority(*faa);
             if (acc.ok()) {
                 add(r, {name, CheckStatus::Pass,
-                        std::to_string(acc.checks) + " checks vs FAA " + faa->effective, ""});
+                        std::to_string(acc.checks) + " checks vs " + auth + " " + faa->effective,
+                        ""});
             } else {
                 add(r, {name, CheckStatus::Fail, format_acc_report(acc),
-                        "rebuild from FAA both ends; see docs/ACCURACY.md"});
+                        "rebuild from " + auth + " both ends; see docs/ACCURACY.md"});
+            }
+            if (official_source_stale(*faa)) {
+                add(r, {"aip-stale-" + lower_icao(faa->icao), CheckStatus::Warn,
+                        auth + " AIP AD 2 effective " + faa->effective +
+                            " is older than 24 months (retrieved " + faa->retrieved + ")",
+                        "replace with the current AIRAC AD 2 from " + auth +
+                            "; doctor warns until the table is fetchable"});
             }
         } catch (const std::exception& ex) {
             add(r, {"faa-" + lower_icao(faa->icao), CheckStatus::Fail, ex.what(),
@@ -591,19 +600,23 @@ DoctorReport run_doctor(const AppConfig& cfg, const std::string& config_path, bo
                             const double faa_m = e.elev_ft * geo::kFtToM;
                             if (std::fabs(z - faa_m) > kAccElevM) {
                                 ++bad;
-                                ed << e.ident << " DEM " << z << " m vs FAA " << e.elev_ft << " ft ("
-                                   << faa_m << " m); ";
+                                ed << e.ident << " DEM " << z << " m vs " << official_authority(*faa)
+                                   << " " << e.elev_ft << " ft (" << faa_m << " m); ";
                             }
                         }
                         if (n == 0)
-                            add(r, {"faa-elev", CheckStatus::Skip, "no cache DEM covers the FAA ends",
-                                    "re-fetch so lod0 tiles include every FAA end"});
+                            add(r, {"faa-elev", CheckStatus::Skip,
+                                    "no cache DEM covers the " + official_authority(*faa) + " ends",
+                                    "re-fetch so lod0 tiles include every official end"});
                         else if (bad)
                             add(r, {"faa-elev", CheckStatus::Fail, ed.str(),
-                                    "1 m vs FAA orthometric; sample lod0 tiles, not the coarse root"});
+                                    "1 m vs " + official_authority(*faa) +
+                                        " orthometric; sample lod0 tiles, not the coarse root"});
                         else
                             add(r, {"faa-elev", CheckStatus::Pass,
-                                    std::to_string(n) + " runway ends within 1 m of FAA", ""});
+                                    std::to_string(n) + " runway ends within 1 m of " +
+                                        official_authority(*faa),
+                                    ""});
                     }
                 } catch (const std::exception&) {
                     add(r, {"faa-coverage", CheckStatus::Skip, "cache dir is not a known ICAO", ""});

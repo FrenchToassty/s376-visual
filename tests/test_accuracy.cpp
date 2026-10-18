@@ -203,6 +203,20 @@ void test_accuracy() {
     CHECK(s376::faa_egll().source.find("NATS") != std::string::npos);
     CHECK(s376::faa_skrg().source.find("Aerocivil") != std::string::npos);
     CHECK(s376::faa_vnkt().source.find("CAAN") != std::string::npos);
+    CHECK(s376::official_authority(s376::faa_kjfk()) == "FAA");
+    CHECK(s376::official_authority(s376::faa_eddf()) == "DFS");
+    CHECK(s376::official_authority(s376::faa_egll()) == "NATS");
+    CHECK(s376::official_authority(s376::faa_lebl()) == "ENAIRE");
+    CHECK(s376::official_authority(s376::faa_seqm()) == "DGAC Ecuador");
+    CHECK(s376::official_authority(s376::faa_skbo()) == "Aerocivil");
+    CHECK(s376::official_authority(s376::faa_skrg()) == "Aerocivil");
+    CHECK(s376::official_authority(s376::faa_vnkt()) == "CAAN");
+    CHECK(s376::official_source_stale(s376::faa_skbo()));
+    CHECK(s376::official_source_stale(s376::faa_vnkt()));
+    CHECK(!s376::official_source_stale(s376::faa_kjfk()));
+    CHECK(!s376::official_source_stale(s376::faa_eddf()));
+    CHECK(!s376::official_source_stale(s376::faa_skrg()));
+    CHECK(!s376::official_source_stale(s376::faa_egll()));
 
     // Same CI suite on every official airport. Official data wins.
     for (const auto* faa : s376::faa_all()) {

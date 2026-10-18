@@ -62,10 +62,15 @@ action. Official always wins; imagery is only texture.
 Every stored value carries `source`, `effective` (NASR / AIP cycle),
 and `retrieved`. Current US cycle: **2026-10-02** (Chart Supplement
 NW/NE/SW/SE 3 SEP 2026 to 29 OCT 2026), retrieved **2026-10-18**.
-EGLL NATS AD 2 effective **2025-04-17**. SKBO cites the 2016
-Aerocivil AD 2 (still the published section). SKRG Aerocivil AMDT
-66-24. Where Raster disagrees with FAA/AIP, official wins;
-`s376-raster-parity` flags the difference.
+EGLL NATS AD 2 effective **2025-04-17**. SKRG Aerocivil AMDT 66-24
+(2024-11-28). SKBO still cites the 2016 Aerocivil AD 2 and VNKT the
+2024-01-01 CAAN AD 2 — current AIRAC tables were not fetchable
+(Aerocivil eAIP AMDT 73/26 portal; CAAN e-aip.caanepal.gov.np).
+Doctor labels each check with the real authority (`vs DFS`, `vs
+Aerocivil`, …) and **warns** `aip-stale-skbo` / `aip-stale-vnkt`
+when the effective date is older than 24 months. Where Raster
+disagrees with FAA/AIP, official wins; `s376-raster-parity` flags
+the difference.
 
 Runways are built from **both physical FAA ends**. Heading and length
 come from Vincenty inverse on WGS84. Do not compute the far end from

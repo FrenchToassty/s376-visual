@@ -3,6 +3,7 @@
 #include "s376/geo.hpp"
 
 #include <cctype>
+#include <string>
 
 namespace s376 {
 namespace {
@@ -551,8 +552,11 @@ const FaaAirportRef& faa_skbo() {
                          "P4L", 3.00, false, false, false, 0, 0));
     a.ends.push_back(end("SKBO", "32L", 4.68979, -74.141800, 8355, 307, 12467, w45, 0, "CAT-I",
                          "P4L", 3.00, false, false, false, 0, 0));
-    stamp(a, "Aerocivil Colombia AIP AD 2 SKBO (2016 edition still the published AD 2), "
-             "cross-checked OurAirports",
+    // Current Aerocivil eAIP is AIRAC AMDT 73/26 (effective 2026-10-01) at
+    // eaip-colombia.atnaerocivil.gov.co. AD 2.12 HTML is not fetchable from
+    // this tree (404 / JS portal). Keep the last parseable AD 2 and warn.
+    stamp(a, "Aerocivil Colombia AIP AD 2 SKBO (2016 edition; current AIRAC AMDT "
+             "73/26 AD 2.12 not fetchable), cross-checked OurAirports",
           "2016-01-01", kNasrRet);
     return a;
 }
@@ -597,7 +601,12 @@ const FaaAirportRef& faa_vnkt() {
                          "P4L", 3.00, false, false, false, 0, 0));
     a.ends.push_back(end("VNKT", "20", 27.7094, 85.364799, 4387, 202, 10991, w46, 985, "SALS",
                          "P4L", 3.00, false, false, false, 0, 0));
-    stamp(a, "CAAN Nepal AIP AD 2 VNKT, cross-checked OurAirports", "2024-01-01", kNasrRet);
+    // Current CAAN eAIP (e-aip.caanepal.gov.np) AD 2.12 was not fetchable
+    // here. Airport-profile PDFs still list 3050×46 m; this tree keeps the
+    // last parseable physical ends and warns that the cycle is stale.
+    stamp(a, "CAAN Nepal AIP AD 2 VNKT (last parseable cycle 2024-01-01; "
+             "current eAIP AD 2.12 not fetchable), cross-checked OurAirports",
+          "2024-01-01", kNasrRet);
     return a;
 }
 
@@ -646,6 +655,60 @@ std::vector<const FaaAirportRef*> faa_all() {
     return {&faa_kjfk(), &faa_kewr(), &faa_ksea(), &faa_ksfo(), &faa_klas(), &faa_klax(),
             &faa_kbos(), &faa_kiad(), &faa_kmco(), &faa_kmia(), &faa_krno(), &faa_eddf(),
             &faa_egll(), &faa_lebl(), &faa_seqm(), &faa_skbo(), &faa_skrg(), &faa_vnkt()};
+}
+
+std::string official_authority(const FaaAirportRef& a) {
+    const std::string& s = a.source;
+    if (s.find("DFS") != std::string::npos)
+        return "DFS";
+    if (s.find("NATS") != std::string::npos)
+        return "NATS";
+    if (s.find("ENAIRE") != std::string::npos)
+        return "ENAIRE";
+    if (s.find("DGAC") != std::string::npos)
+        return "DGAC Ecuador";
+    if (s.find("Aerocivil") != std::string::npos)
+        return "Aerocivil";
+    if (s.find("CAAN") != std::string::npos)
+        return "CAAN";
+    if (s.find("FAA") != std::string::npos || s.find("NASR") != std::string::npos)
+        return "FAA";
+    if (!a.icao.empty() && (a.icao[0] == 'K' || a.icao[0] == 'k'))
+        return "FAA";
+    return "AIP";
+}
+
+namespace {
+
+bool parse_ymd(const std::string& s, int& y, int& m, int& d) {
+    if (s.size() < 10 || s[4] != '-' || s[7] != '-')
+        return false;
+    try {
+        y = std::stoi(s.substr(0, 4));
+        m = std::stoi(s.substr(5, 2));
+        d = std::stoi(s.substr(8, 2));
+    } catch (...) {
+        return false;
+    }
+    return y >= 1900 && y <= 2100 && m >= 1 && m <= 12 && d >= 1 && d <= 31;
+}
+
+int months_between(const std::string& earlier, const std::string& later) {
+    int y0 = 0, m0 = 0, d0 = 0, y1 = 0, m1 = 0, d1 = 0;
+    if (!parse_ymd(earlier, y0, m0, d0) || !parse_ymd(later, y1, m1, d1))
+        return 0;
+    int months = (y1 - y0) * 12 + (m1 - m0);
+    if (d1 < d0)
+        --months;
+    return months;
+}
+
+} // namespace
+
+bool official_source_stale(const FaaAirportRef& a, int max_months) {
+    if (a.effective.empty() || a.retrieved.empty() || max_months < 1)
+        return false;
+    return months_between(a.effective, a.retrieved) > max_months;
 }
 
 const FaaEnd* faa_end(const FaaAirportRef& a, const std::string& ident) {

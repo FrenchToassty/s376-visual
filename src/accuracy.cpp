@@ -39,7 +39,7 @@ AccReport check_airport_vs_faa(const Airport& a, const FaaAirportRef& faa) {
     ++r.checks;
     if (arp_m > kAccEndM) {
         std::ostringstream o;
-        o << "ARP " << arp_m << " m from FAA";
+        o << "ARP " << arp_m << " m from " << official_authority(faa);
         fail(r, "arp", o.str());
     }
     for (const auto& fe : faa.ends) {
@@ -61,7 +61,7 @@ AccReport check_airport_vs_faa(const Airport& a, const FaaAirportRef& faa) {
         ++r.checks;
         if (pos_m > kAccEndM) {
             std::ostringstream o;
-            o << fe.ident << " end " << pos_m << " m from FAA";
+            o << fe.ident << " end " << pos_m << " m from " << official_authority(faa);
             fail(r, "end-pos", o.str());
         }
         // Heading limit is 0.1° vs the WGS84 geodesic between the two
@@ -88,28 +88,31 @@ AccReport check_airport_vs_faa(const Airport& a, const FaaAirportRef& faa) {
             ++r.checks;
             if (tm > kAccThresholdM) {
                 std::ostringstream o;
-                o << fe.ident << " displaced threshold " << tm << " m from FAA";
+                o << fe.ident << " displaced threshold " << tm << " m from " << official_authority(faa);
                 fail(r, "threshold", o.str());
             }
         }
         ++r.checks;
         if (als != fe.als) {
-            fail(r, "als", fe.ident + " " + als + " vs FAA " + fe.als);
+            fail(r, "als", fe.ident + " " + als + " vs " + official_authority(faa) + " " + fe.als);
         }
         ++r.checks;
         if (papi != fe.papi) {
-            fail(r, "papi-side", fe.ident + " " + papi + " vs FAA " + fe.papi);
+            fail(r, "papi-side",
+                 fe.ident + " " + papi + " vs " + official_authority(faa) + " " + fe.papi);
         }
         ++r.checks;
         if (std::fabs(papi_deg - fe.papi_deg) > 0.05) {
             std::ostringstream o;
-            o << fe.ident << " PAPI " << papi_deg << " vs FAA " << fe.papi_deg;
+            o << fe.ident << " PAPI " << papi_deg << " vs " << official_authority(faa) << " "
+              << fe.papi_deg;
             fail(r, "papi-angle", o.str());
         }
         ++r.checks;
         if (std::fabs(elev_ft - fe.elev_ft) > kAccElevM * geo::kMToFt) {
             std::ostringstream o;
-            o << fe.ident << " elev " << elev_ft << " ft vs FAA " << fe.elev_ft;
+            o << fe.ident << " elev " << elev_ft << " ft vs " << official_authority(faa) << " "
+              << fe.elev_ft;
             fail(r, "end-elev", o.str());
         }
         const double wid_ft = rw->width_m * geo::kMToFt;

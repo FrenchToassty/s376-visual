@@ -75,6 +75,13 @@ inline const FaaAirportRef* official_airport(const std::string& icao) {
 }
 std::vector<const FaaAirportRef*> faa_all();
 
+// Short authority for doctor / accuracy labels: FAA, DFS, NATS, ENAIRE,
+// DGAC Ecuador, Aerocivil, CAAN. Never call a non-US AIP "FAA".
+std::string official_authority(const FaaAirportRef& a);
+// True when `effective` is more than `max_months` before `retrieved`
+// (default 24). Used to warn that SKBO 2016 / VNKT 2024 are stale.
+bool official_source_stale(const FaaAirportRef& a, int max_months = 24);
+
 const FaaEnd* faa_end(const FaaAirportRef& a, const std::string& ident);
 
 } // namespace s376
