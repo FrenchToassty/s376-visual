@@ -394,6 +394,44 @@ void test_airport() {
     }
 
     {
+        s376::ApproachPlan ap;
+        CHECK(s376::plan_approach("KJFK:04R", 3.0, 2000.0, ap));
+        CHECK(ap.icao == "KJFK" && ap.rwy == "04R");
+        CHECK_NEAR(ap.gs_deg, 3.0, 1e-12);
+        CHECK_NEAR(ap.start_agl_ft, 2000.0, 1e-12);
+        CHECK_NEAR(ap.hdg_deg, 31.0, 0.6);
+        CHECK_NEAR(ap.start_dist_m, (2000.0 * s376::geo::kFtToM) / std::tan(3.0 * s376::geo::kDeg),
+                   1.0);
+        ap.kts = 140;
+        ap.fps = 30;
+        const double T = s376::approach_time_s(ap);
+        CHECK(T > 150.0 && T < 175.0);
+        const int nf = s376::approach_frame_count(ap);
+        CHECK(nf > 4800 && nf < 5000);
+        const auto a0 = s376::approach_sample(ap, 0);
+        CHECK_NEAR(a0.pitch_deg, -3.0, 1e-9);
+        CHECK_NEAR(a0.alt_ft, ap.thr_elev_m * s376::geo::kMToFt + 2000.0, 0.5);
+        CHECK_NEAR(a0.dist_nm, ap.start_dist_m / 1852.0, 1e-6);
+        CHECK_NEAR(a0.hdg_true_deg, ap.hdg_deg, 1e-6);
+        const auto aT = s376::approach_sample(ap, T);
+        CHECK_NEAR(aT.dist_nm, 0.0, 1e-6);
+        CHECK_NEAR(aT.alt_ft, ap.thr_elev_m * s376::geo::kMToFt, 0.5);
+        CHECK_NEAR(aT.pitch_deg, -3.0, 1e-9);
+        CHECK_NEAR(aT.lat, ap.thr_lat, 1e-5);
+        CHECK_NEAR(aT.lon, ap.thr_lon, 1e-5);
+        const auto mid = s376::approach_sample(ap, T * 0.5);
+        CHECK_NEAR(mid.alt_ft, (a0.alt_ft + aT.alt_ft) * 0.5, 2.0);
+        CHECK_NEAR(mid.dist_nm, a0.dist_nm * 0.5, 0.02);
+        CHECK(!s376::plan_approach("KJFK", 3.0, 2000.0, ap));
+        CHECK(!s376::plan_approach("KJFK:04R", 0.1, 2000.0, ap));
+        CHECK(!s376::plan_approach("KJFK:04R", 3.0, 5.0, ap));
+        s376::ApproachPlan ign;
+        CHECK(s376::plan_approach("kjfk:04r:8", 3.0, 2000.0, ign));
+        CHECK_NEAR(ign.start_agl_ft, 2000.0, 1e-12);
+        CHECK(std::fabs(ign.start_dist_m - 8.0 * 1852.0) > 100.0);
+    }
+
+    {
         const auto marked = s376::build_airport_mesh(jfk, true, true);
         const auto bare = s376::build_airport_mesh(jfk, false, false);
         CHECK(marked.verts.size() > bare.verts.size());

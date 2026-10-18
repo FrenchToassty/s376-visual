@@ -2001,7 +2001,7 @@ class OsgRenderer final : public Renderer {
             apply_view_camera(views_[i]->getCamera(), channels_[i], host);
         apply_env(host);
         apply_light_steps(lights_gpu_, host);
-        const float dt = 1.f / 60.f;
+        const float dt = host.script_dt >= 0.f ? host.script_dt : (1.f / 60.f);
         cloud_drift_m_ += 8.f * dt;
         update_precip(precip_gpu_, host, dt);
         update_missile_fx(missile_gpu_);
@@ -2033,8 +2033,8 @@ class OsgRenderer final : public Renderer {
         return true;
     }
 
-    bool capture(const std::string& path) override {
-        if (channels_.empty() || path.empty() || !viewer_ || views_.empty())
+    bool capture_rgb(RgbImage& im) override {
+        if (channels_.empty() || !viewer_ || views_.empty())
             return false;
         const ChannelConfig& ch = channels_.front();
         const int w = std::max(8, ch.width);
@@ -2042,14 +2042,20 @@ class OsgRenderer final : public Renderer {
         osg::Vec4 clear(0.35f, 0.50f, 0.72f, 1);
         if (auto* cam = views_.front()->getCamera())
             clear = cam->getClearColor();
+        return render_fbo(w, h, clear, root_.get(), false, &ch, &last_host_, im);
+    }
+
+    bool capture(const std::string& path) override {
+        if (path.empty())
+            return false;
         RgbImage im;
-        if (!render_fbo(w, h, clear, root_.get(), false, &ch, &last_host_, im))
+        if (!capture_rgb(im))
             return false;
         std::string ppm, png;
         if (!write_shot_images(path, im, &ppm, &png))
             return false;
-        S376_LOG_INFO("render", "shot FBO %dx%d channel %s  ppm=%s png=%s", w, h, ch.name.c_str(),
-                      ppm.c_str(), png.c_str());
+        S376_LOG_INFO("render", "shot FBO %dx%d channel %s  ppm=%s png=%s", im.w, im.h,
+                      channels_.front().name.c_str(), ppm.c_str(), png.c_str());
         return true;
     }
 

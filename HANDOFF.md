@@ -27,6 +27,18 @@ from tests/CI. `scripts/check-no-rsi.sh` fails the build if
 
 ## Current state (2026-10-18, this increment)
 
+**Scripted approach video** (`--record` / `--approach`):
+offscreen FBO, straight geometric glidepath to the landing
+threshold, cars step at `1/fps`. One RGB frame in RAM. ffmpeg
+rawvideo pipe when on PATH, else PNG sequence + printed mux.
+
+```bash
+./build/s376-visual --cache-dir cache/KJFK --channel mid_left --approach KJFK:04R \
+  --start-agl 2000 --gs 3.0 --kts 140 --fps 30 --record out.mp4
+# fallback if no ffmpeg:
+# ffmpeg -y -framerate 30 -i out-frames/frame-%06d.png -c:v libx264 -pix_fmt yuv420p out.mp4
+```
+
 **Airport structures are exact-solid** (same box as the mesh):
 KJFK T1/T4/T5/T7/T8 + hangar + cargo + ATCT + jetbridges; KEWR
 A/B/C + hangar + tower + jetbridges. OSM houses stay on the cheap
@@ -278,6 +290,10 @@ rm -rf cache/KJFK
 # expect: 1920×1080 P6+PNG, ortho on JFK/Rockaway (not flat green),
 # no top garbage band, zero `invalid enumerant`, blue sky,
 # runways as pavement not a white cross
+
+# Joey video (after the pack is valid). Memory-capped; cars animate.
+./build/s376-visual --cache-dir cache/KJFK --channel mid_left --approach KJFK:04R \
+  --start-agl 2000 --gs 3.0 --kts 140 --fps 30 --record /tmp/jfk-04r.mp4
 ```
 
 KEWR (same flags). Winter pack (second season, same sources for now):

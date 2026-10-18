@@ -65,6 +65,47 @@ void test_image() {
     CHECK(ppm.find(".ppm") != std::string::npos);
     CHECK(png.find(".png") != std::string::npos);
     CHECK(std::filesystem::exists(ppm) && std::filesystem::exists(png));
+
+    CHECK(s376::looks_like_video_path("out.mp4"));
+    CHECK(s376::looks_like_video_path("/tmp/jfk.MOV"));
+    CHECK(!s376::looks_like_video_path("/tmp/frames"));
+    CHECK(s376::record_frames_dir("out.mp4") == "out-frames");
+    CHECK(s376::record_frames_dir("/tmp/jfk-frames") == "/tmp/jfk-frames");
+    CHECK(s376::frame_png_path("/tmp/f", 1).find("frame-000001.png") != std::string::npos);
+    const auto raw = s376::ffmpeg_rawvideo_cmd(1920, 1080, 30, "out.mp4");
+    CHECK(raw.find("ffmpeg") != std::string::npos);
+    CHECK(raw.find("1920x1080") != std::string::npos);
+    CHECK(raw.find("rgb24") != std::string::npos);
+    CHECK(raw.find("'out.mp4'") != std::string::npos);
+    const auto mux = s376::ffmpeg_png_seq_cmd("out-frames", 30, "out.mp4");
+    CHECK(mux.find("frame-%06d.png") != std::string::npos);
+    CHECK(mux.find("'out.mp4'") != std::string::npos);
+    CHECK(s376::shell_single_quote("a'b").find("'\\''") != std::string::npos);
+
+    s376::RecordWriter rec;
+    CHECK(rec.open(tmp + "/clip.mp4", 8, 6, 30, true));
+    CHECK(!rec.used_ffmpeg());
+    CHECK(rec.write(solid));
+    CHECK(rec.write(solid));
+    CHECK(rec.close());
+    CHECK(rec.frames() == 2);
+    CHECK(std::filesystem::exists(s376::frame_png_path(rec.frames_dir(), 1)));
+    CHECK(std::filesystem::exists(s376::frame_png_path(rec.frames_dir(), 2)));
+    CHECK(rec.mux_cmd().find("ffmpeg") != std::string::npos);
+
+    if (s376::ffmpeg_on_path()) {
+        const auto mp4 = tmp + "/tiny.mp4";
+        const auto tiny = s376::make_solid_rgb(16, 16, 40, 80, 160);
+        s376::RecordWriter pipe;
+        CHECK(pipe.open(mp4, 16, 16, 30, false));
+        CHECK(pipe.used_ffmpeg());
+        CHECK(pipe.write(tiny));
+        CHECK(pipe.write(tiny));
+        CHECK(pipe.close());
+        CHECK(pipe.frames() == 2);
+        CHECK(std::filesystem::exists(mp4));
+        CHECK(std::filesystem::file_size(mp4) > 32);
+    }
     std::filesystem::remove_all(tmp);
 
     auto cfg = s376::default_config();

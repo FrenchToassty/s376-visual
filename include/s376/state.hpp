@@ -26,6 +26,8 @@ struct HostState {
     float terrain_elev_ft = 0;
     std::uint64_t datagrams = 0;
     std::uint64_t eyepoints = 0;
+    // >= 0: renderer uses this dt (scripted record). < 0: internal 1/60.
+    float script_dt = -1.f;
     std::uint64_t last_rx_ns = 0;
     std::string last_peer;
     xt4::WordOrder word_order = xt4::WordOrder::Le;

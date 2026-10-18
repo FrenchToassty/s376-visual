@@ -889,7 +889,10 @@ std::vector<Airport> all_public_airports() {
             skbo_public(), skrg_public(), vnkt_public()};
 }
 
-bool runway_shot_pose(const Airport& a, const std::string& ident, double dist_nm, ShotPose& out) {
+namespace {
+
+bool landing_threshold(const Airport& a, const std::string& ident, double& lat, double& lon,
+                       double& elev_m, double& hdg) {
     std::string id = ident;
     for (char& c : id)
         c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
@@ -898,33 +901,99 @@ bool runway_shot_pose(const Airport& a, const std::string& ident, double dist_nm
         const bool he = rw.ident_he == id;
         if (!le && !he)
             continue;
-        double lat0 = le ? rw.le_lat : rw.he_lat;
-        double lon0 = le ? rw.le_lon : rw.he_lon;
-        const double hdg = le ? rw.heading_deg
-                              : (rw.heading_he_deg > 0.0 ? rw.heading_he_deg
-                                                         : wrap360(rw.heading_deg + 180.0));
+        lat = le ? rw.le_lat : rw.he_lat;
+        lon = le ? rw.le_lon : rw.he_lon;
+        hdg = le ? rw.heading_deg
+                 : (rw.heading_he_deg > 0.0 ? rw.heading_he_deg : wrap360(rw.heading_deg + 180.0));
         const double disp_m = (le ? rw.le_displaced_ft : rw.he_displaced_ft) * geo::kFtToM;
         if (disp_m > 0.5)
-            offset_m(lat0, lon0, hdg, disp_m, lat0, lon0);
-        const double elev_ft = (le ? rw.le_elev_m : rw.he_elev_m) * geo::kMToFt;
-        out.icao = a.icao;
-        out.rwy = id;
-        out.dist_nm = dist_nm;
-        out.hdg_true_deg = hdg;
-        if (dist_nm <= 0.01) {
-            // Lined up looking at the designators (threshold bars + 4R ahead).
-            offset_m(lat0, lon0, hdg, 12.0, out.lat, out.lon);
-            out.alt_ft = elev_ft + 14.0;
-            out.pitch_deg = 0;
-        } else {
-            const double back = wrap360(hdg + 180.0);
-            offset_m(lat0, lon0, back, dist_nm * 1852.0, out.lat, out.lon);
-            out.alt_ft = elev_ft + 14.0 + dist_nm * 318.0; // 3°
-            out.pitch_deg = -3.0;
-        }
+            offset_m(lat, lon, hdg, disp_m, lat, lon);
+        elev_m = le ? rw.le_elev_m : rw.he_elev_m;
         return true;
     }
     return false;
+}
+
+} // namespace
+
+bool runway_shot_pose(const Airport& a, const std::string& ident, double dist_nm, ShotPose& out) {
+    double lat0 = 0, lon0 = 0, elev_m = 0, hdg = 0;
+    if (!landing_threshold(a, ident, lat0, lon0, elev_m, hdg))
+        return false;
+    std::string id = ident;
+    for (char& c : id)
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    const double elev_ft = elev_m * geo::kMToFt;
+    out.icao = a.icao;
+    out.rwy = id;
+    out.dist_nm = dist_nm;
+    out.hdg_true_deg = hdg;
+    if (dist_nm <= 0.01) {
+        // Lined up looking at the designators (threshold bars + 4R ahead).
+        offset_m(lat0, lon0, hdg, 12.0, out.lat, out.lon);
+        out.alt_ft = elev_ft + 14.0;
+        out.pitch_deg = 0;
+    } else {
+        const double back = wrap360(hdg + 180.0);
+        offset_m(lat0, lon0, back, dist_nm * 1852.0, out.lat, out.lon);
+        out.alt_ft = elev_ft + 14.0 + dist_nm * 318.0; // 3°
+        out.pitch_deg = -3.0;
+    }
+    return true;
+}
+
+bool plan_approach(const std::string& spec, double gs_deg, double start_agl_ft, ApproachPlan& out) {
+    if (gs_deg < 0.25 || gs_deg > 10.0)
+        return false;
+    if (start_agl_ft < 20.0 || start_agl_ft > 20000.0)
+        return false;
+    std::string s = spec;
+    for (char& c : s)
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    const auto c1 = s.find(':');
+    if (c1 == std::string::npos || c1 == 0 || c1 + 1 >= s.size())
+        return false;
+    const auto c2 = s.find(':', c1 + 1);
+    out.icao = s.substr(0, c1);
+    out.rwy = c2 == std::string::npos ? s.substr(c1 + 1) : s.substr(c1 + 1, c2 - c1 - 1);
+    if (out.rwy.empty())
+        return false;
+    const Airport a = airport_by_icao(out.icao);
+    if (!landing_threshold(a, out.rwy, out.thr_lat, out.thr_lon, out.thr_elev_m, out.hdg_deg))
+        return false;
+    out.gs_deg = gs_deg;
+    out.start_agl_ft = start_agl_ft;
+    const double gs_rad = gs_deg * geo::kDeg;
+    out.start_dist_m = (start_agl_ft * geo::kFtToM) / std::tan(gs_rad);
+    return out.start_dist_m > 1.0;
+}
+
+double approach_time_s(const ApproachPlan& p) {
+    const double gs_rad = std::max(0.25, p.gs_deg) * geo::kDeg;
+    const double path_m = (p.start_agl_ft * geo::kFtToM) / std::sin(gs_rad);
+    const double v = std::max(1.0, p.kts) * 1852.0 / 3600.0;
+    return path_m / v;
+}
+
+int approach_frame_count(const ApproachPlan& p) {
+    const double fps = std::max(1.0, p.fps);
+    return std::max(2, static_cast<int>(std::lround(approach_time_s(p) * fps)) + 1);
+}
+
+ShotPose approach_sample(const ApproachPlan& p, double t_s) {
+    const double T = approach_time_s(p);
+    const double u = T <= 0.0 ? 1.0 : std::min(1.0, std::max(0.0, t_s / T));
+    const double back = p.start_dist_m * (1.0 - u);
+    ShotPose s;
+    s.icao = p.icao;
+    s.rwy = p.rwy;
+    s.dist_nm = back / 1852.0;
+    s.hdg_true_deg = p.hdg_deg;
+    s.pitch_deg = -p.gs_deg;
+    s.roll_deg = 0;
+    s.alt_ft = p.thr_elev_m * geo::kMToFt + p.start_agl_ft * (1.0 - u);
+    offset_m(p.thr_lat, p.thr_lon, wrap360(p.hdg_deg + 180.0), back, s.lat, s.lon);
+    return s;
 }
 
 ShotPose parse_shot_at(const std::string& spec) {

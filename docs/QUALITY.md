@@ -121,6 +121,8 @@ runtime atlas does not require them. See [SOURCES.md](SOURCES.md).
 
 ## Screenshot viewport
 
-`--screenshot` uses a non-MSAA FBO at the channel WxH. The slave
+`--screenshot` and `--record` use a non-MSAA FBO at the channel WxH. The slave
 camera **does not inherit** the master's viewport (a 1920×1008
 decorated window used to leave a ~7% black bar on 1920×1080 captures).
+`--record` writes one RGB frame at a time (ffmpeg pipe or a PNG) so a
+full 04R approach stays inside the 980 Ti `ram_mb` cap.

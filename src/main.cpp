@@ -58,6 +58,12 @@ void usage() {
            "  --screenshot PATH     write the first channel (PPM+PNG) after warmup and exit\n"
            "  --screenshot-wait SEC settle time before capture (default 3; pager idle or this)\n"
            "  --self-test-shot DIR  render a known solid/gradient, check pixels, write files\n"
+           "  --approach ICAO:RWY   scripted straight glidepath to touchdown (KJFK:04R)\n"
+           "  --start-agl FT        approach start AGL (default 2000)\n"
+           "  --gs DEG              approach glidepath degrees (default 3.0)\n"
+           "  --kts KT              approach groundspeed (default 140)\n"
+           "  --fps N               record frame rate (default 30)\n"
+           "  --record PATH         offscreen FBO flight to PATH (.mp4 via ffmpeg, or PNG dir)\n"
            "  --at ICAO[:RWY[:nm]]  pose the eye (KJFK:04R:0 lined-up, KJFK:04R:8, or KJFK)\n"
            "                        does not wait for host packets\n"
            "  --alt FT              override shot altitude (MSL feet)\n"
@@ -118,6 +124,12 @@ int main(int argc, char** argv) {
     std::string self_test_shot;
     double screenshot_wait = 3.0;
     std::string at_spec;
+    std::string approach_spec;
+    std::string record_path;
+    double start_agl_ft = 2000.0;
+    double gs_deg = 3.0;
+    double kts = 140.0;
+    double record_fps = 30.0;
     s376::ShotOverrides shot_over;
     std::string reply_master_override;
     bool no_hat = false;
@@ -186,6 +198,18 @@ int main(int argc, char** argv) {
             self_test_shot = need(a.c_str());
         else if (a == "--at")
             at_spec = need(a.c_str());
+        else if (a == "--approach")
+            approach_spec = need(a.c_str());
+        else if (a == "--start-agl")
+            start_agl_ft = std::stod(need(a.c_str()));
+        else if (a == "--gs")
+            gs_deg = std::stod(need(a.c_str()));
+        else if (a == "--kts")
+            kts = std::stod(need(a.c_str()));
+        else if (a == "--fps")
+            record_fps = std::stod(need(a.c_str()));
+        else if (a == "--record")
+            record_path = need(a.c_str());
         else if (a == "--alt") {
             shot_over.have_alt = true;
             shot_over.alt_ft = std::stod(need(a.c_str()));
@@ -292,10 +316,50 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    if (!approach_spec.empty() && !at_spec.empty()) {
+        std::cerr << "use --approach or --at, not both\n";
+        s376::log::shutdown();
+        return 2;
+    }
+    if (!record_path.empty() && approach_spec.empty()) {
+        std::cerr << "--record needs --approach ICAO:RWY\n";
+        s376::log::shutdown();
+        return 2;
+    }
+    if (kts < 30.0 || kts > 400.0) {
+        std::cerr << "--kts must be 30..400\n";
+        s376::log::shutdown();
+        return 2;
+    }
+    if (record_fps < 1.0 || record_fps > 120.0) {
+        std::cerr << "--fps must be 1..120\n";
+        s376::log::shutdown();
+        return 2;
+    }
+
     s376::ShotPose shot;
     s376::HostState shot_host;
-    const bool have_shot = !at_spec.empty();
-    if (have_shot) {
+    s376::ApproachPlan approach;
+    bool have_shot = !at_spec.empty();
+    if (!approach_spec.empty()) {
+        try {
+            if (!s376::plan_approach(approach_spec, gs_deg, start_agl_ft, approach)) {
+                std::cerr << "bad --approach " << approach_spec << " (need ICAO:RWY, --gs 0.25..10, "
+                             "--start-agl 20..20000)\n";
+                s376::log::shutdown();
+                return 2;
+            }
+        } catch (const std::exception& ex) {
+            std::cerr << ex.what() << "\n";
+            s376::log::shutdown();
+            return 2;
+        }
+        approach.kts = kts;
+        approach.fps = record_fps;
+        shot = s376::approach_sample(approach, 0);
+        s376::apply_shot_overrides(shot, shot_over);
+        have_shot = true;
+    } else if (have_shot) {
         try {
             shot = s376::parse_shot_at(at_spec);
             s376::apply_shot_overrides(shot, shot_over);
@@ -304,12 +368,23 @@ int main(int argc, char** argv) {
             s376::log::shutdown();
             return 2;
         }
+    }
+    if (have_shot) {
         shot_host = host_from_shot(shot);
         S376_LOG_INFO("ig",
                       "shot %s:%s at %.4f,%.4f  %.0fft  hdg %.1f  pitch %.1f  bank %.1f  %.2fnm",
                       shot.icao.c_str(), shot.rwy.empty() ? "-" : shot.rwy.c_str(), shot.lat,
                       shot.lon, shot.alt_ft, shot.hdg_true_deg, shot.pitch_deg, shot.roll_deg,
                       shot.dist_nm);
+        if (!approach_spec.empty()) {
+            S376_LOG_INFO("ig",
+                          "approach %s:%s  gs %.2f  start-agl %.0f  %.0f kts  %.0f fps  "
+                          "%.2f nm  %.1fs  %d frames",
+                          approach.icao.c_str(), approach.rwy.c_str(), approach.gs_deg,
+                          approach.start_agl_ft, approach.kts, approach.fps,
+                          approach.start_dist_m / 1852.0, s376::approach_time_s(approach),
+                          s376::approach_frame_count(approach));
+        }
         if (cfg.render.cache_dir.empty()) {
             const auto found = s376::resolve_cache_dir({}, shot.icao);
             if (!found.empty()) {
@@ -325,11 +400,11 @@ int main(int argc, char** argv) {
         }
     }
     if (!screenshot_path.empty() && !have_shot && self_test_shot.empty()) {
-        std::cerr << "--screenshot needs --at ICAO[:RWY[:dist_nm]]\n";
+        std::cerr << "--screenshot needs --at ICAO[:RWY[:dist_nm]] or --approach ICAO:RWY\n";
         s376::log::shutdown();
         return 2;
     }
-    if (!screenshot_path.empty() && channel_name.empty())
+    if ((!screenshot_path.empty() || !record_path.empty()) && channel_name.empty())
         channel_name = s376::default_shot_channel(cfg);
     if (!screenshot_path.empty()) {
         const auto parent = std::filesystem::path(screenshot_path).parent_path();
@@ -403,7 +478,9 @@ int main(int argc, char** argv) {
     std::thread synth_th;
     // --at / --screenshot / --self-test-shot pose the eye themselves.
     // Only --demo still opens a loopback socket (synth).
-    const bool live_host = demo || (!have_shot && screenshot_path.empty() && self_test_shot.empty());
+    const bool live_host =
+        demo || (!have_shot && screenshot_path.empty() && self_test_shot.empty() &&
+                 record_path.empty());
     if (have_shot && !demo)
         S376_LOG_INFO("ig", "--at: no host socket (datagrams not required)");
     if (live_host) {
@@ -433,7 +510,7 @@ int main(int argc, char** argv) {
 
     std::unique_ptr<s376::Renderer> rend;
     int rc = 0;
-    if (headless)
+    if (headless && record_path.empty())
         rend = std::make_unique<s376::NullRenderer>();
     else
         rend = s376::make_renderer(cfg.render.engine);
@@ -451,6 +528,68 @@ int main(int argc, char** argv) {
     const double period = 1.0 / std::max(cfg.render.frame_rate, 1.0);
     std::uint64_t frames = 0;
     std::uint64_t last_eyepoints = 0;
+    if (rc == 0 && !record_path.empty()) {
+        const int n = s376::approach_frame_count(approach);
+        const float dt = static_cast<float>(1.0 / std::max(1.0, approach.fps));
+        const int w = std::max(8, channels.front().width);
+        const int h = std::max(8, channels.front().height);
+        s376::RecordWriter writer;
+        if (!writer.open(record_path, w, h, approach.fps)) {
+            S376_LOG_ERROR("ig", "record open failed: %s", record_path.c_str());
+            rc = 1;
+        } else {
+            S376_LOG_INFO("ig", "record %s  %dx%d  %d frames  sink=%s  rss=%.1f MiB",
+                          record_path.c_str(), w, h, n,
+                          writer.used_ffmpeg() ? "ffmpeg" : "png",
+                          static_cast<double>(s376::current_rss_bytes()) / (1024.0 * 1024.0));
+            s376::RgbImage im;
+            shot_host = host_from_shot(s376::approach_sample(approach, 0));
+            shot_host.script_dt = dt;
+            const auto t_warm = std::chrono::steady_clock::now();
+            for (int warm = 0; !g_stop && !rend->done(); ++warm) {
+                rend->frame(shot_host);
+                ++frames;
+                const double waited =
+                    std::chrono::duration<double>(std::chrono::steady_clock::now() - t_warm)
+                        .count();
+                if (warm >= 7 && (rend->pager_idle() || waited >= screenshot_wait))
+                    break;
+            }
+            for (int i = 0; i < n && !g_stop && !rend->done(); ++i) {
+                const double t = static_cast<double>(i) / std::max(1.0, approach.fps);
+                const auto pose = s376::approach_sample(approach, t);
+                shot_host = host_from_shot(pose);
+                shot_host.script_dt = dt;
+                rend->frame(shot_host);
+                ++frames;
+                if (!rend->capture_rgb(im) || !writer.write(im)) {
+                    S376_LOG_ERROR("ig", "record frame %d failed", i);
+                    rc = 1;
+                    break;
+                }
+                if (i == 0 || i + 1 == n || i % 60 == 0) {
+                    S376_LOG_INFO("ig",
+                                  "record %d/%d  %.0fft  %.2fnm  rss=%.1f MiB", i + 1, n,
+                                  pose.alt_ft, pose.dist_nm,
+                                  static_cast<double>(s376::current_rss_bytes()) /
+                                      (1024.0 * 1024.0));
+                }
+            }
+            if (!writer.close() && writer.used_ffmpeg()) {
+                S376_LOG_ERROR("ig", "ffmpeg mux failed for %s", record_path.c_str());
+                rc = 1;
+            }
+            if (!writer.mux_cmd().empty()) {
+                S376_LOG_INFO("ig", "wrote %d PNG frames in %s", writer.frames(),
+                              writer.frames_dir().c_str());
+                S376_LOG_INFO("ig", "mux: %s", writer.mux_cmd().c_str());
+                std::cout << writer.mux_cmd() << "\n";
+            } else if (writer.used_ffmpeg()) {
+                S376_LOG_INFO("ig", "wrote %s  %d frames", record_path.c_str(), writer.frames());
+            }
+        }
+        rend->request_stop();
+    }
     while (!g_stop && !rend->done()) {
         if (g_stop) {
             rend->request_stop();

@@ -104,6 +104,12 @@ Side-by-side vs Joey's Raster 4R photo (reference only, never commit):
 ./build/s376-visual --screenshot /tmp/jfk-04r-3nm.ppm --at KJFK:04R:3 --channel mid_left
 ./build/s376-visual --screenshot /tmp/jfk-bank.ppm --at KJFK:04R:8 --alt 3000 --bank 30 --channel mid_left
 ./build/s376-visual --screenshot /tmp/jfk-12k.ppm --at KJFK --alt 12000 --hdg 036 --channel mid_left
+
+# Joey video: straight 3° to 04R touchdown, cars moving. Mint RTX 5060 Ti:
+./build/s376-visual --cache-dir cache/KJFK --channel mid_left --approach KJFK:04R \
+  --start-agl 2000 --gs 3.0 --kts 140 --fps 30 --record out.mp4
+# if ffmpeg is missing: PNG dump + printed mux
+# ffmpeg -y -framerate 30 -i out-frames/frame-%06d.png -c:v libx264 -pix_fmt yuv420p out.mp4
 ```
 
 ## Suggested build order

@@ -311,6 +311,27 @@ Airport airport_by_icao(const std::string& icao);
 Airport airport_from_faa(const std::string& icao); // official FAA/AIP both ends
 std::vector<Airport> all_public_airports();
 
+struct ApproachPlan {
+    std::string icao;
+    std::string rwy;
+    double gs_deg = 3.0;
+    double start_agl_ft = 2000;
+    double kts = 140;
+    double fps = 30;
+    double thr_lat = 0;
+    double thr_lon = 0;
+    double thr_elev_m = 0;
+    double hdg_deg = 0;
+    double start_dist_m = 0; // along-track before the landing threshold
+};
+
+// `KJFK:04R` (optional `:nm` ignored). Eyepoint AGL at t=0 is start_agl_ft.
+// Straight geometric glidepath: AGL = 0 at the landing threshold.
+bool plan_approach(const std::string& spec, double gs_deg, double start_agl_ft, ApproachPlan& out);
+double approach_time_s(const ApproachPlan& p); // start → threshold along the path
+int approach_frame_count(const ApproachPlan& p); // includes the touchdown frame
+ShotPose approach_sample(const ApproachPlan& p, double t_s);
+
 // `KJFK`, `KJFK:04R`, or `KJFK:04R:3` (nm before the threshold on a 3° path).
 ShotPose parse_shot_at(const std::string& spec);
 void apply_shot_overrides(ShotPose& p, const ShotOverrides& o);

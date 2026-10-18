@@ -121,6 +121,9 @@ contact `10.1.95.0/24` or `192.168.173.0/24`.
 | `--screenshot PATH` | write the first channel (offscreen FBO at channel WxH, PPM+PNG) after warmup and exit |
 | `--screenshot-wait SEC` | settle time before capture (default 3; pager idle or this) |
 | `--self-test-shot DIR` | render a known solid/gradient, check pixels, write PPM+PNG |
+| `--approach ICAO:RWY` | scripted straight glidepath to the landing threshold (`KJFK:04R`) |
+| `--start-agl FT` / `--gs DEG` / `--kts KT` / `--fps N` | approach start AGL (2000), glidepath (3.0), groundspeed (140), record fps (30) |
+| `--record PATH` | fly `--approach` offscreen (FBO) to `PATH`. `.mp4` pipes rgb24 into ffmpeg (one frame in RAM). If ffmpeg is missing, dumps `PATH-frames/frame-%06d.png` and prints the mux command. Cars step at `1/fps`. Uses the 980 Ti RAM/VRAM cap. `--headless` still opens GL |
 | `--at ICAO[:RWY[:nm]]` | pose the eye (`KJFK:04R:0` lined-up, `KJFK:04R:8`, or `KJFK`). No host packets needed |
 | `--alt FT` / `--bank DEG` / `--hdg DEG` / `--pitch DEG` | override the shot pose |
 | `--diagnostics` | dump config and build options |
@@ -136,6 +139,10 @@ only — never commit it):
 ./build/s376-visual --screenshot /tmp/jfk-12k.ppm --at KJFK --alt 12000 --hdg 036 --channel mid_left
 ./build/s376-visual --screenshot /tmp/jfk-12k-left.ppm --at KJFK --alt 12000 --hdg 036 --channel far_left
 ./build/s376-visual --screenshot /tmp/jfk-12k-right.ppm --at KJFK --alt 12000 --hdg 036 --channel far_right
+
+# Joey video — straight 3° to 04R touchdown, cars animating (Mint RTX 5060 Ti):
+./build/s376-visual --cache-dir cache/KJFK --channel mid_left --approach KJFK:04R \
+  --start-agl 2000 --gs 3.0 --kts 140 --fps 30 --record out.mp4
 ```
 
 `s376-doctor` never sends a packet off the machine. It reports on-disk

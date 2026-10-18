@@ -1,6 +1,7 @@
 #pragma once
 
 #include "s376/config.hpp"
+#include "s376/image.hpp"
 #include "s376/state.hpp"
 
 #include <memory>
@@ -33,6 +34,8 @@ class Renderer {
     virtual bool done() const = 0;
     virtual void request_stop() {}
     virtual bool capture(const std::string&) { return false; }
+    // Offscreen FBO of the first channel into `im` (top-down RGB). No files.
+    virtual bool capture_rgb(RgbImage&) { return false; }
     // True when the OSG DatabasePager has nothing left to fetch/compile.
     virtual bool pager_idle() const { return true; }
     // CPU (and, when a GL context exists, FBO) solid/gradient pixel check.
