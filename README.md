@@ -69,7 +69,8 @@ placed on `monitor` 0/1/2. `--channel front` is the laptop single-window
 fallback. `--headless` runs the same path with no GL.
 `--demo-weather` adds type-124 rain/wind/lightning, type-125/126/127
 cloud decks, type-128 fog, and one type-105 storm cell (host fields
-only; no invented packet types).
+only; no invented packet types). Ctrl-C / SIGTERM exits within a frame;
+Esc closes the viewer. `--gl-debug` turns OSG GL error checks back on.
 
 ### Run against SIMH (emulated host)
 
@@ -109,6 +110,7 @@ contact `10.1.95.0/24` or `192.168.173.0/24`.
 | `--demo` | in-process synth to loopback |
 | `--demo-weather` | demo plus 124/125/126/127/128 weather and a type-105 storm |
 | `-v` / `--debug` | verbose / per-packet hex |
+| `--gl-debug` | OSG per-attribute GL error checks (off in Release) |
 | `--diagnostics` | dump config and build options |
 | `--doctor` | environment checks (local only) |
 

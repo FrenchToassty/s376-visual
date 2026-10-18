@@ -36,6 +36,35 @@ jobs:
         run: |
           ./build/s376-visual --headless --demo --duration 2 --bind 127.0.0.1:2300 -c config/s376-visual.toml
           ./build/s376-visual --headless --demo-weather --duration 2 --bind 127.0.0.1:2300 -c config/s376-visual.toml
+      - name: SIGTERM stops the IG
+        run: |
+          set +e
+          timeout -k 2 3 ./build/s376-visual --headless --demo --duration 3600 --bind 127.0.0.1:2300 -c config/s376-visual.toml
+          rc=$?
+          set -e
+          # 124 = SIGTERM honored; 137 = timeout had to SIGKILL
+          if [ "$rc" -eq 137 ]; then
+            echo "IG ignored SIGTERM" >&2
+            exit 1
+          fi
+          if [ "$rc" -ne 124 ] && [ "$rc" -ne 0 ]; then
+            echo "unexpected exit $rc" >&2
+            exit 1
+          fi
+      - name: no OpenGL error spam
+        run: |
+          ./build/s376-visual --headless --demo --duration 2 --bind 127.0.0.1:2300 -c config/s376-visual.toml \
+            > /tmp/s376-headless.log 2>&1
+          if grep -F "detected OpenGL error" /tmp/s376-headless.log; then
+            echo "GL errors in headless log" >&2
+            exit 1
+          fi
+          xvfb-run -a ./build/s376-visual --demo --duration 2 --channel front -c config/s376-visual.toml \
+            > /tmp/s376-xvfb.log 2>&1 || true
+          if grep -F "detected OpenGL error" /tmp/s376-xvfb.log; then
+            echo "GL errors in xvfb log" >&2
+            exit 1
+          fi
       - name: refuse sim LAN
         run: |
           if ./build/s376-synth --dest 10.1.95.1:2300 --duration 0.1; then

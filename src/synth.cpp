@@ -159,7 +159,7 @@ std::vector<std::uint8_t> SyntheticFlight::datagram(const SynthPose& s) const {
 }
 
 int run_synth_sender(const std::string& dest, const SynthConfig& cfg, double duration_s,
-                     bool allow_sim_lan, bool allow_lan) {
+                     bool allow_sim_lan, bool allow_lan, std::atomic<bool>* stop) {
     safety::Endpoint ep;
     std::string err;
     if (!safety::parse_host_port(dest, ep, err))
@@ -195,6 +195,8 @@ int run_synth_sender(const std::string& dest, const SynthConfig& cfg, double dur
     int sent = 0;
     const bool forever = duration_s < 0;
     for (int i = 0; forever || i < nframes; ++i) {
+        if (stop && stop->load(std::memory_order_relaxed))
+            break;
         auto pose = flight.step(dt);
         auto dg = flight.datagram(pose);
 #ifdef _WIN32

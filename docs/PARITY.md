@@ -74,8 +74,8 @@ These must **not** change what is in the scene, only how sharp it is.
 | 4× MSAA (`render.msaa`) | **ok** — GL 3.3 / Maxwell-safe |
 | Anisotropic filter (`render.aniso`, default 16) | **ok** — DEM / globe drapes |
 | Mipmapped drapes | **ok** |
-| GPU point sprites for lights | **ok** — crisper than CPU dots; still step 0–5 |
-| GL 3.3 compatibility (not Core) | **ok** — GTX 980 Ti + RTX 5060 Ti |
+| GPU point sprites for lights | **ok** — GLSL 120 points (no PointSprite / POINT_SMOOTH); still step 0–5 |
+| GL compatibility (not Core) | **ok** — Linux leaves the context version unset (NVIDIA 4.6 compat). Elsewhere 3.3 + `COMPATIBILITY_PROFILE_BIT`. Scene lighting/fog/points are shaders so a CORE context does not emit `invalid enumerant` |
 
 ## Channel / desk
 

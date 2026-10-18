@@ -157,6 +157,8 @@ static void fill_render(RenderConfig& r, const std::unordered_map<std::string, s
         r.msaa = std::stoi(kv.at("render.msaa"));
     if (kv.count("render.aniso"))
         r.aniso = std::stoi(kv.at("render.aniso"));
+    if (kv.count("render.gl_debug"))
+        parse_bool(kv.at("render.gl_debug"), r.gl_debug);
 }
 
 static ChannelConfig fill_channel(const std::unordered_map<std::string, std::string>& kv) {
@@ -226,6 +228,7 @@ std::string dump_config(const AppConfig& cfg) {
     o << "render.frame_rate=" << cfg.render.frame_rate << "\n";
     o << "render.msaa=" << cfg.render.msaa << "\n";
     o << "render.aniso=" << cfg.render.aniso << "\n";
+    o << "render.gl_debug=" << (cfg.render.gl_debug ? "true" : "false") << "\n";
     for (const auto& ch : cfg.channels) {
         o << "channel " << ch.name << " hdg=" << ch.heading_offset_deg << " fov=" << ch.hfov_deg
           << "x" << ch.vfov_deg << " " << ch.width << "x" << ch.height

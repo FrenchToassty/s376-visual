@@ -1,4 +1,5 @@
 #include "s376/config.hpp"
+#include "s376/render.hpp"
 
 #include <cstdio>
 #include <fstream>
@@ -42,13 +43,24 @@ void test_config() {
     CHECK_NEAR(d.channels[0].vfov_deg, 32.5, 1e-9);
     CHECK(d.host.bind == "0.0.0.0:2300");
     CHECK(d.host.reply_port == 2301);
+    CHECK(!d.render.gl_debug);
+    {
+        const auto lin = s376::plan_gl_display(true, false);
+        CHECK(lin.version.empty());
+        CHECK(lin.profile_mask == 0);
+        CHECK(!lin.check_errors);
+        const auto win = s376::plan_gl_display(false, true);
+        CHECK(win.version == "3.3");
+        CHECK(win.profile_mask == s376::kGlCompatProfileBit);
+        CHECK(win.check_errors);
+    }
 
     const char* path = "s376-test-config.toml";
     {
         std::ofstream o(path);
         o << "[host]\nbind = \"127.0.0.1:2300\"\nword_order = \"be\"\nfloat_format = \"ieee\"\n"
              "hat_responder = false\n"
-             "[render]\nengine = \"osg\"\nframe_rate = 30\n"
+             "[render]\nengine = \"osg\"\nframe_rate = 30\ngl_debug = true\n"
              "[[channels]]\nname = \"front\"\nheading_offset_deg = 0\nhfov_deg = 50\n"
              "vfov_deg = 32.5\nwidth = 800\nheight = 600\n"
              "[[channels]]\nname = \"left\"\nheading_offset_deg = 35.515\nenabled = false\n";
@@ -60,6 +72,7 @@ void test_config() {
     CHECK(!c.host.hat_responder);
     CHECK(c.render.engine == "osg");
     CHECK_NEAR(c.render.frame_rate, 30.0, 1e-9);
+    CHECK(c.render.gl_debug);
     CHECK(d.render.msaa == 4);
     CHECK(d.render.aniso == 16);
     CHECK(c.channels.size() == 2);

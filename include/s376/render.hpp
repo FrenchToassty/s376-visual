@@ -9,6 +9,21 @@
 
 namespace s376 {
 
+// GLX_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB / WGL equivalent.
+constexpr unsigned kGlCompatProfileBit = 0x2;
+
+// How we ask the window system for a GL context. On Linux we leave the
+// version unset so NVIDIA gives a 4.6 *compatibility* (legacy) context.
+// setGLContextVersion("3.3") with no profile mask is a CORE profile on
+// NVIDIA 595, and apt OSG 3.6's fixed-function path is illegal there.
+struct GlDisplayPlan {
+    std::string version; // empty = do not call setGLContextVersion
+    unsigned profile_mask = 0;
+    bool check_errors = false; // OSG ONCE_PER_ATTRIBUTE; off in Release
+};
+
+GlDisplayPlan plan_gl_display(bool linux_host, bool gl_debug);
+
 class Renderer {
   public:
     virtual ~Renderer() = default;
@@ -16,6 +31,7 @@ class Renderer {
     virtual bool begin(const AppConfig& cfg, const std::vector<ChannelConfig>& channels) = 0;
     virtual void frame(const HostState& host) = 0;
     virtual bool done() const = 0;
+    virtual void request_stop() {}
     virtual void end() = 0;
     virtual std::string name() const = 0;
     virtual std::size_t view_count() const { return 0; }

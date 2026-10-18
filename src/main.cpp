@@ -40,6 +40,7 @@ void usage() {
            "  --duration SEC        exit after SEC seconds (tests)\n"
            "  -v, --verbose         console DEBUG\n"
            "  --debug               packet dumps + DEBUG\n"
+           "  --gl-debug            OSG per-attribute GL error checks (off in Release)\n"
            "  --diagnostics         print a dump and exit\n"
            "  --doctor              environment checks and exit\n"
            "  --version             print version\n"
@@ -58,6 +59,7 @@ int main(int argc, char** argv) {
     bool demo_weather = false;
     bool verbose = false;
     bool debug = false;
+    bool gl_debug = false;
     bool do_diag = false;
     bool do_doctor = false;
     double duration = -1;
@@ -101,6 +103,8 @@ int main(int argc, char** argv) {
             verbose = true;
         else if (a == "--debug")
             debug = true;
+        else if (a == "--gl-debug")
+            gl_debug = true;
         else if (a == "--diagnostics")
             do_diag = true;
         else if (a == "--doctor")
@@ -134,6 +138,8 @@ int main(int argc, char** argv) {
         cfg.log.verbose = true;
     if (debug)
         cfg.log.debug = true;
+    if (gl_debug)
+        cfg.render.gl_debug = true;
     if (demo) {
         cfg.host.bind = "127.0.0.1:2300";
         cfg.host.allow_sim_lan = false;
@@ -190,7 +196,8 @@ int main(int argc, char** argv) {
         S376_LOG_INFO("ig", "demo: in-process synth -> 127.0.0.1:2300 for %.1fs", demo_duration);
         synth_th = std::thread([demo_cfg, demo_duration] {
             try {
-                s376::run_synth_sender("127.0.0.1:2300", demo_cfg, demo_duration, false, false);
+                s376::run_synth_sender("127.0.0.1:2300", demo_cfg, demo_duration, false, false,
+                                       &g_stop);
             } catch (const std::exception& ex) {
                 S376_LOG_ERROR("synth", "%s", ex.what());
             }
@@ -213,11 +220,17 @@ int main(int argc, char** argv) {
     const double period = 1.0 / std::max(cfg.render.frame_rate, 1.0);
     std::uint64_t frames = 0;
     while (!g_stop && !rend->done()) {
+        if (g_stop) {
+            rend->request_stop();
+            break;
+        }
         if (duration >= 0) {
             const double elapsed =
                 std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-            if (elapsed >= duration)
+            if (elapsed >= duration) {
+                rend->request_stop();
                 break;
+            }
         }
         const auto host = state.load();
         rend->frame(host);
@@ -229,6 +242,8 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (g_stop)
+        rend->request_stop();
     rend->end();
     g_stop = true;
     rx.stop();

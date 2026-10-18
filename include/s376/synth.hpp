@@ -2,6 +2,7 @@
 
 #include "s376/xt4.hpp"
 
+#include <atomic>
 #include <string>
 
 namespace s376 {
@@ -55,6 +56,6 @@ class SyntheticFlight {
 // Send `duration_s` seconds of traffic to dest (must pass the safety check).
 // Returns datagrams sent. allow_sim_lan / allow_lan default off.
 int run_synth_sender(const std::string& dest, const SynthConfig& cfg, double duration_s,
-                     bool allow_sim_lan, bool allow_lan);
+                     bool allow_sim_lan, bool allow_lan, std::atomic<bool>* stop = nullptr);
 
 } // namespace s376

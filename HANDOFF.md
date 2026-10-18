@@ -6,10 +6,35 @@ account may stop mid-run — treat this file as the source of truth.
 **PR:** https://github.com/joeylawell/s376-visual/pull/1
 **Branch:** `cursor/s376-visual-v1-6852`
 
+## Milestone: GL compat + SIGTERM/Esc (2026-10-18)
+
+Hangar box (Mint 22.3, RTX 5060 Ti, NVIDIA 595.99 open, apt OSG 3.6.5)
+at 88992c4 flooded ~27k `detected OpenGL error` lines in 60 s and
+ignored SIGTERM (`timeout 8` needed `kill -9`).
+
+- Linux no longer calls `setGLContextVersion`. NVIDIA then gives a 4.6
+  **compatibility** (legacy) context. `setGLContextVersion("3.3")` with
+  no profile mask was CORE on this driver; apt OSG's FF StateSets are
+  illegal there. Non-Linux still requests 3.3 + mask `0x2`
+  (`COMPATIBILITY_PROFILE_BIT`).
+- Scene lighting / fog / points are GLSL 120. Material, LightModel,
+  LIGHTING, LIGHT0, FOG, ALPHA_TEST, POINT_SMOOTH, PointSprite, and
+  TEXTURE_2D modes are stripped from our StateSets and from OSG's
+  SceneView global defaults so a CORE context stays quiet.
+- OSG `ONCE_PER_ATTRIBUTE` GL error checks are off unless `--gl-debug`
+  / `render.gl_debug`. CI greps the headless and Xvfb logs for
+  `detected OpenGL error`.
+- SIGINT/SIGTERM set `g_stop`, the viewer `setDone`s, and
+  `run_synth_sender` breaks on that flag (the old hang was the synth
+  thread joining a 3600 s `--demo` with no stop). Esc still sets done.
+  CI: `timeout -k 2 3` must not reach SIGKILL.
+
 ## Verified in this run
 
-- `s376-tests`: **9120 passed, 0 failed** (cloud/storm decode + synth
-  weather apply, plus the previous airport / cache / HAT suite).
+- `s376-tests`: **9128 passed, 0 failed** (plan_gl_display Linux/legacy
+  vs 3.3+compat-mask, `render.gl_debug`, plus the previous suite).
+- `timeout -k 2 3 --headless --demo --duration 3600`: exit **124**
+  (SIGTERM honored; stopped after 178 frames). Previously hung 60+ s.
 - `s376-doctor`: 0 fail, 1 warn (osgEarth). Reports `cache-ksea` 4.9 KiB,
   SKIP for unpacked KSFO/KLAS, `mesh-build` 0.17 ms / 4096 lights,
   `frame-{front,left,right}` CPU view + GPU share when DISPLAY works.
@@ -193,10 +218,11 @@ are unit-tested.
 - Logging (`-v`, `--debug`, rotating file under `logs/`).
 - `s376-doctor` / `--diagnostics` (cache bytes per airport, frame time
   per channel).
-- Minimal OSG renderer: WGS84 globe, host-driven camera, exp2 fog, sun
-  from TOD, precip points, cheap cloud decks (125–127), storm cells
+- Minimal OSG renderer: WGS84 globe, host-driven camera, shader fog/sun,
+  precip points, cheap cloud decks (125–127), storm cells
   (105 + CSN 28–30), lightning flash. Local DEM patch + BC1 drape.
-  osgEarth earth file is loaded when the lib is present.
+  osgEarth earth file is loaded when the lib is present. Linux GL
+  context is legacy-compat; `--gl-debug` re-enables OSG error checks.
 - `s376-cache`: `fetch` / `synth-ksea --lods` / `from-geotiff` / `info`.
   Real 3DEP+NAIP or GLO-30+S2; LOD pyramid with BC1/BC7 mips.
 - Airport rebuild plan: `docs/AIRPORTS.md`. Terrain sources: `docs/SOURCES.md`.
@@ -212,16 +238,20 @@ are unit-tested.
 | HAT off-DEM | `sample_hat` | Stand-in elev=0 when the point is outside the packed region |
 | More airports | `docs/AIRPORTS.md` | KSEA / KSFO / KLAS / KLAX / KJFK are in. Next: EGLL / EDDF |
 | Off-axis frustum | camera is rotated by heading offset | Shared eyepoint + asymmetric projection later |
-| `--demo` Ctrl+C | `src/synth.cpp` `run_synth_sender` | Synth thread ignores SIGINT; use `--duration` |
+| Overpass `s376-cache osm` | `src/fetch.cpp` `http_get_file` | curl glob on `[out:json]` — encode started; need `-g` + glob-safe test |
+| Fetch resolution | `src/fetch.cpp` | KSEA cache ~3.1 MB (384 DEM / 768 NAIP). Tile ImageServer, high-res near field |
 
 ## Next 5 concrete steps (in order)
 
-1. **Close remaining PARITY gaps**: 109 beams, 131 display, 128
+1. **Overpass curl glob** — `s376-cache osm` fails `curl: (3) bad range`
+   on `[ ]`. Finish `-g` / percent-encode + glob-safe test.
+2. **High-res fetch** — tile ImageServer (≤4000 px), near ~1 m imagery /
+   ~2 m DEM, mid/far rings, `--dry-run` size, doctor report.
+3. **Close remaining PARITY gaps**: 109 beams, 131 display, 128
    patchy/speed-cue, 124 runway condition, PAPI/taxi, cloud type
    catalog, real storm-cell sizes.
-2. **Asymmetric / off-axis projection** if ViewAngles overlap is not enough.
-3. **EGLL / EDDF** layouts.
-4. **NLIM / edge blend** — later.
+4. **Asymmetric / off-axis projection** if ViewAngles overlap is not enough.
+5. **EGLL / EDDF** layouts.
 
 ## How to build / run / test (Linux Mint 22)
 
@@ -239,6 +269,7 @@ ctest --test-dir build --output-on-failure
 ./build/s376-visual --demo --cache-dir cache/ksea
 ./build/s376-visual --demo-weather --channel front
 ./build/s376-visual --demo --channel front
+# Ctrl-C / SIGTERM must exit within a frame. --gl-debug re-enables OSG GL checks.
 ```
 
 Windows: see README (CMake + optional vcpkg OSG). `--headless` and the

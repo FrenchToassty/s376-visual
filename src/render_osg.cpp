@@ -11,20 +11,33 @@
 #include <osg/CullFace>
 #include <osg/Depth>
 #include <osg/DisplaySettings>
-#include <osg/Fog>
 #include <osg/Geode>
 #include <osg/Geometry>
 #include <osg/GraphicsContext>
-#include <osg/Light>
-#include <osg/LightSource>
-#include <osg/Material>
+#include <osg/Notify>
 #include <osg/Point>
-#include <osg/PointSprite>
+#include <osg/Program>
+#include <osg/Shader>
+#include <osg/State>
 #include <osg/Texture2D>
+#include <osg/Uniform>
 #include <osg/Viewport>
 #include <osgDB/ReadFile>
+#include <osgGA/GUIEventAdapter>
+#include <osgUtil/SceneView>
 #include <osgViewer/CompositeViewer>
+#include <osgViewer/Renderer>
 #include <osgViewer/Viewer>
+
+#ifndef GL_POINT_SPRITE
+#define GL_POINT_SPRITE 0x8861
+#endif
+#ifndef GL_ALPHA_TEST
+#define GL_ALPHA_TEST 0x0BC0
+#endif
+#ifndef GL_VERTEX_PROGRAM_POINT_SIZE
+#define GL_VERTEX_PROGRAM_POINT_SIZE 0x8642
+#endif
 
 #ifdef S376_HAS_OSGEARTH
 #include <osgEarth/MapNode>
@@ -43,6 +56,230 @@ namespace {
 
 osg::Vec3d ecef_to_osg(const geo::Ecef& p) {
     return osg::Vec3d(p.x, p.y, p.z);
+}
+
+// GLSL 120: legal on a Linux legacy/compat context and on 3.3 +
+// COMPATIBILITY_PROFILE. Lighting, fog, and point size live here so we
+// never emit Material / LightModel / LIGHTING / FOG / POINT_SMOOTH /
+// PointSprite / TEXTURE_2D modes (illegal on a CORE profile).
+const char* kLitTexVS = R"(
+#version 120
+varying vec3 vN;
+varying vec2 vUV;
+varying float vEyeDist;
+void main() {
+    vN = gl_Normal;
+    vUV = gl_MultiTexCoord0.xy;
+    vec4 eye = gl_ModelViewMatrix * gl_Vertex;
+    vEyeDist = length(eye.xyz);
+    gl_Position = ftransform();
+}
+)";
+
+const char* kLitTexFS = R"(
+#version 120
+uniform sampler2D sTex;
+uniform vec3 uSunDir;
+uniform vec3 uAmbient;
+uniform vec3 uDiffuse;
+uniform vec3 uFogColor;
+uniform float uFogDensity;
+varying vec3 vN;
+varying vec2 vUV;
+varying float vEyeDist;
+void main() {
+    vec3 n = normalize(vN);
+    float ndl = max(dot(n, normalize(uSunDir)), 0.0);
+    vec3 albedo = texture2D(sTex, vUV).rgb;
+    vec3 col = albedo * (uAmbient + uDiffuse * ndl);
+    float f = exp(-uFogDensity * uFogDensity * vEyeDist * vEyeDist);
+    gl_FragColor = vec4(mix(uFogColor, col, clamp(f, 0.0, 1.0)), 1.0);
+}
+)";
+
+const char* kLitColorVS = R"(
+#version 120
+varying vec3 vN;
+varying vec4 vCol;
+varying float vEyeDist;
+void main() {
+    vN = gl_Normal;
+    vCol = gl_Color;
+    vec4 eye = gl_ModelViewMatrix * gl_Vertex;
+    vEyeDist = length(eye.xyz);
+    gl_Position = ftransform();
+}
+)";
+
+const char* kLitColorFS = R"(
+#version 120
+uniform vec3 uSunDir;
+uniform vec3 uAmbient;
+uniform vec3 uDiffuse;
+uniform vec3 uFogColor;
+uniform float uFogDensity;
+varying vec3 vN;
+varying vec4 vCol;
+varying float vEyeDist;
+void main() {
+    vec3 n = normalize(vN);
+    float ndl = max(dot(n, normalize(uSunDir)), 0.0);
+    vec3 col = vCol.rgb * (uAmbient + uDiffuse * ndl);
+    float f = exp(-uFogDensity * uFogDensity * vEyeDist * vEyeDist);
+    gl_FragColor = vec4(mix(uFogColor, col, clamp(f, 0.0, 1.0)), vCol.a);
+}
+)";
+
+const char* kUnlitColorVS = R"(
+#version 120
+varying vec4 vCol;
+varying float vEyeDist;
+void main() {
+    vCol = gl_Color;
+    vec4 eye = gl_ModelViewMatrix * gl_Vertex;
+    vEyeDist = length(eye.xyz);
+    gl_Position = ftransform();
+}
+)";
+
+const char* kUnlitColorFS = R"(
+#version 120
+uniform vec3 uFogColor;
+uniform float uFogDensity;
+varying vec4 vCol;
+varying float vEyeDist;
+void main() {
+    float f = exp(-uFogDensity * uFogDensity * vEyeDist * vEyeDist);
+    gl_FragColor = vec4(mix(uFogColor, vCol.rgb, clamp(f, 0.0, 1.0)), vCol.a);
+}
+)";
+
+const char* kPointVS = R"(
+#version 120
+varying vec4 vCol;
+varying float vEyeDist;
+uniform float uPointSize;
+void main() {
+    vCol = gl_Color;
+    vec4 eye = gl_ModelViewMatrix * gl_Vertex;
+    vEyeDist = length(eye.xyz);
+    gl_PointSize = uPointSize;
+    gl_Position = ftransform();
+}
+)";
+
+const char* kPointFS = R"(
+#version 120
+uniform vec3 uFogColor;
+uniform float uFogDensity;
+varying vec4 vCol;
+varying float vEyeDist;
+void main() {
+    float f = exp(-uFogDensity * uFogDensity * vEyeDist * vEyeDist);
+    gl_FragColor = vec4(mix(uFogColor, vCol.rgb, clamp(f, 0.0, 1.0)), vCol.a);
+}
+)";
+
+void strip_ff(osg::StateSet* ss) {
+    if (!ss)
+        return;
+    ss->removeMode(GL_LIGHTING);
+    ss->removeMode(GL_LIGHT0);
+    ss->removeMode(GL_FOG);
+    ss->removeMode(GL_ALPHA_TEST);
+    ss->removeMode(GL_POINT_SMOOTH);
+    ss->removeMode(GL_POINT_SPRITE);
+    ss->removeMode(GL_TEXTURE_2D);
+    ss->removeAttribute(osg::StateAttribute::MATERIAL);
+    ss->removeAttribute(osg::StateAttribute::LIGHTMODEL);
+    ss->removeAttribute(osg::StateAttribute::LIGHT);
+    ss->removeAttribute(osg::StateAttribute::FOG);
+    ss->removeAttribute(osg::StateAttribute::POINTSPRITE);
+    ss->removeTextureMode(0, GL_TEXTURE_2D);
+    ss->removeTextureAttribute(0, osg::StateAttribute::POINTSPRITE);
+}
+
+void configure_gl_state(osgViewer::CompositeViewer& viewer, bool check_errors) {
+    const auto mode = check_errors ? osg::State::ONCE_PER_ATTRIBUTE
+                                   : osg::State::NEVER_CHECK_GL_ERRORS;
+    for (unsigned i = 0; i < viewer.getNumViews(); ++i) {
+        osgViewer::View* view = viewer.getView(i);
+        if (!view)
+            continue;
+        osg::Camera* cam = view->getCamera();
+        if (!cam)
+            continue;
+        strip_ff(cam->getOrCreateStateSet());
+        if (auto* gc = cam->getGraphicsContext()) {
+            if (auto* st = gc->getState())
+                st->setCheckForGLErrors(mode);
+        }
+        auto* renderer = dynamic_cast<osgViewer::Renderer*>(cam->getRenderer());
+        if (!renderer)
+            continue;
+        for (int s = 0; s < 2; ++s) {
+            if (auto* sv = renderer->getSceneView(s)) {
+                strip_ff(sv->getGlobalStateSet());
+                strip_ff(sv->getLocalStateSet());
+                if (auto* st = sv->getState())
+                    st->setCheckForGLErrors(mode);
+            }
+        }
+    }
+}
+
+osg::Program* make_program(const char* vs, const char* fs) {
+    auto* p = new osg::Program;
+    p->addShader(new osg::Shader(osg::Shader::VERTEX, vs));
+    p->addShader(new osg::Shader(osg::Shader::FRAGMENT, fs));
+    return p;
+}
+
+void attach_lit_tex(osg::StateSet* ss, osg::Texture2D* tex) {
+    ss->setTextureAttribute(0, tex);
+    ss->addUniform(new osg::Uniform("sTex", 0));
+    ss->setAttributeAndModes(make_program(kLitTexVS, kLitTexFS), osg::StateAttribute::ON);
+    strip_ff(ss);
+}
+
+void attach_lit_color(osg::StateSet* ss) {
+    ss->setAttributeAndModes(make_program(kLitColorVS, kLitColorFS), osg::StateAttribute::ON);
+    strip_ff(ss);
+}
+
+void attach_unlit_color(osg::StateSet* ss) {
+    ss->setAttributeAndModes(make_program(kUnlitColorVS, kUnlitColorFS), osg::StateAttribute::ON);
+    strip_ff(ss);
+}
+
+void attach_points(osg::StateSet* ss, float size) {
+    ss->setAttributeAndModes(new osg::Point(size));
+    ss->addUniform(new osg::Uniform("uPointSize", size));
+    ss->setMode(GL_VERTEX_PROGRAM_POINT_SIZE, osg::StateAttribute::ON);
+    ss->setAttributeAndModes(make_program(kPointVS, kPointFS), osg::StateAttribute::ON);
+    strip_ff(ss);
+}
+
+struct ShaderEnv {
+    osg::ref_ptr<osg::Uniform> sun_dir;
+    osg::ref_ptr<osg::Uniform> ambient;
+    osg::ref_ptr<osg::Uniform> diffuse;
+    osg::ref_ptr<osg::Uniform> fog_color;
+    osg::ref_ptr<osg::Uniform> fog_density;
+};
+
+void attach_env_uniforms(osg::StateSet* ss, ShaderEnv& env) {
+    env.sun_dir = new osg::Uniform("uSunDir", osg::Vec3(1.f, 0.f, 0.f));
+    env.ambient = new osg::Uniform("uAmbient", osg::Vec3(0.15f, 0.15f, 0.18f));
+    env.diffuse = new osg::Uniform("uDiffuse", osg::Vec3(1.f, 0.95f, 0.85f));
+    env.fog_color = new osg::Uniform("uFogColor", osg::Vec3(0.62f, 0.70f, 0.78f));
+    env.fog_density = new osg::Uniform("uFogDensity", 1e-6f);
+    ss->addUniform(env.sun_dir);
+    ss->addUniform(env.ambient);
+    ss->addUniform(env.diffuse);
+    ss->addUniform(env.fog_color);
+    ss->addUniform(env.fog_density);
+    strip_ff(ss);
 }
 
 osg::Image* make_globe_image(int w, int h) {
@@ -142,11 +379,7 @@ osg::Node* make_procedural_globe(float aniso = 16.f) {
     tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR_MIPMAP_LINEAR);
     tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
     tex->setMaxAnisotropy(std::max(1.f, aniso));
-    geom->getOrCreateStateSet()->setTextureAttributeAndModes(0, tex, osg::StateAttribute::ON);
-    auto* mat = new osg::Material;
-    mat->setDiffuse(osg::Material::FRONT_AND_BACK, osg::Vec4(1, 1, 1, 1));
-    mat->setAmbient(osg::Material::FRONT_AND_BACK, osg::Vec4(0.15f, 0.15f, 0.18f, 1));
-    geom->getOrCreateStateSet()->setAttributeAndModes(mat);
+    attach_lit_tex(geom->getOrCreateStateSet(), tex);
     geode->addDrawable(geom);
     return geode;
 }
@@ -246,11 +479,7 @@ osg::Node* make_dem_patch(const CacheRegion& cache, float aniso = 16.f) {
     tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR_MIPMAP_LINEAR);
     tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
     tex->setMaxAnisotropy(std::max(1.f, aniso));
-    geom->getOrCreateStateSet()->setTextureAttributeAndModes(0, tex, osg::StateAttribute::ON);
-    auto* mat = new osg::Material;
-    mat->setDiffuse(osg::Material::FRONT_AND_BACK, osg::Vec4(1, 1, 1, 1));
-    mat->setAmbient(osg::Material::FRONT_AND_BACK, osg::Vec4(0.2f, 0.2f, 0.2f, 1));
-    geom->getOrCreateStateSet()->setAttributeAndModes(mat);
+    attach_lit_tex(geom->getOrCreateStateSet(), tex);
     geode->addDrawable(geom);
     return geode;
 }
@@ -274,9 +503,7 @@ osg::Node* make_airport_geode(const AirportMesh& mesh) {
     geom->setNormalArray(norms, osg::Array::BIND_PER_VERTEX);
     geom->setColorArray(cols, osg::Array::BIND_PER_VERTEX);
     geom->addPrimitiveSet(new osg::DrawArrays(GL_TRIANGLES, 0, static_cast<int>(mesh.verts.size())));
-    auto* mat = new osg::Material;
-    mat->setColorMode(osg::Material::AMBIENT_AND_DIFFUSE);
-    geom->getOrCreateStateSet()->setAttributeAndModes(mat);
+    attach_lit_color(geom->getOrCreateStateSet());
     geode->addDrawable(geom);
     return geode;
 }
@@ -309,13 +536,10 @@ LightGpu make_light_gpu(const Airport& apt) {
     g.geom->setUseDisplayList(false);
     g.geom->setUseVertexBufferObjects(true);
     auto* ss = g.geom->getOrCreateStateSet();
-    ss->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
     ss->setMode(GL_BLEND, osg::StateAttribute::ON);
     ss->setAttributeAndModes(new osg::BlendFunc(GL_SRC_ALPHA, GL_ONE));
     ss->setAttributeAndModes(new osg::Depth(osg::Depth::LEQUAL, 0, 1, false));
-    ss->setAttributeAndModes(new osg::Point(5.0f));
-    ss->setTextureAttributeAndModes(0, new osg::PointSprite, osg::StateAttribute::ON);
-    ss->setMode(GL_POINT_SMOOTH, osg::StateAttribute::ON);
+    attach_points(ss, 5.0f);
     ss->setRenderBinDetails(20, "DepthSortedBin");
     return g;
 }
@@ -349,11 +573,9 @@ PrecipGpu make_precip_gpu() {
     g.geom->setUseDisplayList(false);
     g.geom->setUseVertexBufferObjects(true);
     auto* ss = g.geom->getOrCreateStateSet();
-    ss->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
     ss->setMode(GL_BLEND, osg::StateAttribute::ON);
     ss->setAttributeAndModes(new osg::BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
-    ss->setAttributeAndModes(new osg::Point(2.2f));
-    ss->setMode(GL_POINT_SMOOTH, osg::StateAttribute::ON);
+    attach_points(ss, 2.2f);
     ss->setRenderBinDetails(25, "DepthSortedBin");
     return g;
 }
@@ -407,9 +629,12 @@ void update_precip(PrecipGpu& g, const HostState& host, float dt) {
     const osg::Vec4 col = snow ? osg::Vec4(0.92f, 0.94f, 0.98f, 0.55f * k)
                                : hail ? osg::Vec4(0.86f, 0.88f, 0.92f, 0.45f * k)
                                       : osg::Vec4(0.70f, 0.76f, 0.84f, 0.35f * k);
-    if (auto* pt = dynamic_cast<osg::Point*>(
-            g.geom->getOrCreateStateSet()->getAttribute(osg::StateAttribute::POINT)))
-        pt->setSize(snow ? 3.4f : hail ? 3.8f : 2.2f);
+    const float psz = snow ? 3.4f : hail ? 3.8f : 2.2f;
+    auto* pss = g.geom->getOrCreateStateSet();
+    if (auto* pt = dynamic_cast<osg::Point*>(pss->getAttribute(osg::StateAttribute::POINT)))
+        pt->setSize(psz);
+    if (auto* u = pss->getUniform("uPointSize"))
+        u->set(psz);
     for (std::size_t i = 0; i < g.seed.size(); ++i) {
         osg::Vec3& s = g.seed[i];
         s.z() -= fall;
@@ -456,11 +681,11 @@ MeshGpu make_mesh_gpu(int bin) {
     g.geom->setUseDisplayList(false);
     g.geom->setUseVertexBufferObjects(true);
     auto* ss = g.geom->getOrCreateStateSet();
-    ss->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
     ss->setMode(GL_BLEND, osg::StateAttribute::ON);
     ss->setMode(GL_CULL_FACE, osg::StateAttribute::OFF);
     ss->setAttributeAndModes(new osg::BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
     ss->setAttributeAndModes(new osg::Depth(osg::Depth::LEQUAL, 0, 1, false));
+    attach_unlit_color(ss);
     ss->setRenderBinDetails(bin, "DepthSortedBin");
     return g;
 }
@@ -683,11 +908,27 @@ class OsgRenderer final : public Renderer {
 
         viewer_ = std::make_unique<osgViewer::CompositeViewer>();
         viewer_->setThreadingModel(osgViewer::ViewerBase::SingleThreaded);
-        // Apt OSG 3.6 is a compatibility-profile stack. Ask for 3.3 so a
-        // Maxwell GTX 980 Ti (GL 4.6 max) and the hangar RTX 5060 Ti share
-        // the same path. Do not request a Core profile.
+        viewer_->setKeyEventSetsDone(osgGA::GUIEventAdapter::KEY_Escape);
+#ifdef __linux__
+        const bool linux_host = true;
+#else
+        const bool linux_host = false;
+#endif
+        const GlDisplayPlan plan = plan_gl_display(linux_host, cfg.render.gl_debug);
+        gl_check_errors_ = plan.check_errors;
+        if (plan.check_errors)
+            osg::setNotifyLevel(osg::INFO);
+        // Linux: leave the version unset so NVIDIA hands back a 4.6
+        // compatibility (legacy) context. setGLContextVersion("3.3") with
+        // no profile mask is CORE on NVIDIA 595, and apt OSG's FF path
+        // then floods "invalid enumerant". Elsewhere request 3.3 +
+        // COMPATIBILITY_PROFILE_BIT. Scene StateSets use shaders either way.
         if (osg::ref_ptr<osg::DisplaySettings> ds = osg::DisplaySettings::instance()) {
-            ds->setGLContextVersion("3.3");
+            if (!plan.version.empty()) {
+                ds->setGLContextVersion(plan.version);
+                if (plan.profile_mask != 0)
+                    ds->setGLContextProfileMask(plan.profile_mask);
+            }
             if (cfg.render.msaa > 0)
                 ds->setNumMultiSamples(std::max(0, std::min(cfg.render.msaa, 8)));
         }
@@ -777,22 +1018,7 @@ class OsgRenderer final : public Renderer {
                 root->addChild(geode);
             }
         }
-        light_ = new osg::LightSource;
-        auto* L = light_->getLight();
-        L->setLightNum(0);
-        L->setAmbient(osg::Vec4(0.08f, 0.08f, 0.1f, 1));
-        L->setDiffuse(osg::Vec4(1.0f, 0.95f, 0.85f, 1));
-        L->setPosition(osg::Vec4(1, 0, 0, 0));
-        root->addChild(light_);
-        root->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::ON);
-        root->getOrCreateStateSet()->setMode(GL_LIGHT0, osg::StateAttribute::ON);
-
-        fog_ = new osg::Fog;
-        fog_->setMode(osg::Fog::EXP2);
-        fog_->setColor(osg::Vec4(0.62f, 0.70f, 0.78f, 1));
-        fog_->setDensity(1e-6f);
-        root->getOrCreateStateSet()->setAttributeAndModes(fog_);
-        root->getOrCreateStateSet()->setMode(GL_FOG, osg::StateAttribute::ON);
+        attach_env_uniforms(root->getOrCreateStateSet(), env_u_);
         root_ = root;
 
         int nscr = 1, sw = 1920, sh = 1080;
@@ -843,14 +1069,23 @@ class OsgRenderer final : public Renderer {
         }
 
         viewer_->realize();
-        S376_LOG_INFO("render", "opened %zu channel window(s)  screens=%d  %dx%d", views_.size(),
-                      nscr, sw, sh);
+        configure_gl_state(*viewer_, gl_check_errors_);
+        S376_LOG_INFO("render",
+                      "opened %zu channel window(s)  screens=%d  %dx%d  gl %s%s%s",
+                      views_.size(), nscr, sw, sh,
+                      plan.version.empty() ? "legacy-compat" : plan.version.c_str(),
+                      plan.profile_mask ? " +compat-mask" : "",
+                      plan.check_errors ? "  gl-debug" : "");
         return true;
     }
 
     void frame(const HostState& host) override {
         if (!viewer_)
             return;
+        if (!stripped_ff_) {
+            configure_gl_state(*viewer_, gl_check_errors_);
+            stripped_ff_ = true;
+        }
         for (std::size_t i = 0; i < views_.size() && i < channels_.size(); ++i)
             apply_view_camera(views_[i]->getCamera(), channels_[i], host);
         apply_env(host);
@@ -864,7 +1099,13 @@ class OsgRenderer final : public Renderer {
     }
 
     bool done() const override { return viewer_ && viewer_->done(); }
+    void request_stop() override {
+        if (viewer_)
+            viewer_->setDone(true);
+    }
     void end() override {
+        if (viewer_)
+            viewer_->setDone(true);
         views_.clear();
         viewer_.reset();
         root_ = nullptr;
@@ -903,7 +1144,10 @@ class OsgRenderer final : public Renderer {
             dens *= 1.35f;
         if (in_cloud)
             dens *= 2.4f;
-        fog_->setDensity(dens);
+        if (env_u_.fog_density)
+            env_u_.fog_density->set(dens);
+        if (env_u_.fog_color)
+            env_u_.fog_color->set(osg::Vec3(0.62f, 0.70f, 0.78f));
 
         float tod = host.have_env ? host.env.tod_hours : 14.5f;
         // Type-124 tod_select: −1 = continuous hours; 0 day / 1 dusk / 2 dawn / 3 night.
@@ -931,9 +1175,9 @@ class OsgRenderer final : public Renderer {
         const double lon = host.have_eyepoint ? host.eye.lon_deg : -122.31;
         double el = 0;
         const geo::Ecef s = geo::sun_ecef(lat, lon, tod, month, day, &el);
-        auto* L = light_->getLight();
-        L->setPosition(osg::Vec4(static_cast<float>(s.x), static_cast<float>(s.y),
-                                 static_cast<float>(s.z), 0));
+        if (env_u_.sun_dir)
+            env_u_.sun_dir->set(osg::Vec3(static_cast<float>(s.x), static_cast<float>(s.y),
+                                          static_cast<float>(s.z)));
         const float dayf = static_cast<float>(std::max(0.0, std::sin(geo::deg2rad(el))));
         float flash = 0.f;
         if (host.have_env && host.env.lightning_trigger != 0) {
@@ -965,10 +1209,13 @@ class OsgRenderer final : public Renderer {
             storm_flash_ = 0.85f;
             --storm_flash_left_;
         }
-        L->setDiffuse(osg::Vec4(1.0f, 0.95f, 0.85f, 1) * (0.15f + 0.85f * dayf + flash));
-        L->setAmbient(osg::Vec4(0.04f + 0.12f * dayf + flash * 0.4f,
-                                0.04f + 0.12f * dayf + flash * 0.4f,
-                                0.06f + 0.12f * dayf + flash * 0.5f, 1));
+        const float dk = 0.15f + 0.85f * dayf + flash;
+        if (env_u_.diffuse)
+            env_u_.diffuse->set(osg::Vec3(1.0f * dk, 0.95f * dk, 0.85f * dk));
+        if (env_u_.ambient)
+            env_u_.ambient->set(osg::Vec3(0.04f + 0.12f * dayf + flash * 0.4f,
+                                          0.04f + 0.12f * dayf + flash * 0.4f,
+                                          0.06f + 0.12f * dayf + flash * 0.5f));
         const float t = 0.25f + 0.55f * dayf;
         const osg::Vec4 sky(0.15f + 0.25f * t + flash * 0.4f, 0.22f + 0.35f * t + flash * 0.4f,
                             0.35f + 0.40f * t + flash * 0.3f, 1);
@@ -983,8 +1230,7 @@ class OsgRenderer final : public Renderer {
     std::unique_ptr<osgViewer::CompositeViewer> viewer_;
     std::vector<osg::ref_ptr<osgViewer::View>> views_;
     osg::ref_ptr<osg::Group> root_;
-    osg::ref_ptr<osg::LightSource> light_;
-    osg::ref_ptr<osg::Fog> fog_;
+    ShaderEnv env_u_;
     LightGpu lights_gpu_;
     PrecipGpu precip_gpu_;
     MeshGpu cloud_gpu_;
@@ -997,6 +1243,8 @@ class OsgRenderer final : public Renderer {
     float storm_flash_ = 0.f;
     float cloud_drift_m_ = 0.f;
     bool used_earth_ = false;
+    bool stripped_ff_ = false;
+    bool gl_check_errors_ = false;
 };
 
 } // namespace

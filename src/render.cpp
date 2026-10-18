@@ -5,6 +5,21 @@
 
 namespace s376 {
 
+GlDisplayPlan plan_gl_display(bool linux_host, bool gl_debug) {
+    GlDisplayPlan p;
+    p.check_errors = gl_debug;
+    if (linux_host) {
+        // Leave version empty: glXCreateContext (legacy) → 4.6 compatibility
+        // on NVIDIA. Do not set "3.3" without a profile mask.
+        p.version.clear();
+        p.profile_mask = 0;
+    } else {
+        p.version = "3.3";
+        p.profile_mask = kGlCompatProfileBit;
+    }
+    return p;
+}
+
 std::unique_ptr<Renderer> make_renderer(const std::string& engine) {
     std::string e = engine;
     std::transform(e.begin(), e.end(), e.begin(),
