@@ -426,13 +426,19 @@ class OsgRenderer final : public Renderer {
             }
         }
         {
-            const Airport apt = ksea_public();
-            if (auto* mesh = make_airport_geode(build_airport_mesh(apt))) {
-                root->addChild(mesh);
-                S376_LOG_INFO("render", "KSEA mesh  %zu runways  %zu lights  %s", apt.runways.size(),
-                              apt.lights.size(), apt.attribution.c_str());
+            Airport merged;
+            for (Airport apt : all_public_airports()) {
+                const int osm_n = try_load_osm(apt, cfg.render.cache_dir);
+                if (osm_n > 0)
+                    S376_LOG_INFO("render", "%s OSM aeroway  %d ways", apt.icao.c_str(), osm_n);
+                if (auto* mesh = make_airport_geode(build_airport_mesh(apt))) {
+                    root->addChild(mesh);
+                    S376_LOG_INFO("render", "%s mesh  %zu runways  %zu lights  %s", apt.icao.c_str(),
+                                  apt.runways.size(), apt.lights.size(), apt.attribution.c_str());
+                }
+                merged.lights.insert(merged.lights.end(), apt.lights.begin(), apt.lights.end());
             }
-            lights_gpu_ = make_light_gpu(apt);
+            lights_gpu_ = make_light_gpu(merged);
             if (lights_gpu_.geom) {
                 auto* geode = new osg::Geode;
                 geode->addDrawable(lights_gpu_.geom);

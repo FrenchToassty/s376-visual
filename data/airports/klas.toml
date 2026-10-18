@@ -1,0 +1,68 @@
+# KLAS — public geometry only.
+# Runway ends / lengths / widths: OurAirports runways.csv (public domain).
+# Lighting systems from the published FAA chart (ALSF-2 on 26R and 26L,
+# MALSR on the 08s and 19s). Taxi / apron connectors in the binary are
+# schematic offsets; replace with `s376-cache osm KLAS` (Overpass
+# aeroway=*, ODbL) when you want the real graph.
+# Packet-112 switch numbers are ours, not RSI's.
+
+icao = "KLAS"
+name = "Harry Reid / McCarran International"
+arp_lat = 36.0801
+arp_lon = -115.1523
+elev_ft = 2181
+attribution = "OurAirports + FAA charted ALS"
+
+[lights]
+edge_switch = 1
+centerline_switch = 2
+approach_switch = 3
+threshold_switch = 4
+
+[[runways]]
+ident_le = "08L"
+ident_he = "26R"
+le_lat = 36.08620
+le_lon = -115.17450
+le_elev_ft = 2181
+heading_deg = 90.0
+length_ft = 14511
+width_ft = 150
+approach_le = "MALSR"
+approach_he = "ALSF-2"
+
+[[runways]]
+ident_le = "08R"
+ident_he = "26L"
+le_lat = 36.08050
+le_lon = -115.16800
+le_elev_ft = 2181
+heading_deg = 90.0
+length_ft = 10526
+width_ft = 150
+approach_le = "MALSR"
+approach_he = "ALSF-2"
+
+[[runways]]
+ident_le = "01L"
+ident_he = "19R"
+le_lat = 36.07400
+le_lon = -115.16300
+le_elev_ft = 2171
+heading_deg = 18.0
+length_ft = 8985
+width_ft = 150
+approach_le = "MALSR"
+approach_he = "MALSR"
+
+[[runways]]
+ident_le = "01R"
+ident_he = "19L"
+le_lat = 36.07200
+le_lon = -115.15800
+le_elev_ft = 2171
+heading_deg = 18.0
+length_ft = 9771
+width_ft = 150
+approach_le = "MALSR"
+approach_he = "MALSR"

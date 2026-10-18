@@ -1,7 +1,14 @@
 #include "s376/airport.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <sstream>
+#include <stdexcept>
 
 namespace s376 {
 namespace {
@@ -158,6 +165,26 @@ Taxiway parallel_taxi(const char* name, const Runway& rw, double perp_m) {
     return t;
 }
 
+Apron box_apron(const char* name, double lat, double lon, double hdg, double len_m, double wid_m,
+                double elev_unused) {
+    (void)elev_unused;
+    Apron a;
+    a.name = name;
+    double c[4][2];
+    const double hl = len_m * 0.5, hw = wid_m * 0.5;
+    const double corners[4][2] = {{-hl, -hw}, {hl, -hw}, {hl, hw}, {-hl, hw}};
+    for (int i = 0; i < 4; ++i) {
+        double p1lat, p1lon, p2lat, p2lon;
+        offset_m(lat, lon, hdg, corners[i][0], p1lat, p1lon);
+        offset_m(p1lat, p1lon, hdg + 90.0, corners[i][1], p2lat, p2lon);
+        c[i][0] = p2lat;
+        c[i][1] = p2lon;
+        a.ring.push_back({p2lat, p2lon});
+    }
+    (void)c;
+    return a;
+}
+
 } // namespace
 
 void offset_m(double lat, double lon, double heading_deg, double dist_m, double& olat,
@@ -202,8 +229,180 @@ Airport ksea_public() {
                                     "MALSR", "MALSR"));
     a.taxiways.push_back(parallel_taxi("T", a.runways[0], 90.0));
     a.taxiways.push_back(parallel_taxi("B", a.runways[1], 80.0));
+    a.aprons.push_back(box_apron("main", a.arp_lat, a.arp_lon + 0.004, 90.0, 800, 400, a.elev_m));
     generate_lights(a);
     return a;
+}
+
+Airport ksfo_public() {
+    Airport a;
+    a.icao = "KSFO";
+    a.name = "San Francisco International";
+    a.attribution =
+        "OurAirports runways.csv (public domain) + FAA charted ALS (ALSF-2 28R, "
+        "MALSR 28L/19L/10L); taxi/apron schematic + OSM aeroway=* (ODbL) when fetched";
+    a.arp_lat = 37.6188;
+    a.arp_lon = -122.3754;
+    a.elev_m = 13.0 * geo::kFtToM;
+    a.runways.push_back(make_runway("10L", "28R", 37.62855, -122.39335, 13.0, 118.0, 11870.0, 200.0,
+                                    "MALSR", "ALSF-2"));
+    a.runways.push_back(make_runway("10R", "28L", 37.62540, -122.39250, 13.0, 118.0, 11381.0, 200.0,
+                                    "MALSR", "MALSR"));
+    a.runways.push_back(make_runway("01L", "19R", 37.61350, -122.38950, 11.0, 18.0, 7650.0, 200.0,
+                                    "MALSR", "MALSR"));
+    a.runways.push_back(make_runway("01R", "19L", 37.61180, -122.38680, 11.0, 18.0, 8650.0, 200.0,
+                                    "MALSR", "MALSR"));
+    a.taxiways.push_back(parallel_taxi("A", a.runways[0], 80.0));
+    a.taxiways.push_back(parallel_taxi("B", a.runways[1], -80.0));
+    a.taxiways.push_back(parallel_taxi("C", a.runways[2], 70.0));
+    a.aprons.push_back(box_apron("terminal", 37.6165, -122.3860, 30.0, 900, 500, a.elev_m));
+    generate_lights(a);
+    return a;
+}
+
+Airport klas_public() {
+    Airport a;
+    a.icao = "KLAS";
+    a.name = "Harry Reid / McCarran International";
+    a.attribution =
+        "OurAirports runways.csv (public domain) + FAA charted ALS (ALSF-2 26R/26L, "
+        "MALSR 19s/08s); taxi/apron schematic + OSM aeroway=* (ODbL) when fetched";
+    a.arp_lat = 36.0801;
+    a.arp_lon = -115.1523;
+    a.elev_m = 2181.0 * geo::kFtToM;
+    a.runways.push_back(make_runway("08L", "26R", 36.08620, -115.17450, 2181.0, 90.0, 14511.0, 150.0,
+                                    "MALSR", "ALSF-2"));
+    a.runways.push_back(make_runway("08R", "26L", 36.08050, -115.16800, 2181.0, 90.0, 10526.0, 150.0,
+                                    "MALSR", "ALSF-2"));
+    a.runways.push_back(make_runway("01L", "19R", 36.07400, -115.16300, 2171.0, 18.0, 8985.0, 150.0,
+                                    "MALSR", "MALSR"));
+    a.runways.push_back(make_runway("01R", "19L", 36.07200, -115.15800, 2171.0, 18.0, 9771.0, 150.0,
+                                    "MALSR", "MALSR"));
+    a.taxiways.push_back(parallel_taxi("A", a.runways[0], 80.0));
+    a.taxiways.push_back(parallel_taxi("B", a.runways[1], -80.0));
+    a.taxiways.push_back(parallel_taxi("S", a.runways[2], 70.0));
+    a.aprons.push_back(box_apron("D-gates", 36.0845, -115.1520, 90.0, 1100, 450, a.elev_m));
+    generate_lights(a);
+    return a;
+}
+
+Airport airport_by_icao(const std::string& icao) {
+    std::string id = icao;
+    for (char& c : id)
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    if (id == "KSEA")
+        return ksea_public();
+    if (id == "KSFO")
+        return ksfo_public();
+    if (id == "KLAS")
+        return klas_public();
+    throw std::runtime_error("no built-in layout for " + icao);
+}
+
+std::vector<Airport> all_public_airports() {
+    return {ksea_public(), ksfo_public(), klas_public()};
+}
+
+std::string overpass_aeroway_url(double south, double west, double north, double east) {
+    std::ostringstream o;
+    o << "https://overpass-api.de/api/interpreter?data="
+      << "[out:json][timeout:25];(way[%22aeroway%22=%22taxiway%22](" << south << "," << west << ","
+      << north << "," << east << ");way[%22aeroway%22=%22apron%22](" << south << "," << west << ","
+      << north << "," << east << "););out%20geom;";
+    return o.str();
+}
+
+int merge_osm_json(Airport& a, const std::string& json) {
+    int added = 0;
+    std::size_t pos = 0;
+    while (true) {
+        auto g = json.find("\"geometry\"", pos);
+        if (g == std::string::npos)
+            break;
+        auto kind_pos = json.rfind("aeroway", g);
+        std::string kind = "taxiway";
+        if (kind_pos != std::string::npos && g - kind_pos < 400) {
+            if (json.find("apron", kind_pos) < g)
+                kind = "apron";
+        }
+        auto arr = json.find('[', g);
+        if (arr == std::string::npos)
+            break;
+        int depth = 0;
+        std::size_t end = arr;
+        for (; end < json.size(); ++end) {
+            if (json[end] == '[')
+                ++depth;
+            else if (json[end] == ']') {
+                --depth;
+                if (depth == 0)
+                    break;
+            }
+        }
+        const std::string geom = json.substr(arr, end - arr + 1);
+        std::vector<std::pair<double, double>> pts;
+        std::size_t p = 0;
+        while (true) {
+            auto latp = geom.find("\"lat\"", p);
+            auto lonp = geom.find("\"lon\"", p);
+            if (latp == std::string::npos || lonp == std::string::npos)
+                break;
+            auto lat_colon = geom.find(':', latp);
+            auto lon_colon = geom.find(':', lonp);
+            if (lat_colon == std::string::npos || lon_colon == std::string::npos)
+                break;
+            pts.push_back({std::strtod(geom.c_str() + lat_colon + 1, nullptr),
+                           std::strtod(geom.c_str() + lon_colon + 1, nullptr)});
+            p = std::max(latp, lonp) + 5;
+        }
+        if (pts.size() >= 2) {
+            if (kind == "apron") {
+                Apron ap;
+                ap.name = "osm-apron";
+                ap.ring = std::move(pts);
+                a.aprons.push_back(std::move(ap));
+            } else {
+                Taxiway t;
+                t.name = "osm";
+                t.path = std::move(pts);
+                a.taxiways.push_back(std::move(t));
+            }
+            ++added;
+        }
+        pos = end + 1;
+    }
+    return added;
+}
+
+int try_merge_osm_file(Airport& a, const std::string& path) {
+    if (path.empty() || !std::filesystem::exists(path) || !std::filesystem::is_regular_file(path))
+        return 0;
+    std::ifstream in(path);
+    if (!in)
+        return 0;
+    const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    return merge_osm_json(a, json);
+}
+
+int try_load_osm(Airport& a, const std::string& cache_dir) {
+    std::string id = a.icao;
+    for (char& c : id)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    std::vector<std::string> paths;
+    if (!cache_dir.empty()) {
+        paths.push_back(cache_dir + "/osm.json");
+        const auto parent = std::filesystem::path(cache_dir).parent_path();
+        if (!parent.empty())
+            paths.push_back((parent / id / "osm.json").string());
+    }
+    paths.push_back("cache/" + id + "/osm.json");
+    paths.push_back(std::string("data/airports/") + id + ".osm.json");
+    for (const auto& p : paths) {
+        const int n = try_merge_osm_file(a, p);
+        if (n > 0)
+            return n;
+    }
+    return 0;
 }
 
 void generate_lights(Airport& a) {
@@ -219,6 +418,26 @@ AirportMesh build_airport_mesh(const Airport& a) {
                    rw.width_m * 0.5, rw.le_elev_m + 0.4, rw.he_elev_m + 0.4, 0.16f, 0.16f, 0.17f);
         strip_quad(mesh, rw.le_lat, rw.le_lon, rw.he_lat, rw.he_lon, rw.heading_deg, 0.6,
                    rw.le_elev_m + 0.45, rw.he_elev_m + 0.45, 0.75f, 0.75f, 0.70f);
+    }
+    for (const auto& ap : a.aprons) {
+        if (ap.ring.size() < 3)
+            continue;
+        double clat = 0, clon = 0;
+        for (const auto& p : ap.ring) {
+            clat += p.first;
+            clon += p.second;
+        }
+        clat /= static_cast<double>(ap.ring.size());
+        clon /= static_cast<double>(ap.ring.size());
+        const geo::Ecef C = geo::lla_to_ecef(clat, clon, a.elev_m + 0.3);
+        geo::Ecef e, n, u;
+        geo::ecef_to_enu_axes(clat, clon, e, n, u);
+        for (std::size_t i = 0; i < ap.ring.size(); ++i) {
+            const auto& p0 = ap.ring[i];
+            const auto& p1 = ap.ring[(i + 1) % ap.ring.size()];
+            add_tri(mesh, C, geo::lla_to_ecef(p0.first, p0.second, a.elev_m + 0.3),
+                    geo::lla_to_ecef(p1.first, p1.second, a.elev_m + 0.3), u, 0.28f, 0.27f, 0.25f);
+        }
     }
     for (const auto& tx : a.taxiways) {
         if (tx.path.size() < 2)

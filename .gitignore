@@ -23,6 +23,7 @@ compile_commands.json
 *.tif
 *.tiff
 *.jsonl
+data/airports/*.osm.json
 
 # Local overrides (may contain LAN addresses)
 config/local*.toml

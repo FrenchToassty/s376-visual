@@ -1,3 +1,4 @@
+#include "s376/airport.hpp"
 #include "s376/dxt.hpp"
 #include "s376/fetch.hpp"
 #include "s376/log.hpp"
@@ -5,6 +6,7 @@
 #include "s376/terrain.hpp"
 #include "s376/version.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -22,11 +24,13 @@ void usage() {
            "  s376-cache synth-ksea [--out DIR] [--size N] [--lods]\n"
            "  s376-cache from-geotiff DEM.tif [--imagery FILE] [--out DIR] [--lods]\n"
            "  s376-cache pack-lods --from DIR --out DIR\n"
+           "  s376-cache osm ICAO [--out DIR] [--radius-km N] [--dry-run]\n"
            "  s376-cache info DIR\n"
            "\n"
            "fetch downloads Copernicus GLO-30 (or USGS 3DEP) plus NAIP / Sentinel-2\n"
            "cloudless into BC1/BC7 tiles with mipmaps. High-res LOD near the field,\n"
            "coarse far out. Downloaded rasters stay under cache/ (gitignored).\n"
+           "osm pulls Overpass aeroway=taxiway|apron (ODbL) into DIR/osm.json.\n"
            "Never points at 10.1.95.0/24 or 192.168.173.0/24.\n";
 }
 
@@ -109,9 +113,10 @@ int main(int argc, char** argv) {
             usage();
             s376::log::shutdown();
             return 0;
-        } else if (a[0] != '-' && icao.empty() && (cmd == "fetch" || cmd == "info" ||
-                                                   cmd == "from-geotiff" || cmd == "pack-lods")) {
-            if (cmd == "fetch")
+        }         else if (a[0] != '-' && icao.empty() &&
+                   (cmd == "fetch" || cmd == "osm" || cmd == "info" || cmd == "from-geotiff" ||
+                    cmd == "pack-lods")) {
+            if (cmd == "fetch" || cmd == "osm")
                 icao = a;
             else
                 dem_path = a;
@@ -150,6 +155,38 @@ int main(int argc, char** argv) {
                 return 0;
             }
             std::cout << "wrote " << out << "  " << bytes << " bytes (BC1/BC7 + s376dem + mips)\n";
+            s376::log::shutdown();
+            return 0;
+        }
+        if (cmd == "osm") {
+            if (icao.empty()) {
+                std::cerr << "osm needs an ICAO (KSEA, KSFO, KLAS, …)\n";
+                s376::log::shutdown();
+                return 2;
+            }
+            const auto ref = s376::lookup_airport_ref(icao);
+            const double rkm = radius_km > 0 ? std::min(radius_km, 12.0) : 6.0;
+            const auto box = s376::box_from_radius(ref.lat, ref.lon, rkm);
+            const auto url =
+                s376::overpass_aeroway_url(box.south, box.west, box.north, box.east);
+            std::string dest = out;
+            if (dest.empty() || dest == "cache/ksea")
+                dest = std::string("cache/") + ref.icao;
+            std::cout << ref.icao << " overpass " << url << "\n";
+            if (dry) {
+                s376::log::shutdown();
+                return 0;
+            }
+            std::filesystem::create_directories(dest);
+            const std::string json_path = dest + "/osm.json";
+            if (!s376::http_get_file(url, json_path)) {
+                std::cerr << "overpass download failed\n";
+                s376::log::shutdown();
+                return 1;
+            }
+            s376::Airport apt = s376::airport_by_icao(ref.icao);
+            const int n = s376::try_merge_osm_file(apt, json_path);
+            std::cout << "wrote " << json_path << "  " << n << " aeroway ways (ODbL — © OSM)\n";
             s376::log::shutdown();
             return 0;
         }

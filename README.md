@@ -184,10 +184,12 @@ the hangar NVIDIA box runs the compatibility profile that apt OSG uses.
 - Logging, `--debug`, `--doctor`, `--diagnostics`
 - `s376-synth` kinematic takeoff from KSEA 16L
 - Globe + local DEM drape (BC1), camera from the host, fog, sun from TOD
-- `s376-cache` offline tile packer (synth or GDAL GeoTIFF)
+- `s376-cache` offline tile packer (synth, fetch, or GDAL GeoTIFF)
+- `s376-cache osm ICAO` Overpass taxi/apron pull (ODbL, stays in `cache/`)
 
-KSEA runways (OurAirports) plus edge / centreline / approach light
-points are in the scene; intensity follows packet-112 steps 0–5.
+KSEA, KSFO, and KLAS runways (OurAirports) plus edge / centreline /
+approach light points are in the scene; intensity follows packet-112
+steps 0–5. Taxi/apron graphs start schematic; fetch OSM when needed.
 
 Not yet: NLIM, landing-light beams, remaining airports. The plan is in
 [docs/AIRPORTS.md](docs/AIRPORTS.md) and [docs/DESIGN.md](docs/DESIGN.md).

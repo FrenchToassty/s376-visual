@@ -49,6 +49,11 @@ struct Taxiway {
     double width_m = 23;
 };
 
+struct Apron {
+    std::string name;
+    std::vector<std::pair<double, double>> ring; // lat, lon, closed or open
+};
+
 struct Airport {
     std::string icao;
     std::string name;
@@ -62,6 +67,7 @@ struct Airport {
     int sw_threshold = kSwThreshold;
     std::vector<Runway> runways;
     std::vector<Taxiway> taxiways;
+    std::vector<Apron> aprons;
     std::vector<LightPoint> lights;
 };
 
@@ -81,6 +87,17 @@ struct AirportMesh {
 // connectors are schematic offsets from those runways (stand-in for an
 // Overpass aeroway=* download). No RSI / CAE geometry.
 Airport ksea_public();
+Airport ksfo_public();
+Airport klas_public();
+Airport airport_by_icao(const std::string& icao);
+std::vector<Airport> all_public_airports();
+
+// Merge Overpass `out geom` JSON (aeroway=taxiway|apron). Returns ways added.
+int merge_osm_json(Airport& a, const std::string& json);
+std::string overpass_aeroway_url(double south, double west, double north, double east);
+// Load that JSON from a file (0 if missing). Search cache/<icao>/osm.json etc.
+int try_merge_osm_file(Airport& a, const std::string& path);
+int try_load_osm(Airport& a, const std::string& cache_dir);
 
 void generate_lights(Airport& a);
 AirportMesh build_airport_mesh(const Airport& a);

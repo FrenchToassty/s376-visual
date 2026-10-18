@@ -8,8 +8,8 @@ account may stop mid-run — treat this file as the source of truth.
 
 ## Verified in this run
 
-- `s376-tests`: **2018 passed, 0 failed** (previous suite plus fetch URL
-  builders, public-data host allowlist, LOD/BC7 pack).
+- `s376-tests`: **5093 passed, 0 failed** (KSFO / KLAS layouts, OSM
+  merge, previous fetch / HAT / channel suite).
 - `s376-visual --headless --demo --duration 2`: 40 datagrams / 40 eyepoints,
   KSEA 16L, env TOD 14.5 / vis 60760 ft.
 - `s376-visual --demo` under Xvfb: OSG window "front" 1920×1080, 50×32.5 FOV,
@@ -23,6 +23,16 @@ account may stop mid-run — treat this file as the source of truth.
 - GitHub Actions `ci / linux` on `d3f6dfc` (HAT + KSEA + cache): **green**
   (ubuntu-24.04, 1984 tests, doctor, headless demo, sim-LAN refusal,
   `s376-cache` smoke). Optional osgEarth job is `workflow_dispatch` only.
+
+## Milestone: KSFO / KLAS layouts (2026-10-18)
+
+`ksfo_public()` and `klas_public()` match the KSEA generator: OurAirports
+runway ends, FAA-charted ALS (ALSF-2 on 28R / 26R / 26L), schematic
+taxi/apron offsets, GPU lights on switches 1–4. The renderer loads all
+three fields. `s376-cache osm ICAO` pulls Overpass `aeroway=*` (ODbL)
+into `cache/<ICAO>/osm.json` (gitignored). `data/airports/{ksfo,klas}.toml`
+holds the public numbers. Unit tests cover four runways each, ALS types,
+OSM merge, and mesh fans.
 
 ## Milestone: real GLO-30 / 3DEP + NAIP fetch (2026-10-18)
 
@@ -103,16 +113,16 @@ are unit-tested.
 |---|---|---|
 | osgEarth tiles | `data/earth/s376.earth` | Build osgEarth on the hangar box; add a Copernicus elevation layer |
 | HAT off-DEM | `sample_hat` | Stand-in elev=0 when the point is outside the packed region |
-| More airports | `docs/AIRPORTS.md` | KSEA is in. Next: KSFO / KLAS |
+| More airports | `docs/AIRPORTS.md` | KSEA / KSFO / KLAS are in. Next: KLAX / KJFK |
 | Off-axis frustum | camera is rotated by heading offset | Shared eyepoint + asymmetric projection later |
 | `--demo` Ctrl+C | `src/synth.cpp` `run_synth_sender` | Synth thread ignores SIGINT; use `--duration` |
 
 ## Next 5 concrete steps (in order)
 
-1. **KSFO / KLAS** airport meshes using the same generator.
-2. **s376-doctor** cache-size + per-channel frame time.
-3. **Build osgEarth** on the hangar box and confirm `s376.earth` drapes.
-4. **Asymmetric / off-axis projection** if ViewAngles overlap is not enough.
+1. **s376-doctor** cache-size + per-channel frame time.
+2. **Build osgEarth** on the hangar box and confirm `s376.earth` drapes.
+3. **Asymmetric / off-axis projection** if ViewAngles overlap is not enough.
+4. **KLAX / KJFK** layouts the same way as KSEA / KSFO / KLAS.
 5. **NLIM / edge blend** — later.
 
 ## How to build / run / test (Linux Mint 22)
@@ -167,6 +177,6 @@ src/              core + s376-visual / s376-synth / s376-doctor / s376-cache
 tests/            assert-style unit tests (no Catch2)
 config/           default TOML
 data/earth/       osgEarth earth file
-data/airports/    public KSEA TOML (OurAirports numbers)
+data/airports/    public KSEA / KSFO / KLAS TOML (OurAirports numbers)
 docs/             DESIGN PROTOCOL AIRPORTS SOURCES
 ```

@@ -65,6 +65,9 @@ Do **not** commit downloaded GeoTIFFs, JPEGs, or packed `cache/` trees.
 
 # preview the public URLs without downloading
 ./build/s376-cache fetch KSEA --dry-run
+
+# OSM taxi / apron ways (ODbL) — not committed
+./build/s376-cache osm KSFO --out cache/KSFO
 ```
 
 `fetch` packs a LOD pyramid: high-res (~8 km, BC7 + mips) near the

@@ -43,6 +43,7 @@ jobs:
           ./build/s376-cache synth-ksea --out /tmp/s376-ci-ksea --size 64 --lods
           ./build/s376-cache info /tmp/s376-ci-ksea
           ./build/s376-cache fetch KSEA --dry-run --out /tmp/s376-ci-ksea | head
+          ./build/s376-cache osm KSFO --dry-run | head
           if ./build/s376-cache synth-ksea --out 10.1.95.1:2300; then
             echo "cache must refuse a sim-LAN dest" >&2
             exit 1

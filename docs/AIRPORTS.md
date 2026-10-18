@@ -74,21 +74,24 @@ scales colour and alpha by `step / 5`. Switch numbers are ours:
 | 3 | Approach (ALSF-2 / MALSR bars) |
 | 4 | Threshold / end |
 
-`s376::ksea_public()` builds KSEA from OurAirports runway ends (16L
-matches the synth takeoff) plus FAA-charted ALS. Edge / centreline /
-approach / threshold points are placed from the published spacing
-rules above. Taxi connectors are schematic offsets from those
-runways — a stand-in until an Overpass `aeroway=*` pull (ODbL) lands.
+`s376::ksea_public()`, `ksfo_public()`, and `klas_public()` build the
+three priority-1 US fields from OurAirports runway ends plus
+FAA-charted ALS (ALSF-2 on KSEA 16L, KSFO 28R, KLAS 26R/26L; MALSR
+elsewhere). Edge / centreline / approach / threshold points use the
+spacing rules above. Taxi and apron polygons start as schematic
+offsets from those runways; `s376-cache osm ICAO` replaces them with
+an Overpass `aeroway=taxiway|apron` pull (ODbL). The renderer loads
+`cache/<icao>/osm.json` when it is present.
 
-`data/airports/ksea.toml` documents the same public numbers. Do not
-paste RSI `.nx3` coordinates into it.
+`data/airports/{ksea,ksfo,klas}.toml` documents the same public
+numbers. Do not paste RSI `.nx3` coordinates into them.
 
 ## Suggested build order
 
-1. **KSEA 16L/34R** — we already have a synthetic takeoff from that
-   threshold in `s376-synth`. Easiest eyeball test.
-2. **KSFO** — complex ALS, water, hills. Proves flatten + lights.
-3. **KLAS** — desert, lots of night light points.
+1. **KSEA 16L/34R** — synthetic takeoff from that threshold in
+   `s376-synth`. In the tree.
+2. **KSFO** — complex ALS, water, hills. In the tree.
+3. **KLAS** — desert, lots of night light points. In the tree.
 4. **KLAX** then **KJFK** — parallel-runway ALSF-2.
 5. **EGLL / EDDF** — ICAO lighting, Sentinel-2.
 6. The rest in the table order.
