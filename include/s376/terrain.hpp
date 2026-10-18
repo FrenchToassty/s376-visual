@@ -110,6 +110,8 @@ std::uint64_t estimate_tile_cpu_bytes(const CacheTileRef& t, int max_mesh_n = 96
 // cache/<ICAO> or cache/<icao> when `configured` is empty. Empty if none exist.
 std::string resolve_cache_dir(const std::string& configured, const std::string& icao);
 bool cache_dir_looks_packed(const std::string& dir);
+// Header + payload present (not a fetch-in-progress truncated write).
+bool dem_file_complete(const std::string& path);
 
 // Process RSS (Linux VmRSS / VmHWM). 0 if unavailable.
 std::uint64_t current_rss_bytes();

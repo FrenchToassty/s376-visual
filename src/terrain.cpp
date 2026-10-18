@@ -96,17 +96,25 @@ DemGrid DemGrid::synth_ksea(int w, int h) {
 
 void DemGrid::save(const std::string& path) const {
     ensure_parent(path);
-    std::ofstream o(path, std::ios::binary);
-    if (!o)
-        throw std::runtime_error("cannot write " + path);
-    o.write(kMagic, 8);
-    o.write(reinterpret_cast<const char*>(&w), 4);
-    o.write(reinterpret_cast<const char*>(&h), 4);
-    o.write(reinterpret_cast<const char*>(&west), 8);
-    o.write(reinterpret_cast<const char*>(&south), 8);
-    o.write(reinterpret_cast<const char*>(&east), 8);
-    o.write(reinterpret_cast<const char*>(&north), 8);
-    o.write(reinterpret_cast<const char*>(z_m.data()), static_cast<std::streamsize>(z_m.size() * 4));
+    const std::string tmp = path + ".tmp";
+    {
+        std::ofstream o(tmp, std::ios::binary);
+        if (!o)
+            throw std::runtime_error("cannot write " + tmp);
+        o.write(kMagic, 8);
+        o.write(reinterpret_cast<const char*>(&w), 4);
+        o.write(reinterpret_cast<const char*>(&h), 4);
+        o.write(reinterpret_cast<const char*>(&west), 8);
+        o.write(reinterpret_cast<const char*>(&south), 8);
+        o.write(reinterpret_cast<const char*>(&east), 8);
+        o.write(reinterpret_cast<const char*>(&north), 8);
+        o.write(reinterpret_cast<const char*>(z_m.data()),
+                static_cast<std::streamsize>(z_m.size() * 4));
+        o.flush();
+        if (!o)
+            throw std::runtime_error("failed writing " + tmp);
+    }
+    std::filesystem::rename(tmp, path);
 }
 
 static bool read_dem_header(std::istream& in, DemGrid& d) {
@@ -515,15 +523,46 @@ HatSample sample_hat(const HeightSource* src, double lat_deg, double lon_deg, do
     return s;
 }
 
+bool dem_file_complete(const std::string& path) {
+    std::error_code ec;
+    if (!std::filesystem::exists(path, ec))
+        return false;
+    const auto sz = std::filesystem::file_size(path, ec);
+    if (ec || sz < 48)
+        return false;
+    try {
+        const DemGrid hdr = DemGrid::peek(path);
+        const std::uint64_t need =
+            48ull + static_cast<std::uint64_t>(hdr.w) * static_cast<std::uint64_t>(hdr.h) * 4ull;
+        return sz >= need;
+    } catch (...) {
+        return false;
+    }
+}
+
 std::shared_ptr<DemGrid> load_or_synth_dem(const std::string& cache_dir) {
     if (!cache_dir.empty()) {
-        try {
-            return std::make_shared<DemGrid>(DemGrid::load(cache_dir + "/elev.s376dem"));
-        } catch (const std::exception&) {
+        if (dem_file_complete(cache_dir + "/elev.s376dem")) {
+            try {
+                return std::make_shared<DemGrid>(DemGrid::load(cache_dir + "/elev.s376dem"));
+            } catch (const std::exception&) {
+            }
         }
-        try {
-            return std::make_shared<DemGrid>(DemGrid::load(cache_dir + "/lod0/elev.s376dem"));
-        } catch (const std::exception&) {
+        if (dem_file_complete(cache_dir + "/lod0/elev.s376dem")) {
+            try {
+                return std::make_shared<DemGrid>(DemGrid::load(cache_dir + "/lod0/elev.s376dem"));
+            } catch (const std::exception&) {
+            }
+        }
+        const auto tiles = scan_cache_tiles(cache_dir);
+        for (const auto& t : tiles) {
+            const std::string elev = t.path + "/elev.s376dem";
+            if (!dem_file_complete(elev))
+                continue;
+            try {
+                return std::make_shared<DemGrid>(DemGrid::load_subsampled(elev, 128));
+            } catch (const std::exception&) {
+            }
         }
     }
     return std::make_shared<DemGrid>(DemGrid::synth_ksea());
@@ -597,7 +636,7 @@ std::vector<CacheTileRef> scan_cache_tiles(const std::string& dir) {
         return out;
     auto add = [&](const std::string& path, int lod) {
         const std::string elev = path + "/elev.s376dem";
-        if (!std::filesystem::exists(elev))
+        if (!dem_file_complete(elev))
             return;
         try {
             CacheTileRef t;

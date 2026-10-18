@@ -4,7 +4,9 @@
 
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <vector>
@@ -195,6 +197,45 @@ void test_terrain() {
     const auto standin = s376::sample_hat(nullptr, 47.46, -122.31, 500.0);
     CHECK(!standin.covered);
     CHECK_NEAR(standin.hat_ft, 500.0, 0.01);
+
+    CHECK(s376::dxt::gpu_tex_dim(8) == 8);
+    CHECK(s376::dxt::gpu_tex_dim(15) == 16);
+    CHECK(s376::dxt::gpu_tex_dim(2011) == 2048);
+    CHECK(s376::dxt::gpu_tex_dim(2033) == 2048);
+    {
+        std::vector<std::uint8_t> rgb(15 * 17 * 3, 90);
+        int w = 15, h = 17;
+        CHECK(s376::dxt::pad_rgb_for_gpu(rgb, w, h));
+        CHECK(w == 16 && h == 20);
+        CHECK(rgb.size() == static_cast<std::size_t>(16 * 20 * 3));
+        const auto odd = (tmp / "odd.dds").string();
+        std::vector<std::uint8_t> src(15 * 17 * 3, 200);
+        s376::dxt::write_dds_bc1(odd, src.data(), 15, 17);
+        s376::dxt::CompressedImage ci{};
+        CHECK(s376::dxt::read_dds(odd, ci));
+        CHECK(ci.w % 4 == 0 && ci.h % 4 == 0);
+        CHECK(ci.w >= 16 && ci.h >= 16);
+        CHECK(!std::filesystem::exists(odd + ".tmp"));
+    }
+    CHECK(s376::dem_file_complete(cdir + "/elev.s376dem"));
+    {
+        const auto trunc = (tmp / "trunc.s376dem").string();
+        {
+            std::ifstream in(cdir + "/elev.s376dem", std::ios::binary);
+            std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            CHECK(bytes.size() > 80);
+            std::ofstream out(trunc, std::ios::binary);
+            out.write(bytes.data(), 64); // header only — fetch-in-progress
+        }
+        CHECK(!s376::dem_file_complete(trunc));
+        bool threw = false;
+        try {
+            (void)s376::DemGrid::load(trunc);
+        } catch (const std::exception& ex) {
+            threw = std::string(ex.what()).find("truncated") != std::string::npos;
+        }
+        CHECK(threw);
+    }
 
 #ifdef S376_HAS_GDAL
     CHECK(s376::gdal_available());

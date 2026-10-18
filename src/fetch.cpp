@@ -172,17 +172,7 @@ std::vector<PlannedTile> plan_lod_tiles(const AirportRef& apt, const FetchReques
 }
 
 bool cache_tile_ready(const std::string& tile_dir) {
-    const std::string elev = tile_dir + "/elev.s376dem";
-    if (!std::filesystem::exists(elev))
-        return false;
-    try {
-        if (std::filesystem::file_size(elev) < 64)
-            return false;
-        (void)DemGrid::peek(elev);
-        return true;
-    } catch (...) {
-        return false;
-    }
+    return dem_file_complete(tile_dir + "/elev.s376dem");
 }
 
 bool file_looks_like_raster(const std::string& path) {

@@ -37,6 +37,12 @@ std::vector<std::uint8_t> downsample2(const std::uint8_t* rgb, int w, int h, int
 std::size_t bc1_size(int w, int h);
 std::size_t bc7_size(int w, int h);
 int mip_count(int w, int h);
+// Next multiple of 4, snapping to a power of two when that waste is small
+// (2011×2033 NYS exports → 2048² so OSG/S3TC never “revert to uncompressed”).
+int gpu_tex_dim(int n);
+void resize_rgb(const std::uint8_t* src, int sw, int sh, std::uint8_t* dst, int dw, int dh);
+// In-place: resample so w,h are GPU-legal. Returns true if the size changed.
+bool pad_rgb_for_gpu(std::vector<std::uint8_t>& rgb, int& w, int& h);
 
 enum class BlockFmt { Bc1, Bc7 };
 

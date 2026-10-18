@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <stdexcept>
 
@@ -74,6 +75,47 @@ void encode_block(const std::uint8_t px[16 * 3], std::uint8_t out[8]) {
 }
 
 } // namespace
+
+int gpu_tex_dim(int n) {
+    if (n <= 4)
+        return 4;
+    int pot = 4;
+    while (pot < n)
+        pot *= 2;
+    // Snap to POT when the pad is ≤ 5% (2011 / 2033 → 2048).
+    if (pot <= 4096 && (pot - n) * 20 <= n)
+        return pot;
+    return (n + 3) & ~3;
+}
+
+void resize_rgb(const std::uint8_t* src, int sw, int sh, std::uint8_t* dst, int dw, int dh) {
+    if (!src || !dst || sw < 1 || sh < 1 || dw < 1 || dh < 1)
+        return;
+    for (int y = 0; y < dh; ++y) {
+        const int sy = std::min(sh - 1, (y * sh) / dh);
+        for (int x = 0; x < dw; ++x) {
+            const int sx = std::min(sw - 1, (x * sw) / dw);
+            const int si = (sy * sw + sx) * 3;
+            const int di = (y * dw + x) * 3;
+            dst[di] = src[si];
+            dst[di + 1] = src[si + 1];
+            dst[di + 2] = src[si + 2];
+        }
+    }
+}
+
+bool pad_rgb_for_gpu(std::vector<std::uint8_t>& rgb, int& w, int& h) {
+    const int nw = gpu_tex_dim(w);
+    const int nh = gpu_tex_dim(h);
+    if (nw == w && nh == h)
+        return false;
+    std::vector<std::uint8_t> out(static_cast<std::size_t>(nw * nh * 3), 0);
+    resize_rgb(rgb.data(), w, h, out.data(), nw, nh);
+    rgb.swap(out);
+    w = nw;
+    h = nh;
+    return true;
+}
 
 std::size_t bc1_size(int w, int h) {
     const int bw = (w + 3) / 4;
@@ -401,20 +443,37 @@ void write_mip_chain(std::ostream& o, const std::uint8_t* rgb, int w, int h, boo
 
 } // namespace
 
+namespace {
+
+void write_dds_padded(const std::string& path, const std::uint8_t* rgb, int w, int h, bool mips,
+                      bool bc7) {
+    if (!rgb || w < 1 || h < 1)
+        throw std::runtime_error("cannot write empty DDS " + path);
+    std::vector<std::uint8_t> padded(rgb, rgb + static_cast<std::size_t>(w * h * 3));
+    int pw = w, ph = h;
+    pad_rgb_for_gpu(padded, pw, ph);
+    const std::string tmp = path + ".tmp";
+    {
+        std::ofstream o(tmp, std::ios::binary);
+        if (!o)
+            throw std::runtime_error("cannot write " + tmp);
+        write_dds_header(o, pw, ph, mips ? mip_count(pw, ph) : 1, bc7);
+        write_mip_chain(o, padded.data(), pw, ph, mips, bc7);
+        o.flush();
+        if (!o)
+            throw std::runtime_error("failed writing " + tmp);
+    }
+    std::filesystem::rename(tmp, path);
+}
+
+} // namespace
+
 void write_dds_bc1(const std::string& path, const std::uint8_t* rgb, int w, int h, bool mips) {
-    std::ofstream o(path, std::ios::binary);
-    if (!o)
-        throw std::runtime_error("cannot write " + path);
-    write_dds_header(o, w, h, mips ? mip_count(w, h) : 1, false);
-    write_mip_chain(o, rgb, w, h, mips, false);
+    write_dds_padded(path, rgb, w, h, mips, false);
 }
 
 void write_dds_bc7(const std::string& path, const std::uint8_t* rgb, int w, int h, bool mips) {
-    std::ofstream o(path, std::ios::binary);
-    if (!o)
-        throw std::runtime_error("cannot write " + path);
-    write_dds_header(o, w, h, mips ? mip_count(w, h) : 1, true);
-    write_mip_chain(o, rgb, w, h, mips, true);
+    write_dds_padded(path, rgb, w, h, mips, true);
 }
 
 std::vector<std::uint8_t> decode_bc7(const std::uint8_t* blocks, int w, int h) {

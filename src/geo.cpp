@@ -149,7 +149,7 @@ ChannelView make_channel_view(double lat_deg, double lon_deg, double alt_m, doub
     v.hfov_deg = hfov_deg;
     v.vfov_deg = vfov_deg;
     v.aspect = static_cast<double>(std::max(1, width)) / static_cast<double>(std::max(1, height));
-    v.near_m = std::max(3.0, alt_m * 0.02);
+    v.near_m = std::max(1.0, std::min(40.0, alt_m * 0.008));
     v.far_m = 2.0e7;
     return v;
 }

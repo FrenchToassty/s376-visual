@@ -27,6 +27,15 @@ from tests/CI. `scripts/check-no-rsi.sh` fails the build if
 
 ## Current state (2026-10-18, this increment)
 
+**Hangar record frame 140 (dda4f06) fixes:** clip-space sky camera
+(no zenith trapezoid, no hash grain); DXT pad to mod-4/POT at pack
+**and** load (2011×2033 → 2048); no mipmap-gen on compressed
+level-0 (stops `invalid enumerant` after compileGLObjects);
+llvmpipe decodes DXT→RGB so ortho binds; incomplete tiles
+skipped once; atomic `elev.s376dem` / `imagery.dds`; persistent
+record FBO + window readback fallback; MSAA off for record/shot;
+DO_NOT_COMPUTE_NEAR_FAR; airport mesh polygon-offset.
+
 **Scripted approach video** (`--record` / `--approach`):
 offscreen FBO, straight geometric glidepath to the landing
 threshold, cars step at `1/fps`. One RGB frame in RAM. ffmpeg

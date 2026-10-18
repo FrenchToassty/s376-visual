@@ -321,6 +321,8 @@ int main(int argc, char** argv) {
         s376::log::shutdown();
         return 2;
     }
+    if (!record_path.empty() || !screenshot_path.empty())
+        cfg.render.msaa = 0;
     if (!record_path.empty() && approach_spec.empty()) {
         std::cerr << "--record needs --approach ICAO:RWY\n";
         s376::log::shutdown();
@@ -371,6 +373,8 @@ int main(int argc, char** argv) {
     }
     if (have_shot) {
         shot_host = host_from_shot(shot);
+        if (!screenshot_path.empty())
+            shot_host.script_dt = 1.f / 60.f;
         S376_LOG_INFO("ig",
                       "shot %s:%s at %.4f,%.4f  %.0fft  hdg %.1f  pitch %.1f  bank %.1f  %.2fnm",
                       shot.icao.c_str(), shot.rwy.empty() ? "-" : shot.rwy.c_str(), shot.lat,
@@ -510,7 +514,7 @@ int main(int argc, char** argv) {
 
     std::unique_ptr<s376::Renderer> rend;
     int rc = 0;
-    if (headless && record_path.empty())
+    if (headless && record_path.empty() && screenshot_path.empty())
         rend = std::make_unique<s376::NullRenderer>();
     else
         rend = s376::make_renderer(cfg.render.engine);
