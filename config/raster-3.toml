@@ -34,6 +34,10 @@ aniso = 16
 quality = "gtx980ti"
 sync_to_host = true
 
+[control]
+bind = "127.0.0.1:2376"
+enabled = true
+
 [log]
 verbose = false
 debug = false

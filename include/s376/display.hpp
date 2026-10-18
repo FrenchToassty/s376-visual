@@ -68,6 +68,8 @@ struct DisplayCorrection {
 
 DisplayCorrection identity_correction();
 bool load_correction(const std::string& path, DisplayCorrection& out, std::string& err);
+bool save_correction(const std::string& path, const DisplayCorrection& c, std::string& err);
+std::string dump_correction(const DisplayCorrection& c);
 
 // Column headings (−30 … +30) and row pitches (bottom → top).
 float warp_h_deg(int col);

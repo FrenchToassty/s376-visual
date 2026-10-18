@@ -55,6 +55,8 @@ const ParityItem kItems[] = {
     {"kewr", "Full KEWR", ParityStatus::Partial, "FAA", "Both-end runways + scenery stand-ins"},
     {"skyline-era", "Classic NYC skyline easter egg", ParityStatus::Ok, "public",
      "Hidden unlock; stylized pre-2001 Lower Manhattan; NYC geofence; session-only"},
+    {"wizard", "Operator console (s376-wizard)", ParityStatus::Ok, "public",
+     "Raster Wizard replacement; local S376C1 control; Refresh channels clears session"},
 };
 
 double read_f64(const std::uint8_t* p, bool be) {

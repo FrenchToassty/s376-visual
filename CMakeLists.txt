@@ -44,6 +44,8 @@ set(S376_CORE_SRC
     src/repo_guard.cpp
     src/traffic.cpp
     src/landmarks.cpp
+    src/control.cpp
+    src/wizard.cpp
 )
 
 if(S376_WITH_GDAL)
@@ -131,6 +133,67 @@ target_link_libraries(s376-cache PRIVATE s376_core)
 add_executable(s376-raster-parity tools/raster-parity/main.cpp)
 target_link_libraries(s376-raster-parity PRIVATE s376_core)
 
+# Git stamp for the wizard Info tab (and IG status).
+set(S376_GIT_DESCRIBE "unknown")
+set(S376_BUILD_DATE "")
+execute_process(
+    COMMAND git describe --always --tags --dirty
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE S376_GIT_DESCRIBE
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+string(TIMESTAMP S376_BUILD_DATE "%Y-%m-%d")
+target_compile_definitions(s376_core PUBLIC
+    S376_GIT_DESCRIBE="${S376_GIT_DESCRIBE}"
+    S376_BUILD_DATE="${S376_BUILD_DATE}"
+)
+
+add_executable(s376-wizard src/wizard_main.cpp)
+target_link_libraries(s376-wizard PRIVATE s376_core)
+set(S376_IMGUI_DIR ${CMAKE_SOURCE_DIR}/third_party/imgui)
+find_package(OpenGL)
+find_package(glfw3 QUIET)
+if(NOT TARGET glfw AND NOT glfw3_FOUND)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(GLFW3 QUIET glfw3)
+    endif()
+endif()
+if(EXISTS ${S376_IMGUI_DIR}/imgui.cpp AND OPENGL_FOUND AND
+   (TARGET glfw OR glfw3_FOUND OR GLFW3_FOUND))
+    target_sources(s376-wizard PRIVATE
+        ${S376_IMGUI_DIR}/imgui.cpp
+        ${S376_IMGUI_DIR}/imgui_draw.cpp
+        ${S376_IMGUI_DIR}/imgui_tables.cpp
+        ${S376_IMGUI_DIR}/imgui_widgets.cpp
+        ${S376_IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+        ${S376_IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+    )
+    target_include_directories(s376-wizard PRIVATE
+        ${S376_IMGUI_DIR} ${S376_IMGUI_DIR}/backends)
+    target_compile_definitions(s376-wizard PRIVATE S376_HAS_WIZARD_UI)
+    if(TARGET glfw)
+        target_link_libraries(s376-wizard PRIVATE glfw)
+    elseif(glfw3_FOUND)
+        target_link_libraries(s376-wizard PRIVATE glfw)
+    else()
+        target_include_directories(s376-wizard PRIVATE ${GLFW3_INCLUDE_DIRS})
+        target_link_libraries(s376-wizard PRIVATE ${GLFW3_LIBRARIES})
+    endif()
+    if(TARGET OpenGL::GL)
+        target_link_libraries(s376-wizard PRIVATE OpenGL::GL)
+    else()
+        target_link_libraries(s376-wizard PRIVATE ${OPENGL_LIBRARIES})
+    endif()
+    if(UNIX)
+        target_link_libraries(s376-wizard PRIVATE dl)
+    endif()
+    message(STATUS "s376-wizard UI: Dear ImGui + GLFW")
+else()
+    message(STATUS "s376-wizard headless (no GLFW/ImGui)")
+endif()
+
 add_executable(s376-tests
     tests/test_main.cpp
     tests/test_vaxfloat.cpp
@@ -153,6 +216,7 @@ add_executable(s376-tests
     tests/test_repo_guard.cpp
     tests/test_traffic.cpp
     tests/test_landmarks.cpp
+    tests/test_wizard.cpp
 )
 target_link_libraries(s376-tests PRIVATE s376_core)
 

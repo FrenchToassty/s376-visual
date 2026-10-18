@@ -1,4 +1,5 @@
 #include "s376/airport.hpp"
+#include "s376/control.hpp"
 #include "s376/dxt.hpp"
 #include "s376/geo.hpp"
 #include "s376/landmarks.hpp"
@@ -1935,6 +1936,17 @@ class OsgRenderer final : public Renderer {
             sky_xf_->setMatrix(osg::Matrix::translate(e.x, e.y, e.z));
         }
         last_host_ = host;
+        {
+            const auto live = control_hub().live_channels();
+            if (!live.empty()) {
+                for (auto& ch : channels_) {
+                    for (const auto& n : live) {
+                        if (n.name == ch.name)
+                            ch = n;
+                    }
+                }
+            }
+        }
         if (host.have_eyepoint)
             tick_session_view(host.eye.lat_deg, host.eye.lon_deg);
         if (active_skyline_era() != drawn_era_)

@@ -34,7 +34,7 @@ Or by hand:
 
 ```bash
 sudo apt update
-sudo apt install -y git cmake g++ libopenscenegraph-dev libgl-dev libglew-dev libgdal-dev
+sudo apt install -y git cmake g++ libopenscenegraph-dev libgl-dev libglew-dev libgdal-dev libglfw3-dev
 
 git clone https://github.com/joeylawell/s376-visual.git
 cd s376-visual
@@ -55,7 +55,8 @@ Use **g++**, not the default clang: Ubuntu 24.04 / Mint 22 clang often lacks a
 matching `libstdc++` and the link fails with `cannot find -lstdc++`.
 
 Binaries land in `build/`: `s376-visual`, `s376-synth`, `s376-doctor`,
-`s376-cache`, `s376-tests`.
+`s376-cache`, `s376-wizard`, `s376-tests`. The operator console
+(`s376-wizard`) is documented in [docs/WIZARD.md](docs/WIZARD.md).
 
 ### Run without a VAX (demo)
 

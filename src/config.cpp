@@ -301,6 +301,10 @@ AppConfig load_config(const std::string& path) {
         parse_bool(t.kv.at("log.debug"), cfg.log.debug);
     if (t.kv.count("log.dir"))
         cfg.log.dir = t.kv.at("log.dir");
+    if (t.kv.count("control.bind"))
+        cfg.control.bind = t.kv.at("control.bind");
+    if (t.kv.count("control.enabled"))
+        parse_bool(t.kv.at("control.enabled"), cfg.control.enabled);
     if (!t.tables.empty()) {
         cfg.channels.clear();
         for (const auto& tab : t.tables)
@@ -334,6 +338,8 @@ std::string dump_config(const AppConfig& cfg, const std::vector<std::string>& se
     o << "host.reply_master=" << cfg.host.reply_master << "\n";
     o << "host.allow_sim_lan=" << (cfg.host.allow_sim_lan ? "true" : "false") << "\n";
     o << "host.reply_to=" << cfg.host.reply_to << "\n";
+    o << "control.bind=" << cfg.control.bind << "\n";
+    o << "control.enabled=" << (cfg.control.enabled ? "true" : "false") << "\n";
     o << "render.engine=" << cfg.render.engine << "\n";
     o << "render.earth_file=" << cfg.render.earth_file << "\n";
     o << "render.cache_dir=" << cfg.render.cache_dir << "\n";
@@ -512,6 +518,118 @@ std::string default_shot_channel(const AppConfig& cfg) {
             return ch.name;
     }
     return {};
+}
+
+bool patch_channel_display(const std::string& config_path, const ChannelConfig& ch,
+                           std::string& err) {
+    auto trim_l = [](const std::string& s) {
+        std::size_t a = 0, b = s.size();
+        while (a < b && std::isspace(static_cast<unsigned char>(s[a])))
+            ++a;
+        while (b > a && std::isspace(static_cast<unsigned char>(s[b - 1])))
+            --b;
+        return s.substr(a, b - a);
+    };
+    auto unquote_l = [](const std::string& s) {
+        if (s.size() >= 2 &&
+            ((s.front() == '"' && s.back() == '"') || (s.front() == '\'' && s.back() == '\'')))
+            return s.substr(1, s.size() - 2);
+        return s;
+    };
+    std::ifstream in(config_path);
+    if (!in) {
+        err = "config not found: " + config_path;
+        return false;
+    }
+    std::ostringstream raw;
+    raw << in.rdbuf();
+    const std::string text = raw.str();
+    std::istringstream src(text);
+    std::ostringstream out;
+    std::string line;
+    bool in_block = false;
+    bool matched = false;
+    bool wrote_hdg = false, wrote_hfov = false, wrote_vfov = false, wrote_flip = false,
+         wrote_pat = false;
+    auto flush_missing = [&]() {
+        if (!in_block)
+            return;
+        if (!wrote_hdg)
+            out << "heading_offset_deg = " << ch.heading_offset_deg << "\n";
+        if (!wrote_hfov)
+            out << "hfov_deg = " << ch.hfov_deg << "\n";
+        if (!wrote_vfov)
+            out << "vfov_deg = " << ch.vfov_deg << "\n";
+        if (!wrote_flip)
+            out << "flip_vertical = " << (ch.flip_vertical ? "true" : "false") << "\n";
+        if (!wrote_pat && !ch.pattern.empty())
+            out << "pattern = \"" << ch.pattern << "\"\n";
+    };
+    while (std::getline(src, line)) {
+        const std::string trimmed = trim_l(line);
+        if (trimmed.rfind("[[", 0) == 0 && trimmed.size() >= 4 &&
+            trimmed.substr(trimmed.size() - 2) == "]]") {
+            flush_missing();
+            in_block = false;
+            wrote_hdg = wrote_hfov = wrote_vfov = wrote_flip = wrote_pat = false;
+            out << line << "\n";
+            continue;
+        }
+        if (in_block) {
+            auto eq = trimmed.find('=');
+            if (eq != std::string::npos) {
+                const std::string key = trim_l(trimmed.substr(0, eq));
+                auto replace = [&](const std::string& v) {
+                    out << key << " = " << v << "\n";
+                };
+                if (key == "heading_offset_deg") {
+                    replace(std::to_string(ch.heading_offset_deg));
+                    wrote_hdg = true;
+                    continue;
+                }
+                if (key == "hfov_deg") {
+                    replace(std::to_string(ch.hfov_deg));
+                    wrote_hfov = true;
+                    continue;
+                }
+                if (key == "vfov_deg") {
+                    replace(std::to_string(ch.vfov_deg));
+                    wrote_vfov = true;
+                    continue;
+                }
+                if (key == "flip_vertical") {
+                    replace(ch.flip_vertical ? "true" : "false");
+                    wrote_flip = true;
+                    continue;
+                }
+                if (key == "pattern") {
+                    replace(std::string("\"") + (ch.pattern.empty() ? "none" : ch.pattern) + "\"");
+                    wrote_pat = true;
+                    continue;
+                }
+            }
+        } else if (trimmed.rfind("name", 0) == 0 && trimmed.find('=') != std::string::npos) {
+            const auto eq = trimmed.find('=');
+            const std::string val = unquote_l(trim_l(trimmed.substr(eq + 1)));
+            if (val == ch.name) {
+                in_block = true;
+                matched = true;
+            }
+        }
+        out << line << "\n";
+    }
+    flush_missing();
+    if (!matched) {
+        err = "channel " + ch.name + " not in " + config_path;
+        return false;
+    }
+    std::ofstream dest(config_path);
+    if (!dest) {
+        err = "cannot write " + config_path;
+        return false;
+    }
+    dest << out.str();
+    return true;
 }
 
 } // namespace s376

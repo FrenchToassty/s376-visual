@@ -401,8 +401,13 @@ bool load_correction(const std::string& path, DisplayCorrection& out, std::strin
             num(out.hfov_deg);
         else if (key == "vfov_deg")
             num(out.vfov_deg);
-        else if (key == "pattern")
-            out.pattern = parse_display_pattern(val);
+        else if (key == "pattern") {
+            std::string p = val;
+            if (p.size() >= 2 && ((p.front() == '"' && p.back() == '"') ||
+                                  (p.front() == '\'' && p.back() == '\'')))
+                p = p.substr(1, p.size() - 2);
+            out.pattern = parse_display_pattern(p);
+        }
         else if (key.rfind("warp.", 0) == 0) {
             // warp.r.c = src_h,src_v
             int r = -1, col = -1;
@@ -416,6 +421,41 @@ bool load_correction(const std::string& path, DisplayCorrection& out, std::strin
         }
     }
     (void)lineno;
+    return true;
+}
+
+std::string dump_correction(const DisplayCorrection& c) {
+    std::ostringstream o;
+    o << "hfov_deg = " << c.hfov_deg << "\n";
+    o << "vfov_deg = " << c.vfov_deg << "\n";
+    o << "gamma = " << c.gamma << "\n";
+    o << "pattern = \"" << display_pattern_name(c.pattern) << "\"\n\n";
+    o << "blend.ramp = " << c.blend.ramp << "\n";
+    o << "blend.left_px = " << c.blend.left_px << "\n";
+    o << "blend.right_px = " << c.blend.right_px << "\n";
+    o << "blend.top_px = " << c.blend.top_px << "\n";
+    o << "blend.bottom_px = " << c.blend.bottom_px << "\n";
+    if (!warp_is_identity(c)) {
+        o << "\n";
+        for (int r = 0; r < kWarpRows; ++r) {
+            for (int col = 0; col < kWarpCols; ++col) {
+                const auto& n = c.warp[static_cast<std::size_t>(r)][static_cast<std::size_t>(col)];
+                o << "warp." << r << "." << col << " = " << n.src_h_deg << ", " << n.src_v_deg
+                  << "\n";
+            }
+        }
+    }
+    return o.str();
+}
+
+bool save_correction(const std::string& path, const DisplayCorrection& c, std::string& err) {
+    std::ofstream out(path);
+    if (!out) {
+        err = "cannot write correction: " + path;
+        return false;
+    }
+    out << "# Per-channel display correction (s376-wizard).\n";
+    out << dump_correction(c);
     return true;
 }
 

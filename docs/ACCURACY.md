@@ -14,8 +14,8 @@ It is session-only. Classic **draws** only inside the NYC geofence
 (`data/regions/ny.toml`); the rest of the world stays the accurate
 Current skyline. Repositioning or leaving NYC does **not** clear the
 egg — coming back to NYC shows Classic again. It clears only when
-the channels reset (host close/reopen, or a future Refresh channels
-control). Everywhere else, accuracy-first still holds.
+the channels reset (host close/reopen, or **Refresh channels** in
+`s376-wizard`). Everywhere else, accuracy-first still holds.
 
 CI (`s376-tests` → `test_accuracy`) fails if any of these slip:
 

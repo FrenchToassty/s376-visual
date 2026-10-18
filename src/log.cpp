@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <deque>
 #include <fstream>
 #include <iostream>
 #include <mutex>
@@ -31,6 +32,8 @@ Options g_opt;
 std::ofstream g_file;
 std::string g_path;
 bool g_ready = false;
+std::deque<std::string> g_recent;
+constexpr int kRecentMax = 256;
 
 const char* level_name(Level l) {
     switch (l) {
@@ -140,6 +143,39 @@ const char* session_file() {
     return g_path.empty() ? nullptr : g_path.c_str();
 }
 
+std::string recent_lines(int max) {
+    std::lock_guard<std::mutex> g(g_mu);
+    if (max < 1)
+        max = 1;
+    std::string out;
+    const int n = static_cast<int>(g_recent.size());
+    const int start = n > max ? n - max : 0;
+    for (int i = start; i < n; ++i) {
+        out += g_recent[static_cast<std::size_t>(i)];
+        out += '\n';
+    }
+    return out;
+}
+
+std::string tail_file(const std::string& path, int max) {
+    std::ifstream in(path);
+    if (!in)
+        return {};
+    std::deque<std::string> q;
+    std::string line;
+    while (std::getline(in, line)) {
+        q.push_back(line);
+        if (static_cast<int>(q.size()) > max && max > 0)
+            q.pop_front();
+    }
+    std::string out;
+    for (const auto& l : q) {
+        out += l;
+        out += '\n';
+    }
+    return out;
+}
+
 void writev(Level level, const char* subsystem, const char* fmt, va_list ap) {
     char msg[2048];
     va_list copy;
@@ -160,6 +196,9 @@ void writev(Level level, const char* subsystem, const char* fmt, va_list ap) {
     const std::string s = line.str();
 
     std::lock_guard<std::mutex> g(g_mu);
+    g_recent.push_back(s);
+    while (static_cast<int>(g_recent.size()) > kRecentMax)
+        g_recent.pop_front();
     if (level >= console_min)
         std::cerr << s << '\n';
     if (g_file)

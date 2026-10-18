@@ -62,6 +62,12 @@ One process per projector PC (four on the live sim). Default bind
 `0.0.0.0:2300`. Reply port `2301`. A tiny `s376-synth` tool emits fake
 host traffic so the IG can be developed without SIMH.
 
+`s376-wizard` is the operator console (Raster Wizard replacement). It
+runs on the Host IO PC and talks to each IG over a **separate** local
+UDP control channel (`S376C1`, default `127.0.0.1:2376`). That channel
+is not xT4 and is safety-checked the same way as host replies. See
+[WIZARD.md](WIZARD.md).
+
 ## Protocol
 
 The on-the-wire layout is documented in [PROTOCOL.md](PROTOCOL.md) in our

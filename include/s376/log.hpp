@@ -21,6 +21,10 @@ void shutdown();
 
 bool packets(); // true when --debug is on
 const char* session_file();
+// Newest-last ring, up to `max` lines from this process.
+std::string recent_lines(int max = 80);
+// Last `max` lines of a log file (wizard Logs tab). Empty if missing.
+std::string tail_file(const std::string& path, int max = 200);
 
 void write(Level level, const char* subsystem, const char* fmt, ...);
 void writev(Level level, const char* subsystem, const char* fmt, va_list ap);

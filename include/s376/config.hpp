@@ -36,6 +36,12 @@ struct ChannelConfig {
     std::string pattern; // none | grid5 | white70 | black
 };
 
+// Local operator control (s376-wizard). Not xT4. Loopback by default.
+struct ControlConfig {
+    std::string bind = "127.0.0.1:2376";
+    bool enabled = true;
+};
+
 struct WindowPlacement {
     std::string name;
     int screen = 0;
@@ -101,6 +107,7 @@ struct AppConfig {
     HostConfig host;
     RenderConfig render;
     LogConfig log;
+    ControlConfig control;
     std::vector<ChannelConfig> channels;
 };
 
@@ -110,6 +117,9 @@ std::string dump_config(const AppConfig& cfg);
 // When `selected` is non-empty, only those channels are printed and a
 // `selected=name` line is added (so --channel mid_left does not look like far_right).
 std::string dump_config(const AppConfig& cfg, const std::vector<std::string>& selected);
+// Rewrite heading / FOV / flip / pattern for one [[channels]] block.
+bool patch_channel_display(const std::string& config_path, const ChannelConfig& ch,
+                           std::string& err);
 
 // name empty or "all" → every enabled channel; otherwise the named one.
 std::vector<ChannelConfig> select_channels(const AppConfig& cfg, const std::string& name);

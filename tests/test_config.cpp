@@ -48,6 +48,8 @@ void test_config() {
     CHECK_NEAR(d.channels[0].vfov_deg, 32.5, 1e-9);
     CHECK(d.host.bind == "0.0.0.0:2300");
     CHECK(d.host.reply_port == 2301);
+    CHECK(d.control.bind == "127.0.0.1:2376");
+    CHECK(d.control.enabled);
     CHECK(d.host.reply_master == "mid_left");
     CHECK(!d.render.gl_debug);
     CHECK(d.render.quality == "gtx980ti");

@@ -1,5 +1,6 @@
 #include "s376/airport.hpp"
 #include "s376/config.hpp"
+#include "s376/control.hpp"
 #include "s376/diagnostics.hpp"
 #include "s376/host.hpp"
 #include "s376/landmarks.hpp"
@@ -63,6 +64,8 @@ void usage() {
            "  --hdg DEG             override shot true heading\n"
            "  --pitch DEG           override shot pitch\n"
            "  --era current|classic session-only NYC skyline easter egg (not saved)\n"
+           "  --control HOST:PORT   local operator control (default 127.0.0.1:2376; not xT4)\n"
+           "  --no-control          do not listen for s376-wizard\n"
            "  --diagnostics         print a dump and exit\n"
            "  --doctor              environment checks and exit\n"
            "  --version             print version\n"
@@ -118,6 +121,8 @@ int main(int argc, char** argv) {
     std::string reply_master_override;
     bool no_hat = false;
     std::string era_override;
+    std::string control_override;
+    bool no_control = false;
 
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -168,6 +173,10 @@ int main(int argc, char** argv) {
             no_hat = true;
         else if (a == "--era")
             era_override = need(a.c_str());
+        else if (a == "--control")
+            control_override = need(a.c_str());
+        else if (a == "--no-control")
+            no_control = true;
         else if (a == "--screenshot")
             screenshot_path = need(a.c_str());
         else if (a == "--screenshot-wait")
@@ -250,6 +259,10 @@ int main(int argc, char** argv) {
         if (const char* env_ch = std::getenv("S376_CHANNEL"))
             channel_name = env_ch;
     }
+    if (!control_override.empty())
+        cfg.control.bind = control_override;
+    if (no_control)
+        cfg.control.enabled = false;
     if (demo) {
         cfg.host.bind = "127.0.0.1:2300";
         cfg.host.allow_sim_lan = false;
@@ -349,6 +362,16 @@ int main(int argc, char** argv) {
                   cfg.host.reply_master.c_str(),
                   channels.size() == 1 ? channels.front().name.c_str() : "all");
 
+    s376::control_hub().attach(cfg, channels);
+    s376::ControlServer control;
+    if (cfg.control.enabled && !cfg.control.bind.empty()) {
+        try {
+            control.start(cfg.control.bind, cfg.host.allow_sim_lan, cfg.host.allow_lan);
+        } catch (const std::exception& ex) {
+            S376_LOG_WARN("wizard", "control not listening: %s", ex.what());
+        }
+    }
+
     if (!self_test_shot.empty()) {
         std::string err;
         if (!s376::self_test_shot_files(self_test_shot, err)) {
@@ -446,6 +469,19 @@ int main(int argc, char** argv) {
             continue;
         }
         last_eyepoints = host.eyepoints;
+        {
+            const double t = std::chrono::duration<double>(
+                                 std::chrono::steady_clock::now().time_since_epoch())
+                                 .count();
+            s376::control_hub().note_host(host, t);
+            s376::control_hub().note_frame(t);
+        }
+        if (s376::control_hub().restart_requested()) {
+            S376_LOG_INFO("wizard", "refresh channels — exiting so the operator can reopen");
+            rend->request_stop();
+            g_stop = true;
+            break;
+        }
         rend->frame(host);
         ++frames;
         if (headless)

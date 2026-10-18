@@ -27,6 +27,7 @@ data/airports/*.osm.json
 
 # Local overrides (may contain LAN addresses)
 config/local*.toml
+config/wizard-local.toml
 
 # Phone photos of the live Raster — reference only, never commit
 /refs/

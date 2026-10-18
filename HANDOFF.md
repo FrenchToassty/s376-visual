@@ -27,6 +27,20 @@ from tests/CI. `scripts/check-no-rsi.sh` fails the build if
 
 ## Current state (2026-10-18, this increment)
 
+**s376-wizard** (Raster Wizard replacement) plus the session-only
+**Classic NYC skyline** egg and **disk-unlimited fetch tiers**.
+
+`s376-wizard` is a Dear ImGui + GLFW console on the Host IO /
+operator PC. It talks to the channel IGs over a local UDP control
+channel (`S376C1`, default `127.0.0.1:2376`) — **not** xT4, **not**
+2300/2301, never the sim LAN from tests. Tabs: Channels (fps, GPU
+temp/VRAM, RAM, host-packet age, errors, **Refresh channels**),
+Display (heading/FOV/flip/warp/blend/gamma/patterns, saved to
+config), Info (`git describe` + date; version×7 unlocks Classic),
+Logs (live tail). Refresh sends `op=refresh` → `refresh_channels()`
+(clears Classic) then closes and reopens each IG process. See
+`docs/WIZARD.md`.
+
 **Classic NYC skyline easter egg** (hidden, session-only) plus
 **disk-unlimited fetch tiers**.
 
@@ -43,9 +57,9 @@ inside the NYC geofence (`40.40–40.98 N`, `74.45–73.45 W`);
 everywhere else is the normal Current world. Once unlocked it
 **stays on for the session**. Reposition and leaving NYC do **not**
 clear it — fly back to NYC and Classic is there again. It clears
-only when the host closes and reopens the channels, or a future
-**Refresh channels** control calls `refresh_channels()`. Nothing is
-written to disk.
+only when the host closes and reopens the channels, or
+**Refresh channels** in `s376-wizard` calls `refresh_channels()`.
+Nothing is written to disk.
 
 Collision / HAT uses the **visible** geometry (Classic BVH only
 while Classic is on *and* the eye is in the NYC box). Host crash is
@@ -72,7 +86,7 @@ native). Pager still caps resident 2 GiB / 5 GiB. See
 Road traffic (`3e99c97`), accuracy core (`702adb3`), and the scenery
 checklist / raster-parity guard (`700659c`) are landed.
 
-This increment: **20442** unit tests passed, 0 failed. Doctor
+This increment: **20513** unit tests passed, 0 failed. Doctor
 `faa-kjfk` / `faa-kewr` unchanged. Hangar re-fetch is still priority
 1 — now at **native NYS**, no `--near-m 1`.
 
@@ -108,7 +122,7 @@ Manual equivalent:
 
 ```bash
 sudo apt install -y git cmake g++ libopenscenegraph-dev libgl-dev \
-  libglew-dev libgdal-dev xvfb
+  libglew-dev libgdal-dev libglfw3-dev xvfb
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
 cmake --build build -j"$(nproc)"
 unset S376_ALLOW_SIM_LAN S376_ALLOW_LAN
@@ -836,6 +850,9 @@ are unit-tested.
 - `s376-cache`: `fetch` / `osm` / `synth-ksea --lods` / `from-geotiff` /
   `info`. Tiled 3DEP+NAIP (or GLO-30+S2) LOD pyramid, BC1/BC7 mips.
   `osm` POSTs Overpass QL (`-g`, percent-encoded GET fallback).
+- `s376-wizard`: operator console (ImGui + GLFW). Local `S376C1`
+  control on loopback. Channels / Display / Info / Logs. Refresh
+  channels closes and reopens IGs and clears Classic. `docs/WIZARD.md`.
 - Airport rebuild plan: `docs/AIRPORTS.md`. Terrain sources: `docs/SOURCES.md`.
 - Safety: `10.1.95.0/24` and `192.168.173.0/24` refused unless
   `host.allow_sim_lan` / `S376_ALLOW_SIM_LAN=1`. Tests never set that.
@@ -919,7 +936,7 @@ tests do not need OSG.
 
 ```
 include/s376/     public headers
-src/              core + s376-visual / s376-synth / s376-doctor / s376-cache
+src/              core + s376-visual / s376-synth / s376-doctor / s376-cache / s376-wizard
 tests/            assert-style unit tests (no Catch2)
 config/           default TOML
 data/earth/       osgEarth earth file

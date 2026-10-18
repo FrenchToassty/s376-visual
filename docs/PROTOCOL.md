@@ -12,6 +12,9 @@ that any interoperable IG has to match.
   port **2300**.
 - IG → host: optional height-above-terrain (HAT) reply, default
   destination port **2301**, sent to the source address of the query.
+- Operator console (`s376-wizard`) uses a **separate** loopback UDP
+  channel (`S376C1`, default **2376**). That is not an xT4 packet and
+  must never be sent on 2300/2301 or the simulator LAN from tests.
 - A datagram is a concatenation of packets, often padded to 300 16-bit
   words (600 bytes). Zero words between packets are gaps and are skipped.
 - 32-bit and 64-bit fields are stored **most-significant 16-bit word

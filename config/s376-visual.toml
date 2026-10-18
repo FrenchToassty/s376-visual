@@ -53,6 +53,11 @@ quality = "gtx980ti"      # gtx980ti | rtx | custom
 # mesh_n = 96
 sync_to_host = true       # draw only when a new type-100 eyepoint arrives
 
+[control]
+# s376-wizard local channel. Not xT4. Loopback only in this tree.
+bind = "127.0.0.1:2376"
+enabled = true
+
 [log]
 verbose = false
 debug = false

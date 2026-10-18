@@ -61,7 +61,7 @@ run() {
 APT_PKGS=(
     git cmake g++ pkg-config
     libopenscenegraph-dev libgl-dev libglew-dev libgdal-dev
-    libx11-dev xvfb
+    libx11-dev libglfw3-dev xvfb
 )
 
 if [[ "$SKIP_APT" -eq 0 ]]; then
