@@ -51,7 +51,7 @@ class HostReceiver {
     void start();
     void stop();
 
-    void set_heights(std::shared_ptr<HeightSource> h) { heights_ = std::move(h); }
+    void set_heights(std::shared_ptr<HeightSource> h);
 
     xt4::Decoder& decoder() { return dec_; }
     const xt4::Decoder& decoder() const { return dec_; }

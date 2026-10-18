@@ -176,6 +176,11 @@ void HostSocket::send_hat(const std::string& dest_host, std::uint16_t dest_port,
            reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
 }
 
+void HostReceiver::set_heights(std::shared_ptr<HeightSource> h) {
+    heights_ = std::move(h);
+    session_apply_ground(heights_);
+}
+
 HostReceiver::HostReceiver(SharedState& state, HostConfig cfg)
     : state_(state), cfg_(std::move(cfg)), dec_(cfg_.word_order, cfg_.float_fmt) {}
 

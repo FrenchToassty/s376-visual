@@ -41,14 +41,17 @@ enum class LightKind {
     Night
 };
 
-// OSM bake / mesh caps. Raster's 2023 KJFK pad had ~30 k footprints;
-// we keep up to 8 k from OSM and mesh the nearest first (980 Ti).
+// Mesh / taxi bake caps (980 Ti draw). Collision is not these: every
+// OSM footprint goes into solids.bin / SolidBvh, independent of LOD.
 constexpr std::size_t kMaxOsmTaxiways = 800;
 constexpr std::size_t kMaxOsmAprons = 200;
 constexpr std::size_t kMaxOsmBuildings = 8000;
 constexpr std::size_t kMaxOsmRoads = 400;
 constexpr int kMeshBuildingsNear = 800;
 constexpr int kMeshBuildingsFar = 2500;
+// OSM `height`, else `building:levels` × this, else the default. Metres AGL.
+constexpr float kOsmLevelHeightM = 3.5f;
+constexpr float kDefaultBuildingHeightM = 12.f; // ~4 storeys when OSM is silent
 
 struct LightPoint {
     double lat = 0;
@@ -210,6 +213,7 @@ struct Airport {
     std::vector<Taxiway> taxiways;
     std::vector<Apron> aprons;
     std::vector<Building> buildings;
+    std::string solids_path; // cache/<ICAO>/solids.bin — full OSM collision set
     std::vector<LightPoint> lights;
     std::vector<AirportSign> signs;
     std::vector<HoldBar> hold_bars;
@@ -305,11 +309,12 @@ std::string overpass_aeroway_url(double south, double west, double north, double
 // renderer must not open a 400 MB Overpass dump.
 int try_merge_osm_file(Airport& a, const std::string& path);
 // Stream-parse a (possibly huge) Overpass file. Never slurp the whole file.
-int merge_osm_file_stream(Airport& a, const std::string& path, std::uint64_t max_bytes = 0);
+int merge_osm_file_stream(Airport& a, const std::string& path, std::uint64_t max_bytes = 0,
+                          class SolidBvh* solids = nullptr);
 // Compact runtime sidecar. The IG loads only this, never osm.json.
 bool write_osm_bin(const Airport& a, const std::string& path);
 int read_osm_bin(Airport& a, const std::string& path);
-// Bake osm.json → osm.bin (stream parse). Returns ways written.
+// Bake osm.json → osm.bin (mesh-capped) + solids.bin (every building).
 int bake_osm_bin(const std::string& json_path, const std::string& bin_path);
 // Runtime: osm.bin only. Does not open osm.json.
 int try_load_osm(Airport& a, const std::string& cache_dir);

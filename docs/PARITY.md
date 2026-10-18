@@ -86,7 +86,7 @@ type, PAPI side, length). Tracked in code (`s376::scenery_parity_items`,
 | Docking guidance | yes | **partial** | Stand-in bars |
 | Parked aircraft | static | **partial** | Gate stand-ins. Host CSN still a **gap** |
 | Tower + beacon | yes | **partial** | ATCT box + rotating-beacon point |
-| ~30 k buildings | yes | **partial** | OSM bake cap 8 k; mesh nearest 800 full / 2500 far (980 Ti) |
+| ~30 k buildings | yes | **partial** | Mesh nearest 800 full / 2500 far (980 Ti). HAT/collision is every OSM + schematic + era landmark via `solids.bin` |
 | Trees | yes | **partial** | Rings off the pavement |
 | 12 moving-model routes | yes | **partial** | Paths stored; host CSN movers **gap** |
 | Marshallers | yes | **partial** | Gate poses; host CSN ignored |
@@ -113,8 +113,8 @@ CI fails if any `.nxt` / `.nxb` / `.nx3` / `nxHostPacket.h` enters the tree
 
 | Packet / field | Original effect | Status | Notes |
 |---|---|---|---|
-| 200 HAT ft (IEEE BE) | Host radio altimeter / HAT | **partial** | 64-byte host-compatible reply. On DEM: elev + hat. Off DEM: elev=0, hat=alt (stand-in) |
-| 200 HOT / terrain elev | Terrain MSL | **partial** | Same as above |
+| 200 HAT ft (IEEE BE) | Host radio altimeter / HAT | **ok** | 64-byte host-compatible reply. DEM or building roof (full `solids.bin` set, any tile paging). Off DEM and off every solid: elev=0, hat=alt (stand-in) |
+| 200 HOT / terrain elev | Terrain / roof MSL | **ok** | Same as above |
 | 200 valid flag | Reply usable | **ok** | Always valid so the host is never starved |
 
 ## Image quality (allowed deltas)
@@ -130,7 +130,7 @@ or deep it is. Expensive levers are TOML toggles; `render.quality =
 | Mipmapped drapes | **ok** |
 | FAA AC 150/5340-1 markings | **ok** — geometry (threshold, 5×7 numbers/LRC, aiming, TDZ, CL, edge, hold-short). Stays sharp at grazing angles; no committed textures |
 | Asphalt / rubber / grass detail | **partial** — generated 128² atlas (grass/asphalt/dirt/concrete) blended over ortho with distance fade + hash noise. Optional CC0 Poly Haven / ambientCG via `scripts/fetch-textures.sh` (never committed) |
-| OSM buildings | **partial** — extruded footprints + schematic terminals. Bake cap 8 k; mesh nearest 800 full / 2500 far |
+| OSM buildings | **partial** — extruded footprints + schematic terminals. Mesh nearest 800 full / 2500 far. Collision = every footprint (`solids.bin`) |
 | Analytic sky + aerial perspective | **partial** — Preetham-like dome, sun disc, moon+stars at night, EXP2 + altitude haze (`uHaze`). Not a full Bruneton LUT |
 | Water / coastlines | **partial** — soft land mask + 40 km local patches at each airport, Fresnel + stable waves + sun glint. OSM water/coastline queried, not meshed yet |
 | Oblique mip / aniso | **ok** — 2048×1024 globe + local patches, trilinear, aniso 16, LOD bias −0.35 |

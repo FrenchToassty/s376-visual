@@ -1,5 +1,6 @@
 #include "s376/airport.hpp"
 #include "s376/faa.hpp"
+#include "s376/landmarks.hpp"
 #include "s376/lights.hpp"
 #include "s376/traffic.hpp"
 
@@ -984,7 +985,7 @@ int merge_osm_json(Airport& a, const std::string& json) {
         if (g == std::string::npos)
             break;
         std::string kind = "taxiway";
-        float bldg_h = 12.f;
+        float bldg_h = kDefaultBuildingHeightM;
         const auto window = json.rfind("{", g);
         const std::string tags =
             window != std::string::npos && g > window ? json.substr(window, g - window) : "";
@@ -997,8 +998,12 @@ int merge_osm_json(Airport& a, const std::string& json) {
         else if (tags.find("\"water\"") != std::string::npos ||
                  tags.find("coastline") != std::string::npos)
             kind = "skip";
-        auto read_num = [&](std::size_t key) -> float {
-            auto colon = tags.find(':', key);
+        auto read_num = [&](const char* key) -> float {
+            const std::string k = std::string("\"") + key + "\"";
+            auto at = tags.find(k);
+            if (at == std::string::npos)
+                return 0.f;
+            auto colon = tags.find(':', at + k.size());
             if (colon == std::string::npos)
                 return 0.f;
             const char* p = tags.c_str() + colon + 1;
@@ -1006,16 +1011,16 @@ int merge_osm_json(Airport& a, const std::string& json) {
                 ++p;
             return static_cast<float>(std::strtod(p, nullptr));
         };
-        auto hp = tags.find("\"height\"");
-        if (hp != std::string::npos) {
-            bldg_h = read_num(hp);
+        const float tagged_h = read_num("height");
+        if (tagged_h >= 3.f) {
+            bldg_h = tagged_h;
         } else {
-            auto lp = tags.find("building:levels");
-            if (lp != std::string::npos)
-                bldg_h = read_num(lp) * 3.5f;
+            const float levels = read_num("building:levels");
+            if (levels >= 1.f)
+                bldg_h = levels * kOsmLevelHeightM;
         }
         if (bldg_h < 3.f)
-            bldg_h = 12.f;
+            bldg_h = kDefaultBuildingHeightM;
         auto arr = json.find('[', g);
         if (arr == std::string::npos)
             break;
@@ -1082,7 +1087,8 @@ int try_merge_osm_file(Airport& a, const std::string& path) {
     return merge_osm_file_stream(a, path, 2ull * 1024ull * 1024ull);
 }
 
-int merge_osm_file_stream(Airport& a, const std::string& path, std::uint64_t max_bytes) {
+int merge_osm_file_stream(Airport& a, const std::string& path, std::uint64_t max_bytes,
+                          SolidBvh* solids) {
     if (path.empty() || !std::filesystem::exists(path) || !std::filesystem::is_regular_file(path))
         return 0;
     const auto sz = std::filesystem::file_size(path);
@@ -1140,7 +1146,7 @@ int merge_osm_file_stream(Airport& a, const std::string& path, std::uint64_t max
             const bool is_road = osm_tags_are_road(chunk);
             // Same caps as write_osm_bin — a 400 MB Overpass dump must not
             // grow unbounded Airport vectors at bake time.
-            if (is_bldg && a.buildings.size() >= kMaxOsmBuildings) {
+            if (is_bldg && a.buildings.size() >= kMaxOsmBuildings && !solids) {
                 pos = end + 1;
                 continue;
             }
@@ -1156,10 +1162,18 @@ int merge_osm_file_stream(Airport& a, const std::string& path, std::uint64_t max
                 pos = end + 1;
                 continue;
             }
-            if (a.taxiways.size() >= kMaxOsmTaxiways && a.aprons.size() >= kMaxOsmAprons &&
-                a.buildings.size() >= kMaxOsmBuildings && a.roads.size() >= kMaxOsmRoads)
+            if (!solids && a.taxiways.size() >= kMaxOsmTaxiways &&
+                a.aprons.size() >= kMaxOsmAprons && a.buildings.size() >= kMaxOsmBuildings &&
+                a.roads.size() >= kMaxOsmRoads)
                 return added;
+            const auto b0 = a.buildings.size();
             added += merge_osm_json(a, chunk);
+            if (solids) {
+                for (std::size_t i = b0; i < a.buildings.size(); ++i)
+                    solids->add_building(a.buildings[i], a.elev_m);
+                if (a.buildings.size() > kMaxOsmBuildings)
+                    a.buildings.resize(kMaxOsmBuildings);
+            }
             pos = end + 1;
             if (pos > 128 * 1024) {
                 carry.erase(0, pos);
@@ -1326,10 +1340,15 @@ int read_osm_bin(Airport& a, const std::string& path) {
 
 int bake_osm_bin(const std::string& json_path, const std::string& bin_path) {
     Airport tmp;
+    SolidBvh solids;
     // Bake tools may stream a large Overpass file; no 2 MiB cap.
-    const int n = merge_osm_file_stream(tmp, json_path, 0);
+    // Mesh vectors stay capped; every building goes into solids.bin.
+    const int n = merge_osm_file_stream(tmp, json_path, 0, &solids);
     if (!write_osm_bin(tmp, bin_path))
         return 0;
+    solids.build();
+    const auto solids_path = std::filesystem::path(bin_path).parent_path() / "solids.bin";
+    (void)write_solids_bin(solids, solids_path.string());
     return n;
 }
 
@@ -1370,8 +1389,12 @@ int try_load_osm(Airport& a, const std::string& cache_dir) {
         if (!std::filesystem::exists(p))
             continue;
         const int n = read_osm_bin(a, p);
-        if (n > 0)
+        if (n > 0) {
+            const auto sp = std::filesystem::path(p).parent_path() / "solids.bin";
+            if (std::filesystem::exists(sp))
+                a.solids_path = sp.string();
             return n;
+        }
     }
     return 0;
 }
@@ -1544,9 +1567,9 @@ AirportMesh build_airport_mesh(const Airport& a, bool buildings, bool markings) 
         }
         clat /= static_cast<double>(b.ring.size());
         clon /= static_cast<double>(b.ring.size());
-        const float h = std::max(6.f, std::min(b.height_m, 80.f));
-        const double z0 = a.elev_m + 0.5;
-        const double z1 = z0 + h;
+        const float h = std::max(2.f, b.height_m);
+        const double z0 = session_ground_m(clat, clon, a.elev_m) + 0.5;
+        const double z1 = z0 + static_cast<double>(h);
         geo::Ecef e, n, u;
         geo::ecef_to_enu_axes(clat, clon, e, n, u);
         const geo::Ecef roof_c = geo::lla_to_ecef(clat, clon, z1);

@@ -1,6 +1,7 @@
 #include "s376/airport.hpp"
 #include "s376/fetch.hpp"
 #include "s376/geo.hpp"
+#include "s376/landmarks.hpp"
 #include "s376/lights.hpp"
 
 #include <cmath>
@@ -387,13 +388,48 @@ void test_airport() {
     CHECK(s376::try_load_osm(from_file, tmp) == 0);
     CHECK(s376::bake_osm_bin(tmp + "/osm.json", tmp + "/osm.bin") == 3);
     CHECK(std::filesystem::exists(tmp + "/osm.bin"));
+    CHECK(std::filesystem::exists(tmp + "/solids.bin"));
     s376::Airport from_bin;
     from_bin.icao = "KSFO";
     CHECK(s376::try_load_osm(from_bin, tmp) == 3);
+    CHECK(!from_bin.solids_path.empty());
     CHECK(from_bin.taxiways.size() == 1);
     CHECK(from_bin.aprons.size() == 1);
     CHECK(from_bin.buildings.size() == 1);
     CHECK_NEAR(from_bin.buildings.back().height_m, 18.0, 0.1);
+    {
+        s376::SolidBvh solids;
+        s376::fill_solids(solids, s376::SkylineEra::Current, {from_bin});
+        double roof = 0;
+        CHECK(solids.roof_msl(37.61825, -122.3835, &roof));
+        CHECK_NEAR(roof, 18.0, 1.0);
+    }
+    {
+        const char* levels =
+            "{\"type\":\"way\",\"tags\":{\"building\":\"yes\",\"building:levels\":\"6\"},"
+            "\"geometry\":[{\"lat\":37.630,\"lon\":-122.390},{\"lat\":37.6305,\"lon\":-122.390},"
+            "{\"lat\":37.6305,\"lon\":-122.389},{\"lat\":37.630,\"lon\":-122.389}]}";
+        s376::Airport lv;
+        CHECK(s376::merge_osm_json(lv, levels) == 1);
+        CHECK_NEAR(lv.buildings.back().height_m, 6.0 * s376::kOsmLevelHeightM, 0.05);
+    }
+    {
+        s376::Airport capped;
+        capped.icao = "KSFO";
+        capped.buildings.resize(s376::kMaxOsmBuildings);
+        for (auto& b : capped.buildings) {
+            b.name = "pad";
+            b.height_m = 8.f;
+            b.ring = {{0.0, 0.0}, {0.0, 0.001}, {0.001, 0.001}, {0.001, 0.0}};
+        }
+        s376::SolidBvh extra;
+        CHECK(s376::merge_osm_file_stream(capped, tmp + "/osm.json", 0, &extra) >= 1);
+        CHECK(capped.buildings.size() == s376::kMaxOsmBuildings);
+        extra.build();
+        double roof = 0;
+        CHECK(extra.roof_msl(37.61825, -122.3835, &roof));
+        CHECK_NEAR(roof, 18.0, 1.0);
+    }
     {
         const auto jfk = tmp + "/KJFK";
         std::filesystem::create_directories(jfk);

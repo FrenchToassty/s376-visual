@@ -7,7 +7,11 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <istream>
 #include <mutex>
+#include <ostream>
 #include <stdexcept>
 
 namespace s376 {
@@ -309,35 +313,6 @@ double centroid_dist_m(const Building& b, double lat, double lon) {
     return geo::ground_distance_m(clat, clon, lat, lon);
 }
 
-bool pip(const std::vector<std::pair<double, double>>& ring, double lat, double lon) {
-    const int n = static_cast<int>(ring.size());
-    if (n < 3)
-        return false;
-    bool c = false;
-    for (int i = 0, j = n - 1; i < n; j = i++) {
-        const double yi = ring[static_cast<std::size_t>(i)].first;
-        const double xi = ring[static_cast<std::size_t>(i)].second;
-        const double yj = ring[static_cast<std::size_t>(j)].first;
-        const double xj = ring[static_cast<std::size_t>(j)].second;
-        if (((yi > lat) != (yj > lat)) &&
-            (lon < (xj - xi) * (lat - yi) / (yj - yi + 1e-18) + xi))
-            c = !c;
-    }
-    return c;
-}
-
-void bounds_of(const std::vector<std::pair<double, double>>& ring, double& w, double& s, double& e,
-               double& n) {
-    w = e = ring.front().second;
-    s = n = ring.front().first;
-    for (const auto& p : ring) {
-        s = std::min(s, p.first);
-        n = std::max(n, p.first);
-        w = std::min(w, p.second);
-        e = std::max(e, p.second);
-    }
-}
-
 void add_tri_uv(AirportMesh& m, const geo::Ecef& a, const geo::Ecef& b, const geo::Ecef& c,
                 const geo::Ecef& nrm, float r, float g, float bl, float mat, float u0, float v0,
                 float u1, float v1, float u2, float v2) {
@@ -371,6 +346,7 @@ struct Session {
     double lat = 0;
     double lon = 0;
     std::vector<Airport> apts;
+    std::shared_ptr<const HeightSource> dem;
 };
 
 Session& sess() {
@@ -521,20 +497,34 @@ void apply_skyline_era(std::vector<Building>& buildings, SkylineEra era) {
 }
 
 void SolidBvh::clear() {
-    vols_.clear();
-    nodes_.clear();
-    root_ = -1;
+    recs_.clear();
+    verts_.clear();
+    cell_off_.clear();
+    cell_ids_.clear();
+    gx_ = gy_ = 0;
 }
 
 void SolidBvh::add_building(const Building& b, double ground_m) {
     if (b.ring.size() < 3)
         return;
-    SolidVol v;
-    v.ring = b.ring;
-    bounds_of(v.ring, v.west, v.south, v.east, v.north);
-    v.z0_m = ground_m;
-    v.z1_m = ground_m + std::max(2.0, static_cast<double>(b.height_m));
-    vols_.push_back(std::move(v));
+    Rec v;
+    v.vert0 = static_cast<std::uint32_t>(verts_.size());
+    v.nvert = static_cast<std::uint16_t>(std::min<std::size_t>(b.ring.size(), 65535));
+    v.west = v.east = static_cast<float>(b.ring.front().second);
+    v.south = v.north = static_cast<float>(b.ring.front().first);
+    for (std::uint16_t i = 0; i < v.nvert; ++i) {
+        const float lat = static_cast<float>(b.ring[i].first);
+        const float lon = static_cast<float>(b.ring[i].second);
+        verts_.push_back(lat);
+        verts_.push_back(lon);
+        v.south = std::min(v.south, lat);
+        v.north = std::max(v.north, lat);
+        v.west = std::min(v.west, lon);
+        v.east = std::max(v.east, lon);
+    }
+    v.height_m = std::max(2.f, b.height_m);
+    v.z0_m = static_cast<float>(ground_m);
+    recs_.push_back(v);
 }
 
 void SolidBvh::add_landmark(const Landmark& lm, double ground_m) {
@@ -547,90 +537,123 @@ void SolidBvh::add_landmark(const Landmark& lm, double ground_m) {
     }
 }
 
-bool SolidBvh::point_in(const SolidVol& v, double lat, double lon, double* z1) const {
+bool SolidBvh::point_in(const Rec& v, double lat, double lon) const {
     if (lat < v.south || lat > v.north || lon < v.west || lon > v.east)
         return false;
-    if (!pip(v.ring, lat, lon))
+    const int n = v.nvert;
+    if (n < 3)
         return false;
-    if (z1)
-        *z1 = v.z1_m;
-    return true;
+    bool c = false;
+    for (int i = 0, j = n - 1; i < n; j = i++) {
+        const float yi = verts_[v.vert0 + static_cast<std::uint32_t>(i) * 2];
+        const float xi = verts_[v.vert0 + static_cast<std::uint32_t>(i) * 2 + 1];
+        const float yj = verts_[v.vert0 + static_cast<std::uint32_t>(j) * 2];
+        const float xj = verts_[v.vert0 + static_cast<std::uint32_t>(j) * 2 + 1];
+        if (((yi > lat) != (yj > lat)) &&
+            (lon < (xj - xi) * (lat - yi) / (yj - yi + 1e-18) + xi))
+            c = !c;
+    }
+    return c;
 }
 
-int SolidBvh::build_range(std::vector<int>& idx, int begin, int end, int axis) {
-    Node node;
-    node.west = 1e9;
-    node.east = -1e9;
-    node.south = 1e9;
-    node.north = -1e9;
-    node.z0 = 1e9;
-    node.z1 = -1e9;
-    for (int i = begin; i < end; ++i) {
-        const SolidVol& v = vols_[static_cast<std::size_t>(idx[static_cast<std::size_t>(i)])];
-        node.west = std::min(node.west, v.west);
-        node.east = std::max(node.east, v.east);
-        node.south = std::min(node.south, v.south);
-        node.north = std::max(node.north, v.north);
-        node.z0 = std::min(node.z0, v.z0_m);
-        node.z1 = std::max(node.z1, v.z1_m);
-    }
-    const int n = end - begin;
-    if (n == 1) {
-        node.leaf = idx[static_cast<std::size_t>(begin)];
-        nodes_.push_back(node);
-        return static_cast<int>(nodes_.size()) - 1;
-    }
-    std::sort(idx.begin() + begin, idx.begin() + end, [&](int a, int b) {
-        const SolidVol& A = vols_[static_cast<std::size_t>(a)];
-        const SolidVol& B = vols_[static_cast<std::size_t>(b)];
-        if (axis == 0)
-            return (A.west + A.east) < (B.west + B.east);
-        return (A.south + A.north) < (B.south + B.north);
-    });
-    const int mid = begin + n / 2;
-    const int self = static_cast<int>(nodes_.size());
-    nodes_.push_back(node);
-    nodes_[static_cast<std::size_t>(self)].left = build_range(idx, begin, mid, 1 - axis);
-    nodes_[static_cast<std::size_t>(self)].right = build_range(idx, mid, end, 1 - axis);
-    return self;
+int SolidBvh::cell_at(double lat, double lon) const {
+    if (gx_ < 1 || gy_ < 1)
+        return -1;
+    if (lat < gsouth_ || lat > gnorth_ || lon < gwest_ || lon > geast_)
+        return -1;
+    const double u = (lon - gwest_) / std::max(1e-12, geast_ - gwest_);
+    const double v = (lat - gsouth_) / std::max(1e-12, gnorth_ - gsouth_);
+    const int ix = std::max(0, std::min(gx_ - 1, static_cast<int>(u * gx_)));
+    const int iy = std::max(0, std::min(gy_ - 1, static_cast<int>(v * gy_)));
+    return iy * gx_ + ix;
 }
 
 void SolidBvh::build() {
-    nodes_.clear();
-    root_ = -1;
-    if (vols_.empty())
+    cell_off_.clear();
+    cell_ids_.clear();
+    gx_ = gy_ = 0;
+    if (recs_.empty())
         return;
-    std::vector<int> idx(vols_.size());
-    for (std::size_t i = 0; i < vols_.size(); ++i)
-        idx[i] = static_cast<int>(i);
-    root_ = build_range(idx, 0, static_cast<int>(idx.size()), 0);
+    gwest_ = recs_[0].west;
+    geast_ = recs_[0].east;
+    gsouth_ = recs_[0].south;
+    gnorth_ = recs_[0].north;
+    for (const auto& r : recs_) {
+        gwest_ = std::min(gwest_, static_cast<double>(r.west));
+        geast_ = std::max(geast_, static_cast<double>(r.east));
+        gsouth_ = std::min(gsouth_, static_cast<double>(r.south));
+        gnorth_ = std::max(gnorth_, static_cast<double>(r.north));
+    }
+    const double pad = 1e-5;
+    gwest_ -= pad;
+    geast_ += pad;
+    gsouth_ -= pad;
+    gnorth_ += pad;
+    const int side = std::max(8, static_cast<int>(std::sqrt(static_cast<double>(recs_.size()))));
+    gx_ = std::min(512, side);
+    gy_ = gx_;
+    std::vector<std::vector<std::uint32_t>> cells(static_cast<std::size_t>(gx_ * gy_));
+    for (std::uint32_t i = 0; i < recs_.size(); ++i) {
+        const Rec& r = recs_[i];
+        const int x0 = cell_at(r.south, r.west) % gx_;
+        const int y0 = cell_at(r.south, r.west) / gx_;
+        const int x1 = cell_at(r.north, r.east) % gx_;
+        const int y1 = cell_at(r.north, r.east) / gx_;
+        const int xa = std::min(x0, x1), xb = std::max(x0, x1);
+        const int ya = std::min(y0, y1), yb = std::max(y0, y1);
+        for (int y = ya; y <= yb; ++y)
+            for (int x = xa; x <= xb; ++x)
+                cells[static_cast<std::size_t>(y * gx_ + x)].push_back(i);
+    }
+    cell_off_.resize(static_cast<std::size_t>(gx_ * gy_ + 1));
+    cell_off_[0] = 0;
+    for (int c = 0; c < gx_ * gy_; ++c) {
+        cell_off_[static_cast<std::size_t>(c + 1)] =
+            cell_off_[static_cast<std::size_t>(c)] +
+            static_cast<std::uint32_t>(cells[static_cast<std::size_t>(c)].size());
+        cell_ids_.insert(cell_ids_.end(), cells[static_cast<std::size_t>(c)].begin(),
+                         cells[static_cast<std::size_t>(c)].end());
+    }
+}
+
+void SolidBvh::apply_ground(const HeightSource* dem, double fallback_m) {
+    for (auto& r : recs_) {
+        double clat = 0, clon = 0;
+        for (int i = 0; i < r.nvert; ++i) {
+            clat += verts_[r.vert0 + static_cast<std::uint32_t>(i) * 2];
+            clon += verts_[r.vert0 + static_cast<std::uint32_t>(i) * 2 + 1];
+        }
+        clat /= std::max(1, static_cast<int>(r.nvert));
+        clon /= std::max(1, static_cast<int>(r.nvert));
+        double gft = 0;
+        if (dem && dem->sample_ft(clat, clon, gft))
+            r.z0_m = static_cast<float>(gft * geo::kFtToM);
+        else if (!dem)
+            r.z0_m = static_cast<float>(fallback_m);
+    }
+}
+
+std::size_t SolidBvh::bytes() const {
+    return recs_.size() * sizeof(Rec) + verts_.size() * sizeof(float) +
+           cell_ids_.size() * sizeof(std::uint32_t) + cell_off_.size() * sizeof(std::uint32_t);
 }
 
 bool SolidBvh::roof_msl(double lat, double lon, double* z_m) const {
-    if (root_ < 0 || !z_m)
+    if (recs_.empty() || !z_m)
         return false;
-    std::vector<int> st;
-    st.push_back(root_);
+    const int c = cell_at(lat, lon);
+    if (c < 0)
+        return false;
+    const std::uint32_t a = cell_off_[static_cast<std::size_t>(c)];
+    const std::uint32_t b = cell_off_[static_cast<std::size_t>(c + 1)];
     bool any = false;
     double best = -1e9;
-    while (!st.empty()) {
-        const int i = st.back();
-        st.pop_back();
-        const Node& n = nodes_[static_cast<std::size_t>(i)];
-        if (lat < n.south || lat > n.north || lon < n.west || lon > n.east)
-            continue;
-        if (n.leaf >= 0) {
-            double z1 = 0;
-            if (point_in(vols_[static_cast<std::size_t>(n.leaf)], lat, lon, &z1)) {
-                best = std::max(best, z1);
-                any = true;
-            }
-            continue;
+    for (std::uint32_t i = a; i < b; ++i) {
+        const Rec& r = recs_[cell_ids_[i]];
+        if (point_in(r, lat, lon)) {
+            best = std::max(best, static_cast<double>(r.z1_m()));
+            any = true;
         }
-        if (n.left >= 0)
-            st.push_back(n.left);
-        if (n.right >= 0)
-            st.push_back(n.right);
     }
     if (any)
         *z_m = best;
@@ -640,7 +663,7 @@ bool SolidBvh::roof_msl(double lat, double lon, double* z_m) const {
 SegHit SolidBvh::segment(double lat0, double lon0, double z0_m, double lat1, double lon1,
                          double z1_m) const {
     SegHit h;
-    if (root_ < 0)
+    if (recs_.empty())
         return h;
     constexpr int kSteps = 40;
     for (int s = 0; s <= kSteps; ++s) {
@@ -648,57 +671,177 @@ SegHit SolidBvh::segment(double lat0, double lon0, double z0_m, double lat1, dou
         const double lat = lat0 + (lat1 - lat0) * t;
         const double lon = lon0 + (lon1 - lon0) * t;
         const double z = z0_m + (z1_m - z0_m) * t;
-        double roof = 0;
-        if (roof_msl(lat, lon, &roof) && z >= -1.0 && z <= roof + 1.0) {
-            // Inside the prism (above ground, at or below roof).
-            double z0 = 0;
-            // Confirm a volume actually contains this height.
-            std::vector<int> st;
-            st.push_back(root_);
-            while (!st.empty()) {
-                const int i = st.back();
-                st.pop_back();
-                const Node& n = nodes_[static_cast<std::size_t>(i)];
-                if (lat < n.south || lat > n.north || lon < n.west || lon > n.east)
-                    continue;
-                if (n.leaf >= 0) {
-                    const SolidVol& v = vols_[static_cast<std::size_t>(n.leaf)];
-                    if (z >= v.z0_m - 0.5 && z <= v.z1_m + 0.5 && pip(v.ring, lat, lon)) {
-                        h.hit = true;
-                        h.lat = lat;
-                        h.lon = lon;
-                        h.z_m = z;
-                        h.t = t;
-                        return h;
-                    }
-                    continue;
-                }
-                if (n.left >= 0)
-                    st.push_back(n.left);
-                if (n.right >= 0)
-                    st.push_back(n.right);
+        const int c = cell_at(lat, lon);
+        if (c < 0)
+            continue;
+        const std::uint32_t a = cell_off_[static_cast<std::size_t>(c)];
+        const std::uint32_t b = cell_off_[static_cast<std::size_t>(c + 1)];
+        for (std::uint32_t i = a; i < b; ++i) {
+            const Rec& r = recs_[cell_ids_[i]];
+            if (z >= r.z0_m - 0.5 && z <= r.z1_m() + 0.5 && point_in(r, lat, lon)) {
+                h.hit = true;
+                h.lat = lat;
+                h.lon = lon;
+                h.z_m = z;
+                h.t = t;
+                return h;
             }
-            (void)z0;
         }
     }
     return h;
 }
 
+namespace {
+
+bool hidden_by_landmark(double lat, double lon) {
+    int n = 0;
+    const Landmark* all = nyc_landmarks(&n);
+    for (int i = 0; i < n; ++i) {
+        if (geo::ground_distance_m(lat, lon, all[i].lat, all[i].lon) < all[i].hide_radius_m)
+            return true;
+    }
+    return false;
+}
+
+void write_u32s(std::ostream& o, std::uint32_t v) {
+    o.write(reinterpret_cast<const char*>(&v), 4);
+}
+void write_f32s(std::ostream& o, float v) {
+    o.write(reinterpret_cast<const char*>(&v), 4);
+}
+bool read_u32s(std::istream& i, std::uint32_t& v) {
+    i.read(reinterpret_cast<char*>(&v), 4);
+    return static_cast<bool>(i);
+}
+bool read_f32s(std::istream& i, float& v) {
+    i.read(reinterpret_cast<char*>(&v), 4);
+    return static_cast<bool>(i);
+}
+
+bool hidden_building(const Building& b) {
+    if (b.ring.empty())
+        return false;
+    double clat = 0, clon = 0;
+    for (const auto& p : b.ring) {
+        clat += p.first;
+        clon += p.second;
+    }
+    clat /= static_cast<double>(b.ring.size());
+    clon /= static_cast<double>(b.ring.size());
+    return hidden_by_landmark(clat, clon);
+}
+
+} // namespace
+
+bool write_solids_bin(const SolidBvh& bvh, const std::string& path) {
+    const auto parent = std::filesystem::path(path).parent_path();
+    if (!parent.empty())
+        std::filesystem::create_directories(parent);
+    std::ofstream o(path, std::ios::binary);
+    if (!o)
+        return false;
+    o.write("S376SLD1", 8);
+    write_u32s(o, 1);
+    write_u32s(o, static_cast<std::uint32_t>(bvh.recs_.size()));
+    write_u32s(o, static_cast<std::uint32_t>(bvh.verts_.size()));
+    for (const auto& r : bvh.recs_) {
+        write_f32s(o, r.west);
+        write_f32s(o, r.south);
+        write_f32s(o, r.east);
+        write_f32s(o, r.north);
+        write_f32s(o, r.height_m);
+        write_f32s(o, r.z0_m);
+        write_u32s(o, r.vert0);
+        write_u32s(o, r.nvert);
+    }
+    for (float v : bvh.verts_)
+        write_f32s(o, v);
+    return static_cast<bool>(o);
+}
+
+int read_solids_bin(SolidBvh& bvh, const std::string& path) {
+    std::ifstream i(path, std::ios::binary);
+    if (!i)
+        return 0;
+    char mag[8];
+    i.read(mag, 8);
+    if (!i || std::memcmp(mag, "S376SLD1", 8) != 0)
+        return 0;
+    std::uint32_t ver = 0, nrec = 0, nvert = 0;
+    if (!read_u32s(i, ver) || ver != 1 || !read_u32s(i, nrec) || !read_u32s(i, nvert))
+        return 0;
+    if (nrec > 2'000'000u || nvert > 16'000'000u)
+        return 0;
+    std::vector<SolidBvh::Rec> recs(nrec);
+    for (auto& r : recs) {
+        std::uint32_t nv = 0;
+        if (!read_f32s(i, r.west) || !read_f32s(i, r.south) || !read_f32s(i, r.east) ||
+            !read_f32s(i, r.north) || !read_f32s(i, r.height_m) || !read_f32s(i, r.z0_m) ||
+            !read_u32s(i, r.vert0) || !read_u32s(i, nv))
+            return 0;
+        r.nvert = static_cast<std::uint16_t>(std::min<std::uint32_t>(nv, 65535));
+    }
+    std::vector<float> verts(nvert);
+    for (auto& v : verts) {
+        if (!read_f32s(i, v))
+            return 0;
+    }
+    int added = 0;
+    for (auto r : recs) {
+        if (r.nvert < 3 || r.vert0 + static_cast<std::uint32_t>(r.nvert) * 2 > nvert)
+            continue;
+        double clat = 0, clon = 0;
+        for (int k = 0; k < r.nvert; ++k) {
+            clat += verts[r.vert0 + static_cast<std::uint32_t>(k) * 2];
+            clon += verts[r.vert0 + static_cast<std::uint32_t>(k) * 2 + 1];
+        }
+        clat /= static_cast<double>(r.nvert);
+        clon /= static_cast<double>(r.nvert);
+        if (hidden_by_landmark(clat, clon))
+            continue;
+        const std::uint32_t dest = static_cast<std::uint32_t>(bvh.verts_.size());
+        for (int k = 0; k < r.nvert; ++k) {
+            bvh.verts_.push_back(verts[r.vert0 + static_cast<std::uint32_t>(k) * 2]);
+            bvh.verts_.push_back(verts[r.vert0 + static_cast<std::uint32_t>(k) * 2 + 1]);
+        }
+        r.vert0 = dest;
+        bvh.recs_.push_back(r);
+        ++added;
+    }
+    return added;
+}
+
 void fill_solids(SolidBvh& bvh, SkylineEra era, const std::vector<Airport>& apts,
-                 double default_ground_m) {
+                 double default_ground_m, const HeightSource* dem) {
     bvh.clear();
-    for (Airport a : apts) {
-        apply_skyline_era(a.buildings, era);
-        const double g = a.elev_m > 0 ? a.elev_m : default_ground_m;
-        for (const auto& b : a.buildings)
+    for (const auto& a : apts) {
+        const double g = a.elev_m != 0.0 ? a.elev_m : default_ground_m;
+        int from_bin = 0;
+        if (!a.solids_path.empty())
+            from_bin = read_solids_bin(bvh, a.solids_path);
+        for (const auto& b : a.buildings) {
+            if (from_bin > 0 && b.name == "osm")
+                continue;
+            if (hidden_building(b))
+                continue;
             bvh.add_building(b, g);
+        }
     }
     int n = 0;
     const Landmark* all = nyc_landmarks(&n);
     for (int i = 0; i < n; ++i) {
-        if (landmark_visible(all[i], era))
-            bvh.add_landmark(all[i], default_ground_m);
+        if (!landmark_visible(all[i], era))
+            continue;
+        double g = default_ground_m;
+        if (dem) {
+            double ft = 0;
+            if (dem->sample_ft(all[i].lat, all[i].lon, ft))
+                g = ft * geo::kFtToM;
+        }
+        bvh.add_landmark(all[i], g);
     }
+    if (dem)
+        bvh.apply_ground(dem, default_ground_m);
     bvh.build();
 }
 
@@ -715,8 +858,8 @@ AirportMesh mesh_landmarks(SkylineEra era, double ground_m) {
         }
         clat /= static_cast<double>(b.ring.size());
         clon /= static_cast<double>(b.ring.size());
-        const double z0 = ground_m;
-        const double z1 = ground_m + static_cast<double>(b.height_m);
+        const double z0 = session_ground_m(clat, clon, ground_m);
+        const double z1 = z0 + static_cast<double>(b.height_m);
         geo::Ecef e, n, u;
         geo::ecef_to_enu_axes(clat, clon, e, n, u);
         const geo::Ecef roof_c = geo::lla_to_ecef(clat, clon, z1);
@@ -847,7 +990,7 @@ void set_session_era(SkylineEra era, bool unlocked) {
     sess().era = era;
     const SkylineEra vis =
         sess().have_eye ? visible_skyline_era(era, sess().lat, sess().lon) : era;
-    fill_solids(sess().bvh, vis, sess().apts);
+    fill_solids(sess().bvh, vis, sess().apts, kManhattanGroundM, sess().dem.get());
 }
 
 void refresh_channels() {
@@ -855,7 +998,8 @@ void refresh_channels() {
         std::lock_guard<std::mutex> g(sess().mu);
         sess().era = SkylineEra::Current;
         sess().unlocked = false;
-        fill_solids(sess().bvh, SkylineEra::Current, sess().apts);
+        fill_solids(sess().bvh, SkylineEra::Current, sess().apts, kManhattanGroundM,
+                    sess().dem.get());
     }
     reset_missiles();
 }
@@ -864,12 +1008,31 @@ const SolidBvh& session_solids() {
     return sess().bvh;
 }
 
-void rebuild_session_solids(const std::vector<Airport>& apts) {
+void rebuild_session_solids(const std::vector<Airport>& apts, const HeightSource* dem) {
     std::lock_guard<std::mutex> g(sess().mu);
     sess().apts = apts;
+    const HeightSource* use = sess().dem ? sess().dem.get() : dem;
     const SkylineEra vis =
         sess().have_eye ? visible_skyline_era(sess().era, sess().lat, sess().lon) : sess().era;
-    fill_solids(sess().bvh, vis, sess().apts);
+    fill_solids(sess().bvh, vis, sess().apts, kManhattanGroundM, use);
+}
+
+void session_apply_ground(std::shared_ptr<const HeightSource> dem) {
+    std::lock_guard<std::mutex> g(sess().mu);
+    sess().dem = std::move(dem);
+    sess().bvh.apply_ground(sess().dem.get(), kManhattanGroundM);
+}
+
+double session_ground_m(double lat, double lon, double fallback_m) {
+    std::shared_ptr<const HeightSource> dem;
+    {
+        std::lock_guard<std::mutex> g(sess().mu);
+        dem = sess().dem;
+    }
+    double ft = 0;
+    if (dem && dem->sample_ft(lat, lon, ft))
+        return ft * geo::kFtToM;
+    return fallback_m;
 }
 
 std::int64_t session_started_ms() {
@@ -889,7 +1052,7 @@ void tick_session_view(double lat, double lon) {
     sess().lon = lon;
     const SkylineEra after = visible_skyline_era(sess().era, lat, lon);
     if (after != before)
-        fill_solids(sess().bvh, after, sess().apts);
+        fill_solids(sess().bvh, after, sess().apts, kManhattanGroundM, sess().dem.get());
 }
 
 HatSample sample_session_hat(const HeightSource* src, double lat_deg, double lon_deg,

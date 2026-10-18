@@ -89,7 +89,9 @@ Edge / centreline / approach / threshold points use the spacing rules
 above. Painted markings follow FAA AC 150/5340-1. Taxi and apron
 polygons start as schematic offsets; `s376-cache osm ICAO` replaces
 them with Overpass `aeroway=*` + `building=*` (ODbL). Runtime loads
-`cache/<icao>/osm.bin` only.
+`cache/<icao>/osm.bin` (mesh) and `solids.bin` (every footprint for
+HAT). Height is OSM `height`, else `building:levels` × 3.5 m, else
+12 m, on DEM ground.
 
 `data/airports/{ksea,ksfo,klas,klax,kjfk,kewr,kbos}.toml` documents the
 same public numbers. Do not paste RSI `.nx3` coordinates into them.

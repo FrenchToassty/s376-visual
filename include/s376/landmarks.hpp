@@ -4,6 +4,7 @@
 #include "s376/terrain.hpp"
 
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -61,14 +62,6 @@ struct EraUnlock {
     bool click(std::int64_t now_ms);
 };
 
-// CPU-side building prism for HAT / collision. No GPU readback.
-struct SolidVol {
-    std::vector<std::pair<double, double>> ring; // lat, lon
-    double west = 0, south = 0, east = 0, north = 0;
-    double z0_m = 0;
-    double z1_m = 0;
-};
-
 struct SegHit {
     bool hit = false;
     double lat = 0;
@@ -77,34 +70,49 @@ struct SegHit {
     double t = 0; // 0..1 along the segment
 };
 
+// Always-resident compact index: packed footprints + heights in a
+// uniform grid. Independent of mesh LOD, render cap, and tile paging.
 class SolidBvh {
   public:
     void clear();
     void add_building(const Building& b, double ground_m);
     void add_landmark(const Landmark& lm, double ground_m);
     void build();
+    // Re-base each prism on DEM ground (centroid). Height AGL is kept.
+    void apply_ground(const HeightSource* dem, double fallback_m);
 
     // Highest roof MSL (metres) whose footprint contains the point.
     bool roof_msl(double lat, double lon, double* z_m) const;
     SegHit segment(double lat0, double lon0, double z0_m, double lat1, double lon1,
                    double z1_m) const;
-    std::size_t volume_count() const { return vols_.size(); }
+    std::size_t volume_count() const { return recs_.size(); }
+    std::size_t bytes() const;
 
   private:
-    struct Node {
-        double west = 0, south = 0, east = 0, north = 0;
-        double z0 = 0, z1 = 0;
-        int left = -1;
-        int right = -1;
-        int leaf = -1;
+    struct Rec {
+        float west = 0, south = 0, east = 0, north = 0;
+        float height_m = 0;
+        float z0_m = 0;
+        std::uint32_t vert0 = 0;
+        std::uint16_t nvert = 0;
+        float z1_m() const { return z0_m + height_m; }
     };
-    std::vector<SolidVol> vols_;
-    std::vector<Node> nodes_;
-    int root_ = -1;
+    std::vector<Rec> recs_;
+    std::vector<float> verts_; // lat, lon pairs
+    double gwest_ = 0, gsouth_ = 0, geast_ = 0, gnorth_ = 0;
+    int gx_ = 0, gy_ = 0;
+    std::vector<std::uint32_t> cell_off_;
+    std::vector<std::uint32_t> cell_ids_;
 
-    int build_range(std::vector<int>& idx, int begin, int end, int axis);
-    bool point_in(const SolidVol& v, double lat, double lon, double* z1) const;
+    bool point_in(const Rec& v, double lat, double lon) const;
+    int cell_at(double lat, double lon) const;
+
+    friend bool write_solids_bin(const SolidBvh& bvh, const std::string& path);
+    friend int read_solids_bin(SolidBvh& bvh, const std::string& path);
 };
+
+bool write_solids_bin(const SolidBvh& bvh, const std::string& path);
+int read_solids_bin(SolidBvh& bvh, const std::string& path); // append, no build
 
 const Landmark* nyc_landmarks(int* count);
 const Landmark* find_landmark(const char* id);
@@ -133,7 +141,7 @@ AirportMesh mesh_landmarks(SkylineEra era, double ground_m = 3.0);
 std::vector<LightPoint> landmark_warning_lights(SkylineEra era);
 
 void fill_solids(SolidBvh& bvh, SkylineEra era, const std::vector<Airport>& apts,
-                 double default_ground_m = 3.0);
+                 double default_ground_m = 3.0, const HeightSource* dem = nullptr);
 
 // HAT/HOT with DEM + active-era solids. Optional previous eye for a
 // segment test (tunneling through a building is a hit → HAT ≤ 0).
@@ -149,7 +157,10 @@ void set_session_era(SkylineEra era, bool unlocked);
 // Host "refresh channels" / close+reopen: back to Current, lock the egg.
 void refresh_channels();
 const SolidBvh& session_solids();
-void rebuild_session_solids(const std::vector<Airport>& apts);
+void rebuild_session_solids(const std::vector<Airport>& apts, const HeightSource* dem = nullptr);
+void session_apply_ground(std::shared_ptr<const HeightSource> dem);
+// DEM at the point when the host has called set_heights; else fallback.
+double session_ground_m(double lat, double lon, double fallback_m);
 std::int64_t session_started_ms();
 
 // NY region box (data/regions/ny.toml). Classic *renders* only inside this.

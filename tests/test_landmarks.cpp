@@ -2,8 +2,10 @@
 #include "s376/landmarks.hpp"
 
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 #include <string>
+#include <vector>
 
 extern int g_fails;
 extern int g_passes;
@@ -163,4 +165,100 @@ void test_landmarks() {
     CHECK(s376::session_era() == s376::SkylineEra::Current);
     CHECK(s376::active_skyline_era() == s376::SkylineEra::Current);
     CHECK(!s376::session_era_unlocked());
+
+    auto expect_tower = [](const s376::SolidBvh& bvh, const char* id, bool on) {
+        const s376::Landmark* lm = s376::find_landmark(id);
+        CHECK(lm != nullptr);
+        if (!lm)
+            return;
+        double z = 0;
+        const bool hit = bvh.roof_msl(lm->lat, lm->lon, &z);
+        if (on) {
+            CHECK(hit);
+            CHECK(z > 350.0);
+        } else {
+            CHECK(!hit);
+        }
+    };
+    expect_tower(classic, "wtc1-1973", true);
+    expect_tower(classic, "wtc2-1973", true);
+    expect_tower(classic, "onewtc", false);
+    expect_tower(current, "wtc1-1973", false);
+    expect_tower(current, "wtc2-1973", false);
+    expect_tower(current, "onewtc", true);
+
+    {
+        s376::SolidBvh bvh;
+        std::vector<s376::Building> sample;
+        sample.reserve(10000);
+        for (int i = 0; i < 10000; ++i) {
+            const double lat = 41.0 + (i / 100) * 0.002;
+            const double lon = -72.0 + (i % 100) * 0.002;
+            s376::Building b;
+            b.name = "sample";
+            b.height_m = 20.f + static_cast<float>(i % 50);
+            b.ring = {{lat - 0.00005, lon - 0.00005},
+                      {lat - 0.00005, lon + 0.00005},
+                      {lat + 0.00005, lon + 0.00005},
+                      {lat + 0.00005, lon - 0.00005}};
+            sample.push_back(b);
+            bvh.add_building(b, 10.0);
+        }
+        bvh.build();
+        CHECK(bvh.volume_count() == 10000);
+        CHECK(bvh.bytes() < 4ull * 1024ull * 1024ull);
+        int hits = 0;
+        for (const auto& b : sample) {
+            double clat = 0, clon = 0;
+            for (const auto& p : b.ring) {
+                clat += p.first;
+                clon += p.second;
+            }
+            clat *= 0.25;
+            clon *= 0.25;
+            double roof = 0;
+            if (!bvh.roof_msl(clat, clon, &roof))
+                continue;
+            if (std::fabs(roof - (10.0 + static_cast<double>(b.height_m))) > 0.6)
+                continue;
+            const double roof_ft = roof * s376::geo::kMToFt;
+            const auto hs = s376::sample_hat_solids(nullptr, &bvh, clat, clon, roof_ft + 50.0);
+            if (hs.building && std::fabs(static_cast<double>(hs.hat_ft) - 50.0) < 3.0)
+                ++hits;
+        }
+        CHECK(hits == 10000);
+    }
+
+    {
+        struct FlatDem : s376::HeightSource {
+            bool sample_ft(double, double, double& e) const override {
+                e = 200.0;
+                return true;
+            }
+        } dem;
+        s376::SolidBvh g;
+        s376::Building b;
+        b.height_m = 30.f;
+        b.ring = {{40.5000, -74.2000},
+                  {40.5000, -74.1990},
+                  {40.5010, -74.1990},
+                  {40.5010, -74.2000}};
+        g.add_building(b, 0.0);
+        g.build();
+        g.apply_ground(&dem, 3.0);
+        double roof = 0;
+        CHECK(g.roof_msl(40.5005, -74.1995, &roof));
+        CHECK_NEAR(roof, 200.0 * s376::geo::kFtToM + 30.0, 1.0);
+        const auto tmp = (std::filesystem::temp_directory_path() / "s376-solids-io").string();
+        std::filesystem::remove_all(tmp);
+        std::filesystem::create_directories(tmp);
+        CHECK(s376::write_solids_bin(g, tmp + "/solids.bin"));
+        s376::SolidBvh loaded;
+        CHECK(s376::read_solids_bin(loaded, tmp + "/solids.bin") == 1);
+        loaded.build();
+        double z2 = 0;
+        CHECK(loaded.roof_msl(40.5005, -74.1995, &z2));
+        CHECK_NEAR(z2, 200.0 * s376::geo::kFtToM + 30.0, 1.0);
+        std::filesystem::remove_all(tmp);
+    }
 }

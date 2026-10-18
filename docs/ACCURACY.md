@@ -55,7 +55,7 @@ action. Official always wins; imagery is only texture.
 | US runway ends, elevations, displaced thresholds, widths, ALS, PAPI, REIL, TDZ, EMAS | FAA Chart Supplement + NFDC NASR (28-day family, current cycle) | `data/faa/*.toml`, `src/faa.cpp` |
 | Non-US (EDDF, EGLL, LEBL, SEQM, SKBO, SKRG, VNKT) | National AIP AD 2: DFS Germany, NATS UK, ENAIRE Spain, DGAC Ecuador, Aerocivil Colombia, CAAN Nepal | `src/faa.cpp` |
 | Cross-check | OurAirports `runways.csv` (public domain) | comments only — never the authority |
-| Taxi / apron / buildings | OSM Overpass (ODbL) when fetched | `cache/<ICAO>/osm.bin` |
+| Taxi / apron / buildings | OSM Overpass (ODbL) when fetched | `cache/<ICAO>/osm.bin` (mesh, capped) + `solids.bin` (every footprint) |
 | Imagery | Best free public source, else Raster-local | [IMAGERY_SOURCES.md](IMAGERY_SOURCES.md) |
 | Elevation | USGS 3DEP (CONUS), Copernicus GLO-30 elsewhere | same |
 
@@ -153,8 +153,30 @@ Shared NY outer box (denser mid/far terrain) is planned in `data/regions/ny.toml
 (~40.40–40.98 N, 74.45–73.45 W). High-res stays per airport. The
 pager should load KEWR only when nearby.
 
+## Buildings (HAT / collision)
+
+Every OSM footprint in the Overpass dump, every schematic airport
+box, and the visible-era NYC landmarks is solid to the host. Collision
+is an always-resident grid of footprints + AGL heights
+(`cache/<ICAO>/solids.bin` → `SolidBvh`). It does **not** follow the
+mesh bake cap (8 k), the draw LOD (nearest 800 full / 2500 far), or
+terrain tile paging.
+
+Height AGL: OSM `height` (metres), else `building:levels` × 3.5 m,
+else **12 m** (~4 storeys). Prisms sit on DEM ground at the footprint
+centroid (`HostReceiver::set_heights` / `session_apply_ground`).
+Host type-200 HAT/HOT uses that roof MSL.
+
+Drawn mesh uses the same footprints and heights (no 80 m clip).
+Buildings the 980 Ti does not extrude are still solid. Era landmarks
+match the draw: Classic WTC towers only while Classic is the active
+skyline; One WTC only in Current. OSM under a catalog landmark is
+dropped from both the mesh and the solids so nothing is solid-but-
+invisible or visible-but-not-solid at the site.
+
 ## 980 Ti
 
 Accuracy numbers are not optional to save milliseconds. The only
 budgeted skip is the display-correction GPU pass when the warp / LUT
-are identity (`needs_gpu_pass`).
+are identity (`needs_gpu_pass`). Mesh building count is a draw
+budget; HAT still sees every footprint.

@@ -321,7 +321,7 @@ int main(int argc, char** argv) {
             const int n = s376::bake_osm_bin(json_path, dest + "/osm.bin");
             (void)s376::read_osm_bin(apt, dest + "/osm.bin");
             s376::write_airport_geojson(apt, dest + "/osm.geojson");
-            std::cout << "wrote " << dest << "/osm.bin  " << n
+            std::cout << "wrote " << dest << "/osm.bin + solids.bin  " << n
                       << " OSM ways (ODbL — © OSM). IG does not load osm.json.\n";
             s376::log::shutdown();
             return 0;

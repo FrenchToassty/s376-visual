@@ -58,9 +58,10 @@ Runtime rules now:
   apt OSG 3.6 does not treat `GL_COMPRESSED_RGBA_BPTC_UNORM` as
   compressed (`glTexImage2D` → `invalid enumerant`). No 48 MB RGBA
   inflate. `setUnRefImageDataAfterApply(true)` drops the CPU copy.
-- **`osm.bin` only.** `s376-cache osm` / `bake-osm` stream-parses
-  Overpass JSON (no full slurp) into a compact `S376OSM1` sidecar. The
-  IG never opens `osm.json`.
+- **`osm.bin` + `solids.bin`.** `s376-cache osm` / `bake-osm` stream-parses
+  Overpass JSON (no full slurp) into a compact `S376OSM1` sidecar
+  (mesh-capped) and `S376SLD1` (`solids.bin`, every building). The
+  IG never opens `osm.json`. Collision is the always-resident grid.
 - Evict farthest lod0 tiles when `ram_mb` / `vram_mb` would be exceeded.
 
 `s376-doctor` prints `rss` (peak / current / budget) and `cache-tiles`

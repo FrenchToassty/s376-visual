@@ -27,6 +27,15 @@ from tests/CI. `scripts/check-no-rsi.sh` fails the build if
 
 ## Current state (2026-10-18, this increment)
 
+**Every building is solid to the host** (HAT/HOT + segment collision)
+in both skyline eras. `solids.bin` (`S376SLD1`) is a packed
+footprint+height grid, always resident, independent of the 8 k mesh
+bake, 800/2500 draw LOD, and terrain paging. Height = OSM `height`,
+else `building:levels` × 3.5 m, else 12 m, on DEM ground. Classic
+WTC towers are solid only while Classic is the active draw; One WTC
+is solid in Current. Tests: 10 k centroid HAT sample, WTC era
+probes, bake-beyond-cap.
+
 **Official geometry + lights for every shipped airport; imagery
 correction layer; `docs/IMAGERY_SOURCES.md`.** Geometry and lights
 always come from FAA NASR (Chart Supplement / NFDC, cycle
@@ -118,9 +127,11 @@ only when the host closes and reopens the channels, or
 **Refresh channels** in `s376-wizard` calls `refresh_channels()`.
 Nothing is written to disk.
 
-Collision / HAT uses the **visible** geometry (Classic BVH only
-while Classic is on *and* the eye is in the NYC box). Host crash is
-host-side — see type-200 fields below.
+Collision / HAT uses the **same era-visible** geometry (Classic
+volumes only while Classic is on *and* the eye is in the NYC box)
+plus **every** OSM / schematic building via an always-resident
+`solids.bin` grid — not the 8 k mesh bake cap, not LOD, not tile
+paging. Host crash is host-side — see type-200 fields below.
 
 ### Missiles (hidden, visual only)
 
@@ -316,8 +327,10 @@ OpenGL, 60 Hz at one channel (1920×1080, 50×32.5). `render.quality =
   tiles to DXT1 before upload (980 Ti and 5060 Ti both get DXT1).
 - RAM/VRAM caps: `ram_mb=2048`, `vram_mb=5120`. Never mesh a 4000²
   DEM; pager uses 96². Runtime OSM is `osm.bin` only.
-- 980 Ti scenery caps: OSM bake 8 k buildings; mesh nearest 800 full
-  / 2500 far; night layer recorded at 15 m, drawn at 60 m / 2200 pts.
+- 980 Ti scenery caps: OSM **mesh** bake 8 k buildings; mesh nearest
+  800 full / 2500 far. Collision is `solids.bin` (all footprints,
+  ~50 MiB at 548 k). Night layer recorded at 15 m, drawn at 60 m /
+  2200 pts.
 - Skip the display-correction GPU pass when the ramp is identity.
 - `gtx980ti`: HDR/atmosphere/markings/detail/buildings on; SSAO cheap
   wall darken; shadows **off** (no CSM yet).
@@ -332,7 +345,7 @@ OpenGL, 60 Hz at one channel (1920×1080, 50×32.5). `render.quality =
 | 2 | **Hangar 12k re-test** | After re-fetch: ortho, no top band, zero `invalid enumerant`, blue sky, pavement runways. Paste doctor RSS + shot path. |
 | 3 | Host CSN movers | Type-100 CSN ≠ 1 counted, body ignored. 12 routes + marshaller poses are stored only. |
 | 4 | Road traffic cars | **Landed.** 280-car GPU batch; OSM highways when baked. |
-| 5 | Full ~30 k OSM buildings | Bake cap 8 k; Raster pad had ~30 k. |
+| 5 | Full ~30 k OSM **mesh** | Collision is every footprint (`solids.bin`). Draw still 800/2500. |
 | 6 | Winter imagery vintage | `--season winter` writes `cache/<ICAO>/winter`; still the same NYS/NAIP URL. |
 | 6b | Wire remaining public pulls | NJOGIS / MassGIS / Loudoun / Clark / LACO / OCPA / MDC / Hessen / EA / ICGC / IGM / IDECA are catalogued; fetch live today is nys/naip/hro/s2/sanmateo/kingco. |
 | 7 | NY region pager | `data/regions/ny.toml` exists; KEWR tiles load only when nearby — not wired. |
