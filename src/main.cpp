@@ -56,6 +56,8 @@ void usage() {
            "  --debug               packet dumps + DEBUG\n"
            "  --gl-debug            OSG per-attribute GL error checks (off in Release)\n"
            "  --quality NAME        gtx980ti | rtx | custom\n"
+           "  --bench               fly 04R (or --approach) and print per-pass GPU ms\n"
+           "                        (GL_TIME_ELAPSED). gtx980ti auto-drops extras if over budget\n"
            "  --reply-master NAME   only this --channel sends the type-200 HAT reply\n"
            "  --no-hat              never send HAT (overrides reply_master)\n"
            "  --screenshot PATH     write the first channel (PPM+PNG) after warmup and exit\n"
@@ -156,6 +158,7 @@ int main(int argc, char** argv) {
     bool solar_astronomy = false;
     int shot_rwy_cond = 0;
     bool have_shot_rwy = false;
+    bool do_bench = false;
 
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -254,6 +257,8 @@ int main(int argc, char** argv) {
             do_diag = true;
         else if (a == "--doctor")
             do_doctor = true;
+        else if (a == "--bench")
+            do_bench = true;
         else {
             std::cerr << "unknown option " << a << "\n";
             usage();
@@ -346,6 +351,8 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    if (do_bench && approach_spec.empty() && at_spec.empty())
+        approach_spec = "KJFK:04R";
     if (!approach_spec.empty() && !at_spec.empty()) {
         std::cerr << "use --approach or --at, not both\n";
         s376::log::shutdown();
@@ -570,7 +577,9 @@ int main(int argc, char** argv) {
 
     std::unique_ptr<s376::Renderer> rend;
     int rc = 0;
-    if (headless && record_path.empty() && screenshot_path.empty())
+    if (headless && record_path.empty() && screenshot_path.empty() && !do_bench)
+        rend = std::make_unique<s376::NullRenderer>();
+    else if (headless && do_bench)
         rend = std::make_unique<s376::NullRenderer>();
     else
         rend = s376::make_renderer(cfg.render.engine);
@@ -581,6 +590,41 @@ int main(int argc, char** argv) {
     } else {
         S376_LOG_INFO("ig", "renderer=%s views=%zu quality=%s", rend->name().c_str(),
                       rend->view_count(), cfg.render.quality.c_str());
+    }
+
+    if (rc == 0 && do_bench) {
+        const std::string icao = approach.icao.empty() ? "KJFK" : approach.icao;
+        const std::string rwy = approach.rwy.empty() ? "04R" : approach.rwy;
+        const s376::Airport apt = s376::airport_by_icao(icao);
+        const double nms[] = {8.0, 4.0, 2.99, 1.0, 0.6, 0.15, 0.0};
+        std::vector<s376::ApproachBenchSample> rows;
+        for (double nm : nms) {
+            s376::ShotPose pose;
+            if (!s376::runway_shot_pose(apt, rwy, nm, pose))
+                continue;
+            s376::apply_shot_overrides(pose, shot_over);
+            shot_host = host_from_shot(pose);
+            apply_shot_env(shot_host);
+            for (int warm = 0; warm < 4 && !rend->done(); ++warm)
+                rend->frame(shot_host);
+            rend->frame(shot_host);
+            const float gpu = rend->measure_gpu_ms();
+            s376::ApproachBenchSample s;
+            s.nm = nm;
+            s.gpu_ms = gpu;
+            s.cpu_ms = rend->last_cpu_ms();
+            rows.push_back(s);
+        }
+        std::cout << s376::format_approach_bench(rows, cfg.render.gpu_budget_ms, cfg.render.quality,
+                                                 rend->autodrop_log());
+        float last = rows.empty() ? -1.f : rows.back().gpu_ms;
+        for (const auto& s : rows) {
+            if (s.gpu_ms > 0.f)
+                last = s.gpu_ms;
+        }
+        std::cout << s376::format_gpu_pass_table(last, cfg.render.shadows);
+        rend->request_stop();
+        g_stop = true;
     }
 
     const auto t0 = std::chrono::steady_clock::now();

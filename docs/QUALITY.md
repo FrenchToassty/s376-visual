@@ -67,6 +67,12 @@ Joey's Mint PC is back.
 `quality_gpu_budget_total_ms(true)` = **14.00 ms** (`rtx`). Both fit
 under 16.67 ms. Official runway/taxi coordinates are not changed.
 
+`--bench` flies KJFK:04R (or `--approach`) and prints per-sample GPU ms
+from `GL_TIME_ELAPSED` plus a budgeted pass table. `gtx980ti` sets
+`render.auto_drop` so extras (SSAO, bloom, FXAA, detail, filmic,
+shadows) turn off if a measured frame exceeds `gpu_budget_ms`. Water,
+markings, buildings, and atmosphere stay on.
+
 Night-light GPU impact on the 980 Ti (same point-sprite path):
 
 | Change | GPU ms | Why |

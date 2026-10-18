@@ -99,6 +99,17 @@ void test_config() {
         CHECK(gtx.ram_mb == 2048);
         CHECK(gtx.vram_mb == 5120);
         CHECK(gtx.mesh_n == 96);
+        CHECK(gtx.auto_drop);
+        CHECK_NEAR(gtx.gpu_budget_ms, 12.20, 0.05);
+        CHECK(!rtx.auto_drop);
+        std::string dropped;
+        auto drop = gtx;
+        CHECK(!s376::apply_quality_autodrop(drop, 10.0f, 12.20f, &dropped));
+        CHECK(drop.ssao);
+        CHECK(s376::apply_quality_autodrop(drop, 13.0f, 12.20f, &dropped));
+        CHECK(!drop.ssao);
+        CHECK(dropped.find("ssao") != std::string::npos);
+        CHECK(drop.water && drop.markings && drop.buildings && drop.atmosphere);
         const auto dumped = s376::dump_config(d);
         CHECK(dumped.find("render.ram_mb=2048") != std::string::npos);
         CHECK(dumped.find("render.vram_mb=5120") != std::string::npos);
@@ -106,6 +117,7 @@ void test_config() {
         CHECK(dumped.find("render.fxaa=true") != std::string::npos);
         CHECK(dumped.find("render.filmic=true") != std::string::npos);
         CHECK(dumped.find("render.solar_astronomy=false") != std::string::npos);
+        CHECK(dumped.find("render.auto_drop=true") != std::string::npos);
         int nb = 0;
         const auto* budgets = s376::quality_gpu_budgets(nb);
         CHECK(nb >= 8 && budgets != nullptr);
@@ -264,5 +276,17 @@ void test_config() {
             CHECK(p.x == 0);
         if (p.name == "front")
             CHECK(p.x == 3840);
+    }
+    {
+        // Channel count is TOML, not a hardcoded 3. Four unique headings → 4.
+        auto four = s376::default_config();
+        CHECK(four.channels.size() == 4);
+        auto wrap_dup = s376::wrap_channels(four.channels);
+        CHECK(wrap_dup.size() == 3); // FO front shares heading 0 with captain front
+        four.channels[2].heading_offset_deg = 25.0;
+        auto wrap4 = s376::wrap_channels(four.channels);
+        CHECK(wrap4.size() == 4);
+        CHECK(wrap4[0].heading_offset_deg < wrap4[1].heading_offset_deg);
+        CHECK(wrap4[2].heading_offset_deg < wrap4[3].heading_offset_deg);
     }
 }

@@ -102,6 +102,8 @@ struct RenderConfig {
     int ram_mb = 2048;            // CPU resident budget (gtx980ti: 2 GB)
     int vram_mb = 5120;           // GPU texture budget (6 GB Maxwell − headroom)
     int mesh_n = 96;              // DEM mesh samples per tile side
+    bool auto_drop = true;        // gtx980ti: drop extras if GPU ms over budget
+    float gpu_budget_ms = 12.20f; // shadows-off hangar budget (60 Hz = 16.67)
 };
 
 void apply_quality_preset(RenderConfig& r, const std::string& name);
@@ -116,6 +118,11 @@ struct QualityGpuBudget {
 };
 const QualityGpuBudget* quality_gpu_budgets(int& n);
 float quality_gpu_budget_total_ms(bool shadows_on);
+const QualityGpuBudget* quality_autodrop_order(int& n);
+// Turn off the next droppable feature when gpu_ms exceeds budget.
+// Never drops water / markings / buildings / atmosphere (accuracy).
+// Returns true if something changed. Appends the name to `dropped`.
+bool apply_quality_autodrop(RenderConfig& r, float gpu_ms, float budget_ms, std::string* dropped);
 
 struct LogConfig {
     bool verbose = false;

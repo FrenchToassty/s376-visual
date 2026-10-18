@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstring>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -159,6 +160,38 @@ std::vector<AirportCacheSize> scan_airport_caches(const std::string& root,
         push_unique(name, extra_dir);
     }
     return out;
+}
+
+std::string format_approach_bench(const std::vector<ApproachBenchSample>& rows, float budget_ms,
+                                  const std::string& quality, const std::string& dropped) {
+    std::ostringstream o;
+    o << std::fixed << std::setprecision(2);
+    o << "# s376-visual --bench  quality=" << quality << "  budget=" << budget_ms << " ms\n";
+    o << "nm\tgpu_ms\tcpu_ms\n";
+    for (const auto& r : rows) {
+        o << r.nm << "\t" << r.gpu_ms << "\t" << r.cpu_ms << "\n";
+    }
+    if (!dropped.empty())
+        o << "dropped\t" << dropped << "\n";
+    return o.str();
+}
+
+std::string format_gpu_pass_table(float measured_ms, bool shadows_on) {
+    int n = 0;
+    const auto* b = quality_gpu_budgets(n);
+    const float budgeted = quality_gpu_budget_total_ms(shadows_on);
+    const float scale = (measured_ms > 0.f && budgeted > 0.f) ? (measured_ms / budgeted) : 1.f;
+    std::ostringstream o;
+    o << std::fixed << std::setprecision(2);
+    o << "pass\tbudget_ms\tscaled_ms\n";
+    o << "base\t6.00\t" << (6.0f * scale) << "\n";
+    for (int i = 0; i < n; ++i) {
+        if (std::strcmp(b[i].name, "shadows") == 0 && !shadows_on)
+            continue;
+        o << b[i].name << "\t" << b[i].gpu_ms << "\t" << (b[i].gpu_ms * scale) << "\n";
+    }
+    o << "total\t" << budgeted << "\t" << (measured_ms >= 0.f ? measured_ms : budgeted) << "\n";
+    return o.str();
 }
 
 std::vector<ChannelFrameTime> bench_channel_times(const AppConfig& cfg, bool try_gpu) {

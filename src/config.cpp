@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <sstream>
@@ -130,6 +131,8 @@ void apply_quality_preset(RenderConfig& r, const std::string& name) {
         r.ram_mb = std::max(r.ram_mb, 3072);
         r.vram_mb = std::max(r.vram_mb, 10240);
         r.mesh_n = std::max(r.mesh_n, 128);
+        r.auto_drop = false;
+        r.gpu_budget_ms = 14.00f;
         return;
     }
     // gtx980ti (default): 60 Hz × 1 on 6 GB Maxwell (one projector PC).
@@ -150,6 +153,8 @@ void apply_quality_preset(RenderConfig& r, const std::string& name) {
     r.ram_mb = 2048;
     r.vram_mb = 5120;
     r.mesh_n = 96;
+    r.auto_drop = true;
+    r.gpu_budget_ms = 12.20f;
 }
 
 namespace {
@@ -182,6 +187,58 @@ float quality_gpu_budget_total_ms(bool shadows_on) {
         s += b[i].gpu_ms;
     }
     return s;
+}
+
+namespace {
+const QualityGpuBudget kAutodropOrder[] = {
+    {"ssao", "render.ssao", 0.20f},
+    {"bloom", "render.bloom", 0.70f},
+    {"fxaa", "render.fxaa", 0.35f},
+    {"detail", "render.detail_textures", 0.55f},
+    {"filmic", "render.filmic", 0.15f},
+    {"shadows", "render.shadows", 1.80f},
+};
+
+bool* autodrop_flag(RenderConfig& r, const char* name) {
+    if (std::strcmp(name, "ssao") == 0)
+        return &r.ssao;
+    if (std::strcmp(name, "bloom") == 0)
+        return &r.bloom;
+    if (std::strcmp(name, "fxaa") == 0)
+        return &r.fxaa;
+    if (std::strcmp(name, "detail") == 0)
+        return &r.detail_textures;
+    if (std::strcmp(name, "filmic") == 0)
+        return &r.filmic;
+    if (std::strcmp(name, "shadows") == 0)
+        return &r.shadows;
+    return nullptr;
+}
+} // namespace
+
+const QualityGpuBudget* quality_autodrop_order(int& n) {
+    n = static_cast<int>(sizeof(kAutodropOrder) / sizeof(kAutodropOrder[0]));
+    return kAutodropOrder;
+}
+
+bool apply_quality_autodrop(RenderConfig& r, float gpu_ms, float budget_ms, std::string* dropped) {
+    if (!r.auto_drop || gpu_ms < 0.f || gpu_ms <= budget_ms)
+        return false;
+    int n = 0;
+    const QualityGpuBudget* order = quality_autodrop_order(n);
+    for (int i = 0; i < n; ++i) {
+        bool* flag = autodrop_flag(r, order[i].name);
+        if (!flag || !*flag)
+            continue;
+        *flag = false;
+        if (dropped) {
+            if (!dropped->empty())
+                *dropped += ",";
+            *dropped += order[i].name;
+        }
+        return true;
+    }
+    return false;
 }
 
 AppConfig default_config() {
@@ -298,6 +355,10 @@ static void fill_render(RenderConfig& r, const std::unordered_map<std::string, s
         r.vram_mb = std::stoi(kv.at("render.vram_mb"));
     if (kv.count("render.mesh_n"))
         r.mesh_n = std::stoi(kv.at("render.mesh_n"));
+    if (kv.count("render.auto_drop"))
+        parse_bool(kv.at("render.auto_drop"), r.auto_drop);
+    if (kv.count("render.gpu_budget_ms"))
+        r.gpu_budget_ms = static_cast<float>(std::stod(kv.at("render.gpu_budget_ms")));
 }
 
 static ChannelConfig fill_channel(const std::unordered_map<std::string, std::string>& kv) {
@@ -439,6 +500,8 @@ std::string dump_config(const AppConfig& cfg, const std::vector<std::string>& se
     o << "render.ram_mb=" << cfg.render.ram_mb << "\n";
     o << "render.vram_mb=" << cfg.render.vram_mb << "\n";
     o << "render.mesh_n=" << cfg.render.mesh_n << "\n";
+    o << "render.auto_drop=" << (cfg.render.auto_drop ? "true" : "false") << "\n";
+    o << "render.gpu_budget_ms=" << cfg.render.gpu_budget_ms << "\n";
     if (!selected.empty()) {
         o << "selected=";
         for (std::size_t i = 0; i < selected.size(); ++i) {
@@ -532,31 +595,28 @@ int channel_tile_order(const ChannelConfig& ch) {
 }
 
 std::vector<ChannelConfig> wrap_channels(const std::vector<ChannelConfig>& channels) {
-    const ChannelConfig *left = nullptr, *front = nullptr, *right = nullptr;
+    // Unique frusta, left-to-right by heading. Channel count is whatever
+    // the TOML enabled — never a hardcoded 3. Duplicate headings (FO
+    // front = captain front) collapse so a wrap strip is one view each.
+    std::vector<ChannelConfig> enabled;
     for (const auto& ch : channels) {
         if (!ch.enabled)
             continue;
         if (ch.role == "host_io" || ch.name == "ios")
             continue;
-        if (ch.name == "mid_right" || ch.name == "front_fo" || ch.name == "fo_front")
-            continue;
-        const bool is_left = ch.raster_ch == 1 || ch.name == "far_left" || ch.name == "left";
-        const bool is_front = ch.raster_ch == 0 || ch.name == "mid_left" || ch.name == "front";
-        const bool is_right = ch.raster_ch == 2 || ch.name == "far_right" || ch.name == "right";
-        if (is_left)
-            left = &ch;
-        else if (is_front)
-            front = &ch;
-        else if (is_right)
-            right = &ch;
+        enabled.push_back(ch);
     }
+    std::sort(enabled.begin(), enabled.end(), [](const ChannelConfig& a, const ChannelConfig& b) {
+        if (std::fabs(a.heading_offset_deg - b.heading_offset_deg) > 0.05)
+            return a.heading_offset_deg < b.heading_offset_deg;
+        return channel_tile_order(a) < channel_tile_order(b);
+    });
     std::vector<ChannelConfig> out;
-    if (left)
-        out.push_back(*left);
-    if (front)
-        out.push_back(*front);
-    if (right)
-        out.push_back(*right);
+    for (const auto& ch : enabled) {
+        if (!out.empty() && std::fabs(out.back().heading_offset_deg - ch.heading_offset_deg) < 0.05)
+            continue;
+        out.push_back(ch);
+    }
     return out;
 }
 

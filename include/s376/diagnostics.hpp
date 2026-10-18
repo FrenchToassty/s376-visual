@@ -50,4 +50,15 @@ std::vector<AirportCacheSize> scan_airport_caches(const std::string& root,
 // CPU view cost always; GPU frames only when `try_gpu` and DISPLAY is set.
 std::vector<ChannelFrameTime> bench_channel_times(const AppConfig& cfg, bool try_gpu);
 
+struct ApproachBenchSample {
+    double nm = 0;
+    float gpu_ms = -1;
+    float cpu_ms = -1;
+};
+
+// Text table for --bench (04R sample distances + budgeted pass list).
+std::string format_approach_bench(const std::vector<ApproachBenchSample>& rows, float budget_ms,
+                                  const std::string& quality, const std::string& dropped);
+std::string format_gpu_pass_table(float measured_ms, bool shadows_on);
+
 } // namespace s376

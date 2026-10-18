@@ -47,6 +47,14 @@ class Renderer {
     virtual std::size_t view_count() const { return 0; }
     // Desk/demo PTT when egg.ptt_source = "key".
     virtual bool ptt_key_down() const { return false; }
+    // Last GPU frame time in ms from GL_TIME_ELAPSED. <0 if unavailable.
+    virtual float last_gpu_ms() const { return -1.f; }
+    virtual float last_cpu_ms() const { return -1.f; }
+    // Comma-separated features dropped this session (gtx980ti auto-drop).
+    virtual std::string autodrop_log() const { return {}; }
+    // Sync one timer-query result (stalls). Used by --bench.
+    virtual float measure_gpu_ms() { return last_gpu_ms(); }
+    virtual void set_render_toggles(const RenderConfig& r) { (void)r; }
 };
 
 class NullRenderer : public Renderer {

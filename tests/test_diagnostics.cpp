@@ -105,6 +105,17 @@ void test_diagnostics() {
             fr = true;
     }
     CHECK(fl && ml && mr && fr);
+    {
+        std::vector<s376::ApproachBenchSample> rows = {{8.0, 7.2f, 2.1f}, {2.99, 8.4f, 2.3f}};
+        const auto table = s376::format_approach_bench(rows, 12.20f, "gtx980ti", "ssao");
+        CHECK(table.find("2.99") != std::string::npos);
+        CHECK(table.find("gtx980ti") != std::string::npos);
+        CHECK(table.find("dropped") != std::string::npos);
+        const auto passes = s376::format_gpu_pass_table(8.4f, false);
+        CHECK(passes.find("atmosphere") != std::string::npos);
+        CHECK(passes.find("total") != std::string::npos);
+        CHECK(passes.find("shadows") == std::string::npos);
+    }
 
     const char* old_dpy = std::getenv("DISPLAY");
     std::string saved_dpy = old_dpy ? old_dpy : "";
