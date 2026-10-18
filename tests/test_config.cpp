@@ -44,6 +44,22 @@ void test_config() {
     CHECK(d.host.bind == "0.0.0.0:2300");
     CHECK(d.host.reply_port == 2301);
     CHECK(!d.render.gl_debug);
+    CHECK(d.render.quality == "gtx980ti");
+    CHECK(d.render.hdr && d.render.atmosphere && d.render.markings);
+    CHECK(d.render.detail_textures && d.render.buildings);
+    CHECK(!d.render.ssao && !d.render.shadows);
+    {
+        auto rtx = d.render;
+        s376::apply_quality_preset(rtx, "rtx");
+        CHECK(rtx.quality == "rtx");
+        CHECK(rtx.ssao && rtx.shadows);
+        CHECK(rtx.msaa >= 4 && rtx.aniso >= 16);
+        CHECK_NEAR(rtx.exposure, 1.05, 1e-4);
+        auto gtx = d.render;
+        s376::apply_quality_preset(gtx, "gtx980ti");
+        CHECK(!gtx.ssao && !gtx.shadows);
+        CHECK(gtx.hdr && gtx.atmosphere);
+    }
     {
         const auto lin = s376::plan_gl_display(true, false);
         CHECK(lin.version.empty());
@@ -79,6 +95,33 @@ void test_config() {
     CHECK(c.channels[0].width == 800);
     CHECK(!c.channels[1].enabled);
     std::remove(path);
+
+    {
+        const char* qpath = "s376-test-quality.toml";
+        {
+            std::ofstream o(qpath);
+            o << "[host]\nbind = \"127.0.0.1:2300\"\n"
+                 "[render]\nquality = \"rtx\"\nssao = false\n";
+        }
+        auto q = s376::load_config(qpath);
+        CHECK(q.render.quality == "rtx");
+        CHECK(q.render.shadows);
+        CHECK(!q.render.ssao); // individual flag overrides the preset
+        CHECK(q.render.hdr && q.render.buildings);
+        std::remove(qpath);
+    }
+    {
+        std::string rtx_path = "config/quality-rtx.toml";
+        {
+            std::ifstream probe(rtx_path);
+            if (!probe)
+                rtx_path = "../config/quality-rtx.toml";
+        }
+        auto rtx_file = s376::load_config(rtx_path);
+        CHECK(rtx_file.render.quality == "rtx");
+        CHECK(rtx_file.render.ssao && rtx_file.render.shadows);
+        CHECK_NEAR(rtx_file.channels[1].heading_offset_deg, 35.515, 1e-6);
+    }
 
     std::ifstream ksea_earth("data/earth/ksea.earth");
     CHECK(static_cast<bool>(ksea_earth));

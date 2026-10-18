@@ -10,6 +10,7 @@
 #include <osg/BlendFunc>
 #include <osg/CullFace>
 #include <osg/Depth>
+#include <osg/MatrixTransform>
 #include <osg/DisplaySettings>
 #include <osg/Geode>
 #include <osg/Geometry>
@@ -23,6 +24,7 @@
 #include <osg/Uniform>
 #include <osg/Viewport>
 #include <osgDB/ReadFile>
+#include <osgDB/WriteFile>
 #include <osgGA/GUIEventAdapter>
 #include <osgUtil/SceneView>
 #include <osgViewer/CompositeViewer>
@@ -84,16 +86,38 @@ uniform vec3 uAmbient;
 uniform vec3 uDiffuse;
 uniform vec3 uFogColor;
 uniform float uFogDensity;
+uniform float uExposure;
+uniform float uDetail;
 varying vec3 vN;
 varying vec2 vUV;
 varying float vEyeDist;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+vec3 aces(vec3 x) {
+    return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+}
 void main() {
     vec3 n = normalize(vN);
     float ndl = max(dot(n, normalize(uSunDir)), 0.0);
     vec3 albedo = texture2D(sTex, vUV).rgb;
+    float macro = 0.82 + 0.18 * noise(vUV * 24.0);
+    float micro = 0.90 + 0.10 * noise(vUV * 180.0);
+    albedo *= mix(1.0, macro * micro, uDetail);
+    float gness = clamp((albedo.g - albedo.r) * 4.0, 0.0, 1.0);
+    float close = clamp(1.0 - vEyeDist / 8000.0, 0.12, 1.0);
+    vec3 grass = vec3(0.20, 0.30, 0.13) * (0.82 + 0.18 * noise(vUV * 260.0));
+    vec3 dirt = vec3(0.30, 0.23, 0.14) * (0.88 + 0.12 * noise(vUV * 90.0));
+    vec3 land = mix(mix(albedo, dirt, 0.22), grass, gness * 0.40);
+    albedo = mix(albedo, land, uDetail * close);
     vec3 col = albedo * (uAmbient + uDiffuse * ndl);
     float f = exp(-uFogDensity * uFogDensity * vEyeDist * vEyeDist);
-    gl_FragColor = vec4(mix(uFogColor, col, clamp(f, 0.0, 1.0)), 1.0);
+    col = mix(uFogColor, col, clamp(f, 0.0, 1.0));
+    gl_FragColor = vec4(aces(col * uExposure), 1.0);
 }
 )";
 
@@ -102,9 +126,11 @@ const char* kLitColorVS = R"(
 varying vec3 vN;
 varying vec4 vCol;
 varying float vEyeDist;
+varying vec3 vPos;
 void main() {
     vN = gl_Normal;
     vCol = gl_Color;
+    vPos = gl_Vertex.xyz;
     vec4 eye = gl_ModelViewMatrix * gl_Vertex;
     vEyeDist = length(eye.xyz);
     gl_Position = ftransform();
@@ -118,15 +144,41 @@ uniform vec3 uAmbient;
 uniform vec3 uDiffuse;
 uniform vec3 uFogColor;
 uniform float uFogDensity;
+uniform float uExposure;
+uniform float uDetail;
+uniform float uSsao;
 varying vec3 vN;
 varying vec4 vCol;
 varying float vEyeDist;
+varying vec3 vPos;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+vec3 aces(vec3 x) {
+    return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+}
 void main() {
     vec3 n = normalize(vN);
     float ndl = max(dot(n, normalize(uSunDir)), 0.0);
-    vec3 col = vCol.rgb * (uAmbient + uDiffuse * ndl);
+    float mat = vCol.a;
+    vec3 albedo = vCol.rgb;
+    if (mat < 0.5) {
+        float rub = 0.88 + 0.12 * noise(vPos.xy * 0.08);
+        albedo *= mix(1.0, (0.78 + 0.22 * noise(vPos.xy * 0.35)) * rub, uDetail);
+    } else if (mat > 2.5 && mat < 3.5) {
+        albedo *= 0.75 + 0.25 * ndl;
+        albedo *= mix(1.0, 0.85 + 0.15 * uSsao, 1.0);
+    }
+    vec3 col = albedo * (uAmbient + uDiffuse * (mat > 0.5 && mat < 1.5 ? 1.0 : ndl));
+    if (mat > 0.5 && mat < 1.5)
+        col = albedo * (0.55 + 0.55 * max(ndl, 0.35));
     float f = exp(-uFogDensity * uFogDensity * vEyeDist * vEyeDist);
-    gl_FragColor = vec4(mix(uFogColor, col, clamp(f, 0.0, 1.0)), vCol.a);
+    col = mix(uFogColor, col, clamp(f, 0.0, 1.0));
+    gl_FragColor = vec4(aces(col * uExposure), 1.0);
 }
 )";
 
@@ -145,12 +197,23 @@ void main() {
 const char* kUnlitColorFS = R"(
 #version 120
 uniform vec3 uFogColor;
+uniform vec3 uSunDir;
+uniform vec3 uDiffuse;
 uniform float uFogDensity;
+uniform float uExposure;
 varying vec4 vCol;
 varying float vEyeDist;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+vec3 aces(vec3 x) {
+    return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+}
 void main() {
+    float edge = 0.55 + 0.45 * hash(gl_FragCoord.xy * 0.07 + vEyeDist * 0.001);
+    float wrap = 0.65 + 0.35 * max(dot(normalize(uSunDir), vec3(0.0, 0.0, 1.0)), 0.0);
+    vec3 col = vCol.rgb * wrap * (0.75 + 0.25 * uDiffuse);
     float f = exp(-uFogDensity * uFogDensity * vEyeDist * vEyeDist);
-    gl_FragColor = vec4(mix(uFogColor, vCol.rgb, clamp(f, 0.0, 1.0)), vCol.a);
+    col = mix(uFogColor, col, clamp(f, 0.0, 1.0));
+    gl_FragColor = vec4(aces(col * uExposure), vCol.a * edge);
 }
 )";
 
@@ -172,11 +235,63 @@ const char* kPointFS = R"(
 #version 120
 uniform vec3 uFogColor;
 uniform float uFogDensity;
+uniform float uExposure;
 varying vec4 vCol;
 varying float vEyeDist;
+vec3 aces(vec3 x) {
+    return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+}
 void main() {
     float f = exp(-uFogDensity * uFogDensity * vEyeDist * vEyeDist);
-    gl_FragColor = vec4(mix(uFogColor, vCol.rgb, clamp(f, 0.0, 1.0)), vCol.a);
+    vec3 col = mix(uFogColor, vCol.rgb, clamp(f, 0.0, 1.0));
+    gl_FragColor = vec4(aces(col * uExposure), vCol.a);
+}
+)";
+
+const char* kSkyVS = R"(
+#version 120
+varying vec3 vDir;
+void main() {
+    vDir = gl_Vertex.xyz;
+    gl_Position = ftransform();
+}
+)";
+
+const char* kSkyFS = R"(
+#version 120
+uniform vec3 uSunDir;
+uniform vec3 uUp;
+uniform vec3 uFogColor;
+uniform float uExposure;
+varying vec3 vDir;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+vec3 aces(vec3 x) {
+    return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+}
+void main() {
+    vec3 d = normalize(vDir);
+    vec3 up = normalize(uUp);
+    float h = clamp(dot(d, up), -1.0, 1.0);
+    vec3 sun = normalize(uSunDir);
+    float m = max(dot(d, sun), 0.0);
+    vec3 zenith = vec3(0.12, 0.32, 0.72);
+    vec3 horiz = vec3(0.62, 0.74, 0.88);
+    vec3 ground = vec3(0.40, 0.48, 0.58);
+    vec3 sky = mix(horiz, zenith, pow(clamp(h, 0.0, 1.0), 0.65));
+    if (h < 0.0)
+        sky = mix(horiz, ground, clamp(-h * 2.0, 0.0, 1.0));
+    sky += vec3(1.0, 0.92, 0.75) * pow(m, 32.0) * 0.55;
+    sky += vec3(1.0, 0.85, 0.55) * pow(m, 8.0) * 0.12;
+    float night = clamp(-dot(sun, up) * 2.0, 0.0, 1.0);
+    vec3 moon = normalize(-sun + 0.15 * up);
+    float mm = max(dot(d, moon), 0.0);
+    vec3 nightcol = vec3(0.01, 0.02, 0.05);
+    nightcol += vec3(0.65, 0.70, 0.82) * pow(mm, 80.0) * 0.9;
+    nightcol += vec3(0.35, 0.40, 0.50) * pow(mm, 8.0) * 0.08;
+    float star = step(0.996, hash(d.xy * 90.0 + d.z * 17.0));
+    nightcol += vec3(star) * step(0.05, h);
+    sky = mix(sky, nightcol, night);
+    gl_FragColor = vec4(aces(sky * uExposure), 1.0);
 }
 )";
 
@@ -265,6 +380,10 @@ struct ShaderEnv {
     osg::ref_ptr<osg::Uniform> diffuse;
     osg::ref_ptr<osg::Uniform> fog_color;
     osg::ref_ptr<osg::Uniform> fog_density;
+    osg::ref_ptr<osg::Uniform> exposure;
+    osg::ref_ptr<osg::Uniform> detail;
+    osg::ref_ptr<osg::Uniform> ssao;
+    osg::ref_ptr<osg::Uniform> up;
 };
 
 void attach_env_uniforms(osg::StateSet* ss, ShaderEnv& env) {
@@ -273,12 +392,63 @@ void attach_env_uniforms(osg::StateSet* ss, ShaderEnv& env) {
     env.diffuse = new osg::Uniform("uDiffuse", osg::Vec3(1.f, 0.95f, 0.85f));
     env.fog_color = new osg::Uniform("uFogColor", osg::Vec3(0.62f, 0.70f, 0.78f));
     env.fog_density = new osg::Uniform("uFogDensity", 1e-6f);
+    env.exposure = new osg::Uniform("uExposure", 1.f);
+    env.detail = new osg::Uniform("uDetail", 1.f);
+    env.ssao = new osg::Uniform("uSsao", 0.f);
+    env.up = new osg::Uniform("uUp", osg::Vec3(0.f, 0.f, 1.f));
     ss->addUniform(env.sun_dir);
     ss->addUniform(env.ambient);
     ss->addUniform(env.diffuse);
     ss->addUniform(env.fog_color);
     ss->addUniform(env.fog_density);
+    ss->addUniform(env.exposure);
+    ss->addUniform(env.detail);
+    ss->addUniform(env.ssao);
+    ss->addUniform(env.up);
     strip_ff(ss);
+}
+
+osg::Node* make_sky_dome() {
+    auto* xf = new osg::MatrixTransform;
+    auto* geode = new osg::Geode;
+    auto* geom = new osg::Geometry;
+    auto* verts = new osg::Vec3Array;
+    constexpr int nlon = 32, nlat = 16;
+    const float R = 40000.f;
+    for (int j = 0; j <= nlat; ++j) {
+        const float v = 3.14159265f * j / nlat;
+        for (int i = 0; i <= nlon; ++i) {
+            const float u = 6.2831853f * i / nlon;
+            verts->push_back(osg::Vec3(R * std::sin(v) * std::cos(u), R * std::sin(v) * std::sin(u),
+                                       R * std::cos(v)));
+        }
+    }
+    auto* idx = new osg::DrawElementsUInt(GL_TRIANGLES);
+    for (int j = 0; j < nlat; ++j) {
+        for (int i = 0; i < nlon; ++i) {
+            const unsigned a = static_cast<unsigned>(j * (nlon + 1) + i);
+            const unsigned b = a + 1;
+            const unsigned c = a + static_cast<unsigned>(nlon + 1);
+            idx->push_back(a);
+            idx->push_back(c);
+            idx->push_back(b);
+            idx->push_back(b);
+            idx->push_back(c);
+            idx->push_back(c + 1);
+        }
+    }
+    geom->setVertexArray(verts);
+    geom->addPrimitiveSet(idx);
+    auto* ss = geom->getOrCreateStateSet();
+    ss->setAttributeAndModes(make_program(kSkyVS, kSkyFS), osg::StateAttribute::ON);
+    ss->setMode(GL_BLEND, osg::StateAttribute::OFF);
+    ss->setAttributeAndModes(new osg::Depth(osg::Depth::LEQUAL, 0, 1, false));
+    ss->setRenderBinDetails(-1, "RenderBin");
+    strip_ff(ss);
+    geode->addDrawable(geom);
+    xf->addChild(geode);
+    xf->setCullingActive(false);
+    return xf;
 }
 
 osg::Image* make_globe_image(int w, int h) {
@@ -496,7 +666,7 @@ osg::Node* make_airport_geode(const AirportMesh& mesh) {
         verts->push_back(ecef_to_osg(v.p));
         norms->push_back(osg::Vec3(static_cast<float>(v.n.x), static_cast<float>(v.n.y),
                                    static_cast<float>(v.n.z)));
-        cols->push_back(osg::Vec4(v.r, v.g, v.b, 1));
+        cols->push_back(osg::Vec4(v.r, v.g, v.b, v.mat));
     }
     geom->setVertexArray(verts);
     geom->setNormalArray(norms, osg::Array::BIND_PER_VERTEX);
@@ -999,10 +1169,12 @@ class OsgRenderer final : public Renderer {
                 const int osm_n = try_load_osm(apt, cfg.render.cache_dir);
                 if (osm_n > 0)
                     S376_LOG_INFO("render", "%s OSM aeroway  %d ways", apt.icao.c_str(), osm_n);
-                if (auto* mesh = make_airport_geode(build_airport_mesh(apt))) {
+                if (auto* mesh = make_airport_geode(build_airport_mesh(
+                        apt, cfg.render.buildings, cfg.render.markings))) {
                     root->addChild(mesh);
-                    S376_LOG_INFO("render", "%s mesh  %zu runways  %zu lights  %s", apt.icao.c_str(),
-                                  apt.runways.size(), apt.lights.size(), apt.attribution.c_str());
+                    S376_LOG_INFO("render", "%s mesh  %zu runways  %zu lights  %zu bldgs  %s",
+                                  apt.icao.c_str(), apt.runways.size(), apt.lights.size(),
+                                  apt.buildings.size(), apt.attribution.c_str());
                 }
                 merged.lights.insert(merged.lights.end(), apt.lights.begin(), apt.lights.end());
             }
@@ -1032,6 +1204,17 @@ class OsgRenderer final : public Renderer {
             }
         }
         attach_env_uniforms(root->getOrCreateStateSet(), env_u_);
+        if (cfg.render.atmosphere) {
+            sky_xf_ = dynamic_cast<osg::MatrixTransform*>(make_sky_dome());
+            if (sky_xf_)
+                root->addChild(sky_xf_.get());
+        }
+        if (env_u_.exposure)
+            env_u_.exposure->set(cfg.render.hdr ? std::max(0.2f, cfg.render.exposure) : 1.f);
+        if (env_u_.detail)
+            env_u_.detail->set(cfg.render.detail_textures ? 1.f : 0.f);
+        if (env_u_.ssao)
+            env_u_.ssao->set(cfg.render.ssao ? 1.f : 0.f);
         root_ = root;
 
         int nscr = 1, sw = 1920, sh = 1080;
@@ -1099,6 +1282,11 @@ class OsgRenderer final : public Renderer {
             configure_gl_state(*viewer_, gl_check_errors_);
             stripped_ff_ = true;
         }
+        if (sky_xf_ && host.have_eyepoint) {
+            const geo::Ecef e =
+                geo::lla_to_ecef(host.eye.lat_deg, host.eye.lon_deg, host.eye.alt_ft * geo::kFtToM);
+            sky_xf_->setMatrix(osg::Matrix::translate(e.x, e.y, e.z));
+        }
         for (std::size_t i = 0; i < views_.size() && i < channels_.size(); ++i)
             apply_view_camera(views_[i]->getCamera(), channels_[i], host);
         apply_env(host);
@@ -1115,6 +1303,29 @@ class OsgRenderer final : public Renderer {
     void request_stop() override {
         if (viewer_)
             viewer_->setDone(true);
+    }
+    bool capture(const std::string& path) override {
+        if (views_.empty() || path.empty())
+            return false;
+        auto* cam = views_.front()->getCamera();
+        if (!cam || !cam->getViewport())
+            return false;
+        const int w = static_cast<int>(cam->getViewport()->width());
+        const int h = static_cast<int>(cam->getViewport()->height());
+        if (w < 8 || h < 8)
+            return false;
+        osg::ref_ptr<osg::Image> img = new osg::Image;
+        img->readPixels(static_cast<int>(cam->getViewport()->x()),
+                        static_cast<int>(cam->getViewport()->y()), w, h, GL_RGB, GL_UNSIGNED_BYTE);
+        if (osgDB::writeImageFile(*img, path))
+            return true;
+        std::ofstream out(path, std::ios::binary);
+        if (!out)
+            return false;
+        out << "P6\n" << w << " " << h << "\n255\n";
+        for (int y = h - 1; y >= 0; --y)
+            out.write(reinterpret_cast<const char*>(img->data() + y * w * 3), w * 3);
+        return static_cast<bool>(out);
     }
     void end() override {
         if (viewer_)
@@ -1191,6 +1402,13 @@ class OsgRenderer final : public Renderer {
         if (env_u_.sun_dir)
             env_u_.sun_dir->set(osg::Vec3(static_cast<float>(s.x), static_cast<float>(s.y),
                                           static_cast<float>(s.z)));
+        {
+            geo::Ecef ee, nn, uu;
+            geo::ecef_to_enu_axes(lat, lon, ee, nn, uu);
+            if (env_u_.up)
+                env_u_.up->set(osg::Vec3(static_cast<float>(uu.x), static_cast<float>(uu.y),
+                                         static_cast<float>(uu.z)));
+        }
         const float dayf = static_cast<float>(std::max(0.0, std::sin(geo::deg2rad(el))));
         float flash = 0.f;
         if (host.have_env && host.env.lightning_trigger != 0) {
@@ -1255,6 +1473,7 @@ class OsgRenderer final : public Renderer {
     int storm_tick_ = 0;
     float storm_flash_ = 0.f;
     float cloud_drift_m_ = 0.f;
+    osg::ref_ptr<osg::MatrixTransform> sky_xf_;
     bool used_earth_ = false;
     bool stripped_ff_ = false;
     bool gl_check_errors_ = false;

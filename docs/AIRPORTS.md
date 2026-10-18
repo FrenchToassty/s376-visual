@@ -75,16 +75,28 @@ scales colour and alpha by `step / 5`. Switch numbers are ours:
 | 4 | Threshold / end |
 
 `s376::ksea_public()`, `ksfo_public()`, `klas_public()`, `klax_public()`,
-and `kjfk_public()` build the five priority-1 US fields from OurAirports
-runway ends plus FAA-charted ALS (ALSF-2 on KSEA 16L, KSFO 28R, KLAS
-26R/26L, KLAX 24s/25s, KJFK 04L/22R/13L/13R/31L; MALSR elsewhere). Edge / centreline / approach / threshold points use the
-spacing rules above. Taxi and apron polygons start as schematic
-offsets from those runways; `s376-cache osm ICAO` replaces them with
-an Overpass `aeroway=taxiway|apron` pull (ODbL). The renderer loads
+`kjfk_public()`, and `kbos_public()` build the six shipped US fields from
+OurAirports runway ends plus FAA-charted ALS (ALSF-2 on KSEA 16L, KSFO 28R,
+KLAS 26R/26L, KLAX 24s/25s, KJFK 04L/22R/13L/13R/31L, KBOS 04R/15R; MALSR
+elsewhere). Edge / centreline / approach / threshold points use the spacing
+rules above. Painted markings follow FAA AC 150/5340-1 (threshold bars,
+5×7 designators, aiming points, TDZ, centerline, edges, hold-short).
+Taxi and apron polygons start as schematic offsets from those runways;
+`s376-cache osm ICAO` replaces them with an Overpass
+`aeroway=taxiway|apron` plus `building=*` pull (ODbL). The renderer
+extrudes OSM footprints (height / building:levels) and loads
 `cache/<icao>/osm.json` when it is present.
 
-`data/airports/{ksea,ksfo,klas}.toml` documents the same public
-numbers. Do not paste RSI `.nx3` coordinates into them.
+`data/airports/{ksea,ksfo,klas,klax,kjfk,kbos}.toml` documents the same
+public numbers. Do not paste RSI `.nx3` coordinates into them.
+
+Side-by-side vs Joey's Raster 4R photo (reference only, never commit):
+
+```bash
+./build/s376-visual --screenshot /tmp/jfk-04r.ppm --at KJFK:04R:0 --channel front
+./build/s376-visual --screenshot /tmp/bos-04r.ppm --at KBOS:04R:0 --channel front
+./build/s376-visual --screenshot /tmp/jfk-04r-3nm.ppm --at KJFK:04R:3 --channel front
+```
 
 ## Suggested build order
 
@@ -93,8 +105,9 @@ numbers. Do not paste RSI `.nx3` coordinates into them.
 2. **KSFO** — complex ALS, water, hills. In the tree.
 3. **KLAS** — desert, lots of night light points. In the tree.
 4. **KLAX** then **KJFK** — parallel-runway ALSF-2. In the tree.
-5. **EGLL / EDDF** — ICAO lighting, Sentinel-2.
-6. The rest in the table order.
+5. **KBOS** — 04R is the other candidate for the Raster daytime photo. In the tree.
+6. **EGLL / EDDF** — ICAO lighting, Sentinel-2.
+7. The rest in the table order.
 
 ## What stays private
 

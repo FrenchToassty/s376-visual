@@ -219,6 +219,7 @@ AirportRef lookup_airport_ref(const std::string& icao) {
         {"KLAS", "Harry Reid / McCarran", 36.0801, -115.1523, 2181, true},
         {"KLAX", "Los Angeles International", 33.9425, -118.4081, 128, true},
         {"KJFK", "John F Kennedy International", 40.6399, -73.7787, 13, true},
+        {"KBOS", "Boston Logan International", 42.3656, -71.0096, 20, true},
         {"EGLL", "London Heathrow", 51.4700, -0.4543, 83, false},
         {"EDDF", "Frankfurt Main", 50.0379, 8.5622, 364, false},
     };

@@ -23,12 +23,13 @@ double wrap360(double a) {
 }
 
 void add_tri(AirportMesh& m, const geo::Ecef& a, const geo::Ecef& b, const geo::Ecef& c,
-             const geo::Ecef& n, float r, float g, float bl) {
+             const geo::Ecef& n, float r, float g, float bl, float mat = 0) {
     MeshVert v;
     v.n = n;
     v.r = r;
     v.g = g;
     v.b = bl;
+    v.mat = mat;
     v.p = a;
     m.verts.push_back(v);
     v.p = b;
@@ -39,7 +40,7 @@ void add_tri(AirportMesh& m, const geo::Ecef& a, const geo::Ecef& b, const geo::
 
 void strip_quad(AirportMesh& mesh, double lat0, double lon0, double lat1, double lon1,
                 double heading_deg, double half_w, double elev0, double elev1, float r, float g,
-                float b) {
+                float b, float mat = 0) {
     double l0lat, l0lon, r0lat, r0lon, l1lat, l1lon, r1lat, r1lon;
     offset_m(lat0, lon0, heading_deg - 90.0, half_w, l0lat, l0lon);
     offset_m(lat0, lon0, heading_deg + 90.0, half_w, r0lat, r0lon);
@@ -51,8 +52,138 @@ void strip_quad(AirportMesh& mesh, double lat0, double lon0, double lat1, double
     const geo::Ecef D = geo::lla_to_ecef(l1lat, l1lon, elev1);
     geo::Ecef e, n, u;
     geo::ecef_to_enu_axes((lat0 + lat1) * 0.5, (lon0 + lon1) * 0.5, e, n, u);
-    add_tri(mesh, A, B, C, u, r, g, b);
-    add_tri(mesh, A, C, D, u, r, g, b);
+    add_tri(mesh, A, B, C, u, r, g, b, mat);
+    add_tri(mesh, A, C, D, u, r, g, b, mat);
+}
+
+// Runway-frame rectangle. along/left in metres from (lat,lon) along hdg.
+void mark_rect(AirportMesh& mesh, double lat, double lon, double hdg, double elev, double along0,
+               double along1, double left, double right, float r, float g, float b) {
+    double a0lat, a0lon, a1lat, a1lon;
+    offset_m(lat, lon, hdg, along0, a0lat, a0lon);
+    offset_m(lat, lon, hdg, along1, a1lat, a1lon);
+    const double hw = std::fabs(right - left) * 0.5;
+    const double mid = 0.5 * (left + right);
+    double m0lat, m0lon, m1lat, m1lon;
+    offset_m(a0lat, a0lon, hdg + 90.0, mid, m0lat, m0lon);
+    offset_m(a1lat, a1lon, hdg + 90.0, mid, m1lat, m1lon);
+    strip_quad(mesh, m0lat, m0lon, m1lat, m1lon, hdg, hw, elev, elev, r, g, b, 1.f);
+}
+
+const char* glyph5x7(char c) {
+    switch (c) {
+    case '0':
+        return "01110100011000110001100011000101110";
+    case '1':
+        return "00100011000010000100001000010001110";
+    case '2':
+        return "01110100010000100110010001000011111";
+    case '3':
+        return "01110100010000100110000011000101110";
+    case '4':
+        return "00010001100101010010111110001000010";
+    case '5':
+        return "11111100001111000001000011000101110";
+    case '6':
+        return "01110100001111010001100011000101110";
+    case '7':
+        return "11111000010001000100010000100001000";
+    case '8':
+        return "01110100011000101110100011000101110";
+    case '9':
+        return "01110100011000101111000010000101110";
+    case 'L':
+        return "10000100001000010000100001000011111";
+    case 'R':
+        return "11110100011000111110101001001010001";
+    case 'C':
+        return "01110100011000010000100001000101110";
+    default:
+        return nullptr;
+    }
+}
+
+void paint_glyph(AirportMesh& mesh, double lat, double lon, double hdg, double elev, double along,
+                 double left, double tall_m, double wide_m, char ch) {
+    const char* g = glyph5x7(ch);
+    if (!g)
+        return;
+    const double pw = wide_m / 5.0;
+    const double ph = tall_m / 7.0;
+    for (int row = 0; row < 7; ++row) {
+        for (int col = 0; col < 5; ++col) {
+            if (g[row * 5 + col] != '1')
+                continue;
+            const double a0 = along + (6 - row) * ph;
+            const double a1 = a0 + ph * 0.92;
+            const double l0 = left + col * pw;
+            mark_rect(mesh, lat, lon, hdg, elev, a0, a1, l0, l0 + pw * 0.88, 0.96f, 0.96f, 0.94f);
+        }
+    }
+}
+
+void paint_ident(AirportMesh& mesh, double lat, double lon, double hdg, double elev, double along,
+                 const std::string& ident) {
+    if (ident.empty())
+        return;
+    const double tall = 18.0;
+    const double wide = 10.0;
+    const double gap = 2.5;
+    const double total = ident.size() * wide + (ident.size() - 1) * gap;
+    double x = -total * 0.5;
+    for (char ch : ident) {
+        paint_glyph(mesh, lat, lon, hdg, elev, along, x, tall, wide, ch);
+        x += wide + gap;
+    }
+}
+
+void add_faa_markings(AirportMesh& mesh, const Runway& rw) {
+    const double elev = std::max(rw.le_elev_m, rw.he_elev_m) + 0.48;
+    const double half = rw.width_m * 0.5;
+    // Edge + centerline once from the LE end.
+    mark_rect(mesh, rw.le_lat, rw.le_lon, rw.heading_deg, elev, 0, rw.length_m, half - 1.1,
+              half - 0.15, 0.95f, 0.95f, 0.93f);
+    mark_rect(mesh, rw.le_lat, rw.le_lon, rw.heading_deg, elev, 0, rw.length_m, -(half - 0.15),
+              -(half - 1.1), 0.95f, 0.95f, 0.93f);
+    for (double d = 12; d < rw.length_m - 20; d += 60.0)
+        mark_rect(mesh, rw.le_lat, rw.le_lon, rw.heading_deg, elev, d,
+                  std::min(d + 36.0, rw.length_m - 8), -0.22, 0.22, 0.96f, 0.96f, 0.94f);
+
+    auto one_end = [&](double lat, double lon, double hdg, const std::string& ident) {
+        // Threshold bars: 8 (150 ft) or 12 (200 ft) stripes, 45 m × 1.8 m.
+        const int nb = rw.width_m >= 55.0 ? 12 : 8;
+        const double bar_w = 1.8;
+        const double span = half - 2.0;
+        for (int i = 0; i < nb; ++i) {
+            const double t = (i + 0.5) / nb;
+            const double x = -span + t * 2.0 * span;
+            if (std::fabs(x) < 3.0)
+                continue; // keep the centerline gap
+            mark_rect(mesh, lat, lon, hdg, elev, 3.0, 48.0, x - bar_w * 0.5, x + bar_w * 0.5, 0.97f,
+                      0.97f, 0.95f);
+        }
+        // Designators just past the bars (photo: big "4R").
+        paint_ident(mesh, lat, lon, hdg, elev, 58.0, ident);
+        // Aiming points ~400 m (or 300 m if short).
+        const double aim = rw.length_m >= 2400.0 ? 400.0 : 300.0;
+        if (rw.length_m > aim + 80.0) {
+            mark_rect(mesh, lat, lon, hdg, elev, aim, aim + 45.0, 6.0, 15.0, 0.96f, 0.96f, 0.94f);
+            mark_rect(mesh, lat, lon, hdg, elev, aim, aim + 45.0, -15.0, -6.0, 0.96f, 0.96f, 0.94f);
+        }
+        // TDZ pairs every 150 m for the first 900 m on instrument runways.
+        for (int k = 1; k <= 5; ++k) {
+            const double d = 150.0 * k;
+            if (d + 20.0 >= rw.length_m * 0.45)
+                break;
+            mark_rect(mesh, lat, lon, hdg, elev, d, d + 22.0, 8.0, 14.0, 0.95f, 0.95f, 0.93f);
+            mark_rect(mesh, lat, lon, hdg, elev, d, d + 22.0, -14.0, -8.0, 0.95f, 0.95f, 0.93f);
+        }
+    };
+    one_end(rw.le_lat, rw.le_lon, rw.heading_deg, rw.ident_le);
+    one_end(rw.he_lat, rw.he_lon, wrap360(rw.heading_deg + 180.0), rw.ident_he);
+    // Rubber deposits in the first 900 m each end (darker asphalt, not a marking).
+    strip_quad(mesh, rw.le_lat, rw.le_lon, rw.he_lat, rw.he_lon, rw.heading_deg, half * 0.35,
+               rw.le_elev_m + 0.42, rw.he_elev_m + 0.42, 0.10f, 0.09f, 0.09f, 0.f);
 }
 
 void push_light(Airport& a, double lat, double lon, double alt_m, float r, float g, float b,
@@ -118,6 +249,8 @@ void lights_for_runway(Airport& a, const Runway& rw) {
         0.1f, a.sw_threshold, LightKind::Threshold);
 
     auto approach = [&](double tlat, double tlon, double thdg, double telev, const std::string& sys) {
+        if (sys.empty() || sys == "NONE")
+            return;
         const double back = wrap360(thdg + 180.0);
         const double reach = (sys == "ALSF-2") ? 732.0 : 427.0; // 2400 / 1400 ft
         const double step = 30.0;
@@ -167,24 +300,34 @@ Taxiway parallel_taxi(const char* name, const Runway& rw, double perp_m) {
     return t;
 }
 
-Apron box_apron(const char* name, double lat, double lon, double hdg, double len_m, double wid_m,
-                double elev_unused) {
-    (void)elev_unused;
-    Apron a;
-    a.name = name;
-    double c[4][2];
+void ring_box(std::vector<std::pair<double, double>>& ring, double lat, double lon, double hdg,
+              double len_m, double wid_m) {
     const double hl = len_m * 0.5, hw = wid_m * 0.5;
     const double corners[4][2] = {{-hl, -hw}, {hl, -hw}, {hl, hw}, {-hl, hw}};
     for (int i = 0; i < 4; ++i) {
         double p1lat, p1lon, p2lat, p2lon;
         offset_m(lat, lon, hdg, corners[i][0], p1lat, p1lon);
         offset_m(p1lat, p1lon, hdg + 90.0, corners[i][1], p2lat, p2lon);
-        c[i][0] = p2lat;
-        c[i][1] = p2lon;
-        a.ring.push_back({p2lat, p2lon});
+        ring.push_back({p2lat, p2lon});
     }
-    (void)c;
+}
+
+Apron box_apron(const char* name, double lat, double lon, double hdg, double len_m, double wid_m,
+                double elev_unused) {
+    (void)elev_unused;
+    Apron a;
+    a.name = name;
+    ring_box(a.ring, lat, lon, hdg, len_m, wid_m);
     return a;
+}
+
+Building box_building(const char* name, double lat, double lon, double hdg, double len_m,
+                      double wid_m, float height_m) {
+    Building b;
+    b.name = name;
+    b.height_m = height_m;
+    ring_box(b.ring, lat, lon, hdg, len_m, wid_m);
+    return b;
 }
 
 } // namespace
@@ -232,6 +375,7 @@ Airport ksea_public() {
     a.taxiways.push_back(parallel_taxi("T", a.runways[0], 90.0));
     a.taxiways.push_back(parallel_taxi("B", a.runways[1], 80.0));
     a.aprons.push_back(box_apron("main", a.arp_lat, a.arp_lon + 0.004, 90.0, 800, 400, a.elev_m));
+    a.buildings.push_back(box_building("main-term", a.arp_lat, a.arp_lon + 0.004, 90.0, 420, 90, 22.f));
     generate_lights(a);
     return a;
 }
@@ -258,6 +402,7 @@ Airport ksfo_public() {
     a.taxiways.push_back(parallel_taxi("B", a.runways[1], -80.0));
     a.taxiways.push_back(parallel_taxi("C", a.runways[2], 70.0));
     a.aprons.push_back(box_apron("terminal", 37.6165, -122.3860, 30.0, 900, 500, a.elev_m));
+    a.buildings.push_back(box_building("ITB", 37.6165, -122.3860, 30.0, 380, 80, 24.f));
     generate_lights(a);
     return a;
 }
@@ -284,6 +429,7 @@ Airport klas_public() {
     a.taxiways.push_back(parallel_taxi("B", a.runways[1], -80.0));
     a.taxiways.push_back(parallel_taxi("S", a.runways[2], 70.0));
     a.aprons.push_back(box_apron("D-gates", 36.0845, -115.1520, 90.0, 1100, 450, a.elev_m));
+    a.buildings.push_back(box_building("D", 36.0845, -115.1520, 90.0, 500, 80, 20.f));
     generate_lights(a);
     return a;
 }
@@ -310,6 +456,7 @@ Airport klax_public() {
     a.taxiways.push_back(parallel_taxi("C", a.runways[1], -80.0));
     a.taxiways.push_back(parallel_taxi("S", a.runways[2], 70.0));
     a.aprons.push_back(box_apron("TBIT", 33.9435, -118.4085, 69.0, 1200, 500, a.elev_m));
+    a.buildings.push_back(box_building("TBIT", 33.9435, -118.4085, 69.0, 520, 90, 28.f));
     generate_lights(a);
     return a;
 }
@@ -336,6 +483,39 @@ Airport kjfk_public() {
     a.taxiways.push_back(parallel_taxi("B", a.runways[1], -80.0));
     a.taxiways.push_back(parallel_taxi("Z", a.runways[3], 80.0));
     a.aprons.push_back(box_apron("T4", 40.6445, -73.7780, 40.0, 1000, 450, a.elev_m));
+    a.buildings.push_back(box_building("T4", 40.6445, -73.7780, 40.0, 380, 80, 22.f));
+    a.buildings.push_back(box_building("T5", 40.6410, -73.7870, 121.0, 280, 70, 18.f));
+    a.buildings.push_back(box_building("T8", 40.6468, -73.7895, 121.0, 260, 70, 20.f));
+    generate_lights(a);
+    return a;
+}
+
+Airport kbos_public() {
+    Airport a;
+    a.icao = "KBOS";
+    a.name = "Boston Logan International";
+    a.attribution =
+        "OurAirports runways.csv (public domain) + FAA charted ALS (ALSF-2 04R/15R, "
+        "MALSR 04L/33L/27); taxi/apron schematic + OSM aeroway=* / building=* (ODbL)";
+    a.arp_lat = 42.3656;
+    a.arp_lon = -71.0096;
+    a.elev_m = 20.0 * geo::kFtToM;
+    a.runways.push_back(make_runway("04L", "22R", 42.35157, -71.01625, 19.0, 35.0, 7864.0, 150.0,
+                                    "MALSR", "MALSR"));
+    a.runways.push_back(make_runway("04R", "22L", 42.35106, -71.01153, 19.0, 35.0, 10006.0, 150.0,
+                                    "ALSF-2", "MALSR"));
+    a.runways.push_back(
+        make_runway("09", "27", 42.36056, -71.02361, 19.0, 93.0, 7001.0, 150.0, "MALSR", "MALSR"));
+    a.runways.push_back(make_runway("15R", "33L", 42.37444, -71.02389, 16.0, 150.0, 10083.0, 150.0,
+                                    "ALSF-2", "MALSR"));
+    a.runways.push_back(make_runway("15L", "33R", 42.37278, -71.01694, 16.0, 150.0, 2557.0, 100.0,
+                                    "NONE", "NONE"));
+    a.taxiways.push_back(parallel_taxi("N", a.runways[0], 80.0));
+    a.taxiways.push_back(parallel_taxi("E", a.runways[1], -80.0));
+    a.aprons.push_back(box_apron("A-gates", 42.3668, -71.0205, 50.0, 900, 420, a.elev_m));
+    a.buildings.push_back(box_building("A", 42.3668, -71.0205, 50.0, 360, 80, 22.f));
+    a.buildings.push_back(box_building("B", 42.3642, -71.0178, 50.0, 240, 70, 18.f));
+    a.buildings.push_back(box_building("E", 42.3695, -71.0228, 150.0, 280, 70, 20.f));
     generate_lights(a);
     return a;
 }
@@ -354,18 +534,75 @@ Airport airport_by_icao(const std::string& icao) {
         return klax_public();
     if (id == "KJFK")
         return kjfk_public();
+    if (id == "KBOS")
+        return kbos_public();
     throw std::runtime_error("no built-in layout for " + icao);
 }
 
 std::vector<Airport> all_public_airports() {
-    return {ksea_public(), ksfo_public(), klas_public(), klax_public(), kjfk_public()};
+    return {ksea_public(), ksfo_public(), klas_public(), klax_public(), kjfk_public(),
+            kbos_public()};
+}
+
+bool runway_shot_pose(const Airport& a, const std::string& ident, double dist_nm, ShotPose& out) {
+    std::string id = ident;
+    for (char& c : id)
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    for (const auto& rw : a.runways) {
+        const bool le = rw.ident_le == id;
+        const bool he = rw.ident_he == id;
+        if (!le && !he)
+            continue;
+        const double lat0 = le ? rw.le_lat : rw.he_lat;
+        const double lon0 = le ? rw.le_lon : rw.he_lon;
+        const double hdg = le ? rw.heading_deg : wrap360(rw.heading_deg + 180.0);
+        const double elev_ft = (le ? rw.le_elev_m : rw.he_elev_m) * geo::kMToFt;
+        out.icao = a.icao;
+        out.rwy = id;
+        out.dist_nm = dist_nm;
+        out.hdg_true_deg = hdg;
+        if (dist_nm <= 0.01) {
+            // Lined up looking at the designators (threshold bars + 4R ahead).
+            offset_m(lat0, lon0, hdg, 12.0, out.lat, out.lon);
+            out.alt_ft = elev_ft + 14.0;
+            out.pitch_deg = 0;
+        } else {
+            const double back = wrap360(hdg + 180.0);
+            offset_m(lat0, lon0, back, dist_nm * 1852.0, out.lat, out.lon);
+            out.alt_ft = elev_ft + 14.0 + dist_nm * 318.0; // 3°
+            out.pitch_deg = -3.0;
+        }
+        return true;
+    }
+    return false;
+}
+
+ShotPose parse_shot_at(const std::string& spec) {
+    std::string s = spec;
+    for (char& c : s)
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    const auto c1 = s.find(':');
+    if (c1 == std::string::npos)
+        throw std::runtime_error("shot --at needs ICAO:RWY[:dist_nm]");
+    ShotPose p;
+    p.icao = s.substr(0, c1);
+    const auto c2 = s.find(':', c1 + 1);
+    p.rwy = c2 == std::string::npos ? s.substr(c1 + 1) : s.substr(c1 + 1, c2 - c1 - 1);
+    p.dist_nm = 0;
+    if (c2 != std::string::npos)
+        p.dist_nm = std::stod(s.substr(c2 + 1));
+    const Airport a = airport_by_icao(p.icao);
+    if (!runway_shot_pose(a, p.rwy, p.dist_nm, p))
+        throw std::runtime_error("no runway " + p.rwy + " at " + p.icao);
+    return p;
 }
 
 std::string overpass_aeroway_query(double south, double west, double north, double east) {
     std::ostringstream o;
-    o << "[out:json][timeout:25];(way[\"aeroway\"=\"taxiway\"](" << south << "," << west << ","
+    o << "[out:json][timeout:40];(way[\"aeroway\"=\"taxiway\"](" << south << "," << west << ","
       << north << "," << east << ");way[\"aeroway\"=\"apron\"](" << south << "," << west << ","
-      << north << "," << east << "););out geom;";
+      << north << "," << east << ");way[\"building\"](" << south << "," << west << "," << north
+      << "," << east << "););out geom;";
     return o.str();
 }
 
@@ -393,12 +630,34 @@ int merge_osm_json(Airport& a, const std::string& json) {
         auto g = json.find("\"geometry\"", pos);
         if (g == std::string::npos)
             break;
-        auto kind_pos = json.rfind("aeroway", g);
         std::string kind = "taxiway";
-        if (kind_pos != std::string::npos && g - kind_pos < 400) {
-            if (json.find("apron", kind_pos) < g)
-                kind = "apron";
+        float bldg_h = 12.f;
+        const auto window = json.rfind("{", g);
+        const std::string tags =
+            window != std::string::npos && g > window ? json.substr(window, g - window) : "";
+        if (tags.find("\"building\"") != std::string::npos)
+            kind = "building";
+        else if (tags.find("apron") != std::string::npos)
+            kind = "apron";
+        auto read_num = [&](std::size_t key) -> float {
+            auto colon = tags.find(':', key);
+            if (colon == std::string::npos)
+                return 0.f;
+            const char* p = tags.c_str() + colon + 1;
+            while (*p == ' ' || *p == '\t' || *p == '"')
+                ++p;
+            return static_cast<float>(std::strtod(p, nullptr));
+        };
+        auto hp = tags.find("\"height\"");
+        if (hp != std::string::npos) {
+            bldg_h = read_num(hp);
+        } else {
+            auto lp = tags.find("building:levels");
+            if (lp != std::string::npos)
+                bldg_h = read_num(lp) * 3.5f;
         }
+        if (bldg_h < 3.f)
+            bldg_h = 12.f;
         auto arr = json.find('[', g);
         if (arr == std::string::npos)
             break;
@@ -430,7 +689,13 @@ int merge_osm_json(Airport& a, const std::string& json) {
             p = std::max(latp, lonp) + 5;
         }
         if (pts.size() >= 2) {
-            if (kind == "apron") {
+            if (kind == "building") {
+                Building b;
+                b.name = "osm";
+                b.ring = std::move(pts);
+                b.height_m = bldg_h;
+                a.buildings.push_back(std::move(b));
+            } else if (kind == "apron") {
                 Apron ap;
                 ap.name = "osm-apron";
                 ap.ring = std::move(pts);
@@ -540,13 +805,14 @@ int write_airport_geojson(const Airport& a, const std::string& path) {
     return out ? 1 : 0;
 }
 
-AirportMesh build_airport_mesh(const Airport& a) {
+AirportMesh build_airport_mesh(const Airport& a, bool buildings, bool markings) {
     AirportMesh mesh;
     for (const auto& rw : a.runways) {
         strip_quad(mesh, rw.le_lat, rw.le_lon, rw.he_lat, rw.he_lon, rw.heading_deg,
-                   rw.width_m * 0.5, rw.le_elev_m + 0.4, rw.he_elev_m + 0.4, 0.16f, 0.16f, 0.17f);
-        strip_quad(mesh, rw.le_lat, rw.le_lon, rw.he_lat, rw.he_lon, rw.heading_deg, 0.6,
-                   rw.le_elev_m + 0.45, rw.he_elev_m + 0.45, 0.75f, 0.75f, 0.70f);
+                   rw.width_m * 0.5, rw.le_elev_m + 0.4, rw.he_elev_m + 0.4, 0.16f, 0.16f, 0.17f,
+                   0.f);
+        if (markings)
+            add_faa_markings(mesh, rw);
     }
     for (const auto& ap : a.aprons) {
         if (ap.ring.size() < 3)
@@ -565,7 +831,8 @@ AirportMesh build_airport_mesh(const Airport& a) {
             const auto& p0 = ap.ring[i];
             const auto& p1 = ap.ring[(i + 1) % ap.ring.size()];
             add_tri(mesh, C, geo::lla_to_ecef(p0.first, p0.second, a.elev_m + 0.3),
-                    geo::lla_to_ecef(p1.first, p1.second, a.elev_m + 0.3), u, 0.28f, 0.27f, 0.25f);
+                    geo::lla_to_ecef(p1.first, p1.second, a.elev_m + 0.3), u, 0.28f, 0.27f, 0.25f,
+                    2.f);
         }
     }
     for (const auto& tx : a.taxiways) {
@@ -579,8 +846,50 @@ AirportMesh build_airport_mesh(const Airport& a) {
                 (lon1 - lon0) * geo::kDeg * kR * std::cos(geo::deg2rad((lat0 + lat1) * 0.5));
             const double hdg = wrap360(geo::rad2deg(std::atan2(dlon, dlat)));
             strip_quad(mesh, lat0, lon0, lat1, lon1, hdg, tx.width_m * 0.5, a.elev_m + 0.35,
-                       a.elev_m + 0.35, 0.22f, 0.22f, 0.20f);
+                       a.elev_m + 0.35, 0.22f, 0.22f, 0.20f, 2.f);
+            if (markings) {
+                mark_rect(mesh, lat0, lon0, hdg, a.elev_m + 0.46, 78.0, 79.2, -tx.width_m * 0.45,
+                          tx.width_m * 0.45, 0.92f, 0.78f, 0.12f);
+                mark_rect(mesh, lat0, lon0, hdg, a.elev_m + 0.46, 80.4, 81.6, -tx.width_m * 0.45,
+                          tx.width_m * 0.45, 0.92f, 0.78f, 0.12f);
+            }
         }
+    }
+    constexpr int kMaxBuildings = 280;
+    int nb = 0;
+    for (const auto& b : a.buildings) {
+        if (!buildings || nb >= kMaxBuildings)
+            break;
+        if (b.ring.size() < 3)
+            continue;
+        double clat = 0, clon = 0;
+        for (const auto& p : b.ring) {
+            clat += p.first;
+            clon += p.second;
+        }
+        clat /= static_cast<double>(b.ring.size());
+        clon /= static_cast<double>(b.ring.size());
+        const float h = std::max(6.f, std::min(b.height_m, 80.f));
+        const double z0 = a.elev_m + 0.5;
+        const double z1 = z0 + h;
+        geo::Ecef e, n, u;
+        geo::ecef_to_enu_axes(clat, clon, e, n, u);
+        const geo::Ecef roof_c = geo::lla_to_ecef(clat, clon, z1);
+        for (std::size_t i = 0; i < b.ring.size(); ++i) {
+            const auto& p0 = b.ring[i];
+            const auto& p1 = b.ring[(i + 1) % b.ring.size()];
+            const geo::Ecef A = geo::lla_to_ecef(p0.first, p0.second, z0);
+            const geo::Ecef B = geo::lla_to_ecef(p1.first, p1.second, z0);
+            const geo::Ecef C = geo::lla_to_ecef(p1.first, p1.second, z1);
+            const geo::Ecef D = geo::lla_to_ecef(p0.first, p0.second, z1);
+            geo::Ecef wn{B.x - A.x, B.y - A.y, B.z - A.z};
+            // Cheap wall normal: cross(edge, up)
+            geo::Ecef nn{wn.y * u.z - wn.z * u.y, wn.z * u.x - wn.x * u.z, wn.x * u.y - wn.y * u.x};
+            add_tri(mesh, A, B, C, nn, 0.62f, 0.58f, 0.52f, 3.f);
+            add_tri(mesh, A, C, D, nn, 0.62f, 0.58f, 0.52f, 3.f);
+            add_tri(mesh, roof_c, D, C, u, 0.28f, 0.30f, 0.32f, 4.f);
+        }
+        ++nb;
     }
     return mesh;
 }

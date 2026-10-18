@@ -53,7 +53,7 @@ numbers in committed airport TOML are **ours**, not RSI's.
 | In-cloud fog | Thick vis inside 125/126/127 | **ok** | EXP2 × 2.4 when eye MSL is between ceiling and top |
 | 131 display 0/1/2 | Channel off / on / standby | **gap** | Decoded, windows always on |
 | Channel geometry | 3 frusta, ~50°×32.5°, ±35.5° / ±35.25° | **partial** | Shared-eye + heading offset. No off-axis / NLIM / edge blend |
-| Airport lights | Edge, CL, ALS, PAPI, taxi | **partial** | Edge/CL/ALS/threshold on KSEA KSFO KLAS KLAX KJFK. PAPI/taxi **gap** |
+| Airport lights | Edge, CL, ALS, PAPI, taxi | **partial** | Edge/CL/ALS/threshold on KSEA KSFO KLAS KLAX KJFK KBOS. PAPI/taxi **gap** |
 | Terrain / imagery | CERTS + NX tiles | **n/a** | Rebuilt from GLO-30/3DEP + NAIP/S2. Different pixels, same role |
 | Airport meshes | NX airport DB | **n/a** | Rebuilt from OurAirports + OSM. No RSI geometry |
 
@@ -67,15 +67,26 @@ numbers in committed airport TOML are **ours**, not RSI's.
 
 ## Image quality (allowed deltas)
 
-These must **not** change what is in the scene, only how sharp it is.
+These must **not** change what the host put in the scene — only how sharp
+or deep it is. Expensive levers are TOML toggles; `render.quality =
+"gtx980ti"` (default) or `"rtx"`.
 
 | Lever | Status |
 |---|---|
 | 4× MSAA (`render.msaa`) | **ok** — GL 3.3 / Maxwell-safe |
 | Anisotropic filter (`render.aniso`, default 16) | **ok** — DEM / globe drapes |
 | Mipmapped drapes | **ok** |
+| FAA AC 150/5340-1 markings | **ok** — geometry (threshold, 5×7 numbers/LRC, aiming, TDZ, CL, edge, hold-short). Stays sharp at grazing angles; no committed textures |
+| Asphalt / rubber / grass detail | **partial** — hash+land-class noise. `scripts/fetch-textures.sh` pulls CC0 Poly Haven 1K JPGs into `cache/textures/` (never committed); shader fallback if absent |
+| OSM buildings | **partial** — extruded footprints + schematic terminals. LOD cap 280. Instancing later |
+| Analytic sky + aerial perspective | **partial** — Preetham-like dome, sun disc, moon+stars at night, EXP2 fog. Not a full Bruneton LUT |
+| Cloud soft edge / lighting | **partial** — hash edge + sun wrap on the weather-round decks |
+| HDR + ACES | **ok** — filmic in every forward shader; `render.exposure` |
+| SSAO | **partial** — cheap wall darkening when `render.ssao` (rtx on, 980 Ti off). No depth post-pass |
+| Sun shadows | **gap** — `render.shadows` toggle only; CSM not drawn (980 Ti budget) |
 | GPU point sprites for lights | **ok** — GLSL 120 points (no PointSprite / POINT_SMOOTH); still step 0–5 |
 | GL compatibility (not Core) | **ok** — Linux leaves the context version unset (NVIDIA 4.6 compat). Elsewhere 3.3 + `COMPATIBILITY_PROFILE_BIT`. Scene lighting/fog/points are shaders so a CORE context does not emit `invalid enumerant` |
+| `--screenshot PATH --at ICAO:RWY[:nm]` | **ok** — Raster FOV 50×32.5; front 0 / left +35.515 / right −35.25. `KJFK:04R:0` lined-up, `:3` = 3 nm final |
 
 ## Channel / desk
 

@@ -109,6 +109,34 @@ xt4::FloatFmt parse_float_fmt(const std::string& s) {
     throw std::runtime_error("float_format must be auto|vax|ieee, got " + s);
 }
 
+void apply_quality_preset(RenderConfig& r, const std::string& name) {
+    r.quality = name;
+    if (name == "rtx") {
+        r.msaa = std::max(r.msaa, 4);
+        r.aniso = std::max(r.aniso, 16);
+        r.hdr = true;
+        r.atmosphere = true;
+        r.markings = true;
+        r.detail_textures = true;
+        r.buildings = true;
+        r.ssao = true;
+        r.shadows = true;
+        r.exposure = 1.05f;
+        return;
+    }
+    // gtx980ti (default): 60 Hz × 3 on 6 GB Maxwell.
+    r.msaa = r.msaa > 0 ? std::min(r.msaa, 4) : 2;
+    r.aniso = std::min(std::max(r.aniso, 8), 16);
+    r.hdr = true;
+    r.atmosphere = true;
+    r.markings = true;
+    r.detail_textures = true;
+    r.buildings = true;
+    r.ssao = false;
+    r.shadows = false;
+    r.exposure = 1.0f;
+}
+
 AppConfig default_config() {
     AppConfig c;
     ChannelConfig front, left, right;
@@ -153,12 +181,33 @@ static void fill_render(RenderConfig& r, const std::unordered_map<std::string, s
         r.window_title = kv.at("render.window_title");
     if (kv.count("render.vsync"))
         parse_bool(kv.at("render.vsync"), r.vsync);
+    if (kv.count("render.quality")) {
+        r.quality = kv.at("render.quality");
+        if (r.quality != "custom")
+            apply_quality_preset(r, r.quality);
+    }
     if (kv.count("render.msaa"))
         r.msaa = std::stoi(kv.at("render.msaa"));
     if (kv.count("render.aniso"))
         r.aniso = std::stoi(kv.at("render.aniso"));
     if (kv.count("render.gl_debug"))
         parse_bool(kv.at("render.gl_debug"), r.gl_debug);
+    if (kv.count("render.hdr"))
+        parse_bool(kv.at("render.hdr"), r.hdr);
+    if (kv.count("render.atmosphere"))
+        parse_bool(kv.at("render.atmosphere"), r.atmosphere);
+    if (kv.count("render.markings"))
+        parse_bool(kv.at("render.markings"), r.markings);
+    if (kv.count("render.detail_textures"))
+        parse_bool(kv.at("render.detail_textures"), r.detail_textures);
+    if (kv.count("render.buildings"))
+        parse_bool(kv.at("render.buildings"), r.buildings);
+    if (kv.count("render.ssao"))
+        parse_bool(kv.at("render.ssao"), r.ssao);
+    if (kv.count("render.shadows"))
+        parse_bool(kv.at("render.shadows"), r.shadows);
+    if (kv.count("render.exposure"))
+        r.exposure = static_cast<float>(std::stod(kv.at("render.exposure")));
 }
 
 static ChannelConfig fill_channel(const std::unordered_map<std::string, std::string>& kv) {
@@ -229,6 +278,14 @@ std::string dump_config(const AppConfig& cfg) {
     o << "render.msaa=" << cfg.render.msaa << "\n";
     o << "render.aniso=" << cfg.render.aniso << "\n";
     o << "render.gl_debug=" << (cfg.render.gl_debug ? "true" : "false") << "\n";
+    o << "render.quality=" << cfg.render.quality << "\n";
+    o << "render.hdr=" << (cfg.render.hdr ? "true" : "false") << "\n";
+    o << "render.atmosphere=" << (cfg.render.atmosphere ? "true" : "false") << "\n";
+    o << "render.markings=" << (cfg.render.markings ? "true" : "false") << "\n";
+    o << "render.detail_textures=" << (cfg.render.detail_textures ? "true" : "false") << "\n";
+    o << "render.buildings=" << (cfg.render.buildings ? "true" : "false") << "\n";
+    o << "render.ssao=" << (cfg.render.ssao ? "true" : "false") << "\n";
+    o << "render.shadows=" << (cfg.render.shadows ? "true" : "false") << "\n";
     for (const auto& ch : cfg.channels) {
         o << "channel " << ch.name << " hdg=" << ch.heading_offset_deg << " fov=" << ch.hfov_deg
           << "x" << ch.vfov_deg << " " << ch.width << "x" << ch.height

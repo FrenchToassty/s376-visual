@@ -111,8 +111,19 @@ contact `10.1.95.0/24` or `192.168.173.0/24`.
 | `--demo-weather` | demo plus 124/125/126/127/128 weather and a type-105 storm |
 | `-v` / `--debug` | verbose / per-packet hex |
 | `--gl-debug` | OSG per-attribute GL error checks (off in Release) |
+| `--quality NAME` | `gtx980ti` (default) / `rtx` / `custom` |
+| `--screenshot PATH` | write the first channel after a few frames and exit |
+| `--at ICAO:RWY[:nm]` | pose the eye (`KJFK:04R:0` lined-up, `:3` = 3 nm final) |
 | `--diagnostics` | dump config and build options |
 | `--doctor` | environment checks (local only) |
+
+Compare to Joey's Raster 4R photo on the hangar GPU (photo is reference
+only — never commit it):
+
+```bash
+./build/s376-visual --screenshot /tmp/jfk-04r.ppm --at KJFK:04R:0 --channel front
+./build/s376-visual --screenshot /tmp/bos-04r.ppm --at KBOS:04R:0 --channel front
+```
 
 `s376-doctor` never sends a packet off the machine. It reports on-disk
 `cache/<icao>` size for KSEA / KSFO / KLAS and a per-channel frame-time
@@ -216,10 +227,12 @@ the hangar NVIDIA box runs the compatibility profile that apt OSG uses.
 - `s376-cache` offline tile packer (synth, fetch, or GDAL GeoTIFF)
 - `s376-cache osm ICAO` Overpass taxi/apron pull (ODbL, stays in `cache/`)
 
-KSEA, KSFO, KLAS, KLAX, and KJFK runways (OurAirports) plus edge /
-centreline / approach light points are in the scene; intensity follows
-packet-112 steps 0–5. Taxi/apron graphs start schematic; fetch OSM when
-needed.
+KSEA, KSFO, KLAS, KLAX, KJFK, and KBOS runways (OurAirports) plus FAA
+AC 150/5340-1 painted markings and edge / centreline / approach light
+points are in the scene; intensity follows packet-112 steps 0–5.
+Taxi/apron/building graphs start schematic; `s376-cache osm ICAO` pulls
+Overpass `aeroway=*` and `building=*`. Quality presets: `gtx980ti`
+(default, 60 Hz × 3 on 6 GB Maxwell) and `rtx`.
 
 Not yet: NLIM, landing-light beams, remaining airports. The plan is in
 [docs/AIRPORTS.md](docs/AIRPORTS.md) and [docs/DESIGN.md](docs/DESIGN.md).

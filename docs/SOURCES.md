@@ -46,7 +46,9 @@ camera path rides the streamed mesh.
 | USDA NAIP (via USGS National Map) | US government work, public domain | same |
 | EOX Sentinel-2 cloudless | [CC BY 4.0](https://s2maps.eu/) + Copernicus Sentinel | same |
 | OurAirports runways.csv | public domain | airport TOML / `airport.hpp` |
-| OpenStreetMap aeroway=* | [ODbL](https://www.openstreetmap.org/copyright) | OSM taxi/apron ways; attribute OSM |
+| OpenStreetMap aeroway=* / building=* | [ODbL](https://www.openstreetmap.org/copyright) | OSM taxi/apron/building ways; attribute OSM |
+| Poly Haven 1K PBR (asphalt, concrete, grass, dirt) | [CC0 1.0](https://polyhaven.com/license) | `scripts/fetch-textures.sh` → `cache/textures/` (gitignored) |
+| ambientCG (optional extra maps) | [CC0 1.0](https://docs.ambientcg.com/license/) | same cache dir |
 
 Do **not** commit downloaded GeoTIFFs, JPEGs, or packed `cache/` trees.
 `cache/` and `*.tif` are gitignored. `s376-cache fetch` writes
@@ -66,8 +68,11 @@ Do **not** commit downloaded GeoTIFFs, JPEGs, or packed `cache/` trees.
 # preview the public URLs without downloading
 ./build/s376-cache fetch KSEA --dry-run
 
-# OSM taxi / apron ways (ODbL) — not committed
+# OSM taxi / apron / building ways (ODbL) — not committed
 ./build/s376-cache osm KSFO --out cache/KSFO
+
+# optional CC0 close-up detail (never committed)
+./scripts/fetch-textures.sh           # cache/textures/*.jpg
 ```
 
 `fetch` packs a LOD pyramid: high-res (~8 km, BC7 + mips) near the

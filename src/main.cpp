@@ -1,3 +1,4 @@
+#include "s376/airport.hpp"
 #include "s376/config.hpp"
 #include "s376/diagnostics.hpp"
 #include "s376/host.hpp"
@@ -12,6 +13,7 @@
 #include <chrono>
 #include <csignal>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -41,10 +43,34 @@ void usage() {
            "  -v, --verbose         console DEBUG\n"
            "  --debug               packet dumps + DEBUG\n"
            "  --gl-debug            OSG per-attribute GL error checks (off in Release)\n"
+           "  --quality NAME        gtx980ti | rtx | custom\n"
+           "  --screenshot PATH     write the first channel after a few frames and exit\n"
+           "  --at ICAO:RWY[:nm]    pose the eye (KJFK:04R:0 lined-up, :3 = 3 nm final)\n"
            "  --diagnostics         print a dump and exit\n"
            "  --doctor              environment checks and exit\n"
            "  --version             print version\n"
            "  -h, --help\n";
+}
+
+s376::HostState host_from_shot(const s376::ShotPose& p) {
+    s376::HostState h;
+    h.have_eyepoint = true;
+    h.eye.csn = s376::xt4::kEyepointCsn;
+    h.eye.minor_csn = -1;
+    h.eye.lat_deg = p.lat;
+    h.eye.lon_deg = p.lon;
+    h.eye.alt_ft = p.alt_ft;
+    h.eye.heading_deg = static_cast<float>(-p.hdg_true_deg);
+    h.eye.pitch_deg = static_cast<float>(p.pitch_deg);
+    h.eye.roll_deg = 0;
+    h.have_env = true;
+    h.env.tod_select = -1;
+    h.env.tod_hours = 14.5f;
+    h.env.visible_range_ft = 528000.f;
+    h.env.month = 6;
+    h.env.day = 21;
+    h.env.year = 2024;
+    return h;
 }
 
 } // namespace
@@ -63,6 +89,9 @@ int main(int argc, char** argv) {
     bool do_diag = false;
     bool do_doctor = false;
     double duration = -1;
+    std::string quality_override;
+    std::string screenshot_path;
+    std::string at_spec;
 
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -105,6 +134,12 @@ int main(int argc, char** argv) {
             debug = true;
         else if (a == "--gl-debug")
             gl_debug = true;
+        else if (a == "--quality")
+            quality_override = need(a.c_str());
+        else if (a == "--screenshot")
+            screenshot_path = need(a.c_str());
+        else if (a == "--at")
+            at_spec = need(a.c_str());
         else if (a == "--diagnostics")
             do_diag = true;
         else if (a == "--doctor")
@@ -140,6 +175,16 @@ int main(int argc, char** argv) {
         cfg.log.debug = true;
     if (gl_debug)
         cfg.render.gl_debug = true;
+    if (!quality_override.empty()) {
+        if (quality_override != "gtx980ti" && quality_override != "rtx" &&
+            quality_override != "custom") {
+            std::cerr << "--quality must be gtx980ti|rtx|custom\n";
+            return 2;
+        }
+        cfg.render.quality = quality_override;
+        if (quality_override != "custom")
+            s376::apply_quality_preset(cfg.render, quality_override);
+    }
     if (demo) {
         cfg.host.bind = "127.0.0.1:2300";
         cfg.host.allow_sim_lan = false;
@@ -164,6 +209,35 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    s376::ShotPose shot;
+    s376::HostState shot_host;
+    const bool have_shot = !at_spec.empty();
+    if (have_shot) {
+        try {
+            shot = s376::parse_shot_at(at_spec);
+        } catch (const std::exception& ex) {
+            std::cerr << ex.what() << "\n";
+            s376::log::shutdown();
+            return 2;
+        }
+        shot_host = host_from_shot(shot);
+        S376_LOG_INFO("ig", "shot %s:%s at %.4f,%.4f  %.0fft  hdg %.1f  pitch %.1f  %.2fnm",
+                      shot.icao.c_str(), shot.rwy.c_str(), shot.lat, shot.lon, shot.alt_ft,
+                      shot.hdg_true_deg, shot.pitch_deg, shot.dist_nm);
+    }
+    if (!screenshot_path.empty() && !have_shot) {
+        std::cerr << "--screenshot needs --at ICAO:RWY[:dist_nm]\n";
+        s376::log::shutdown();
+        return 2;
+    }
+    if (!screenshot_path.empty() && channel_name.empty())
+        channel_name = "front";
+    if (!screenshot_path.empty()) {
+        const auto parent = std::filesystem::path(screenshot_path).parent_path();
+        if (!parent.empty())
+            std::filesystem::create_directories(parent);
+    }
+
     const auto channels = s376::select_channels(cfg, channel_name);
     if (channels.empty()) {
         S376_LOG_ERROR("ig", "no channel matched '%s'",
@@ -181,18 +255,21 @@ int main(int argc, char** argv) {
     S376_LOG_INFO("ig", "HAT DEM %dx%d  %.3f,%.3f .. %.3f,%.3f", dem->w, dem->h, dem->west,
                   dem->south, dem->east, dem->north);
     std::thread synth_th;
-    try {
-        rx.start();
-    } catch (const std::exception& ex) {
-        S376_LOG_ERROR("ig", "host socket: %s", ex.what());
-        s376::log::shutdown();
-        return 1;
+    const bool live_host = screenshot_path.empty();
+    if (live_host) {
+        try {
+            rx.start();
+        } catch (const std::exception& ex) {
+            S376_LOG_ERROR("ig", "host socket: %s", ex.what());
+            s376::log::shutdown();
+            return 1;
+        }
     }
 
     s376::SynthConfig demo_cfg;
     demo_cfg.weather = demo_weather;
     const double demo_duration = duration < 0 ? 3600.0 : duration;
-    if (demo) {
+    if (demo && live_host) {
         S376_LOG_INFO("ig", "demo: in-process synth -> 127.0.0.1:2300 for %.1fs", demo_duration);
         synth_th = std::thread([demo_cfg, demo_duration] {
             try {
@@ -205,6 +282,7 @@ int main(int argc, char** argv) {
     }
 
     std::unique_ptr<s376::Renderer> rend;
+    int rc = 0;
     if (headless)
         rend = std::make_unique<s376::NullRenderer>();
     else
@@ -212,8 +290,10 @@ int main(int argc, char** argv) {
     if (!rend->begin(cfg, channels)) {
         S376_LOG_ERROR("ig", "renderer %s failed to start", rend->name().c_str());
         g_stop = true;
+        rc = 1;
     } else {
-        S376_LOG_INFO("ig", "renderer=%s views=%zu", rend->name().c_str(), rend->view_count());
+        S376_LOG_INFO("ig", "renderer=%s views=%zu quality=%s", rend->name().c_str(),
+                      rend->view_count(), cfg.render.quality.c_str());
     }
 
     const auto t0 = std::chrono::steady_clock::now();
@@ -232,11 +312,25 @@ int main(int argc, char** argv) {
                 break;
             }
         }
-        const auto host = state.load();
+        s376::HostState host = state.load();
+        if (have_shot)
+            host = shot_host;
         rend->frame(host);
         ++frames;
         if (headless)
             std::this_thread::sleep_for(std::chrono::duration<double>(period));
+        if (!screenshot_path.empty() && frames >= 6) {
+            if (!rend->capture(screenshot_path)) {
+                S376_LOG_ERROR("ig", "screenshot failed: %s", screenshot_path.c_str());
+                rc = 1;
+                g_stop = true;
+                rend->request_stop();
+                break;
+            }
+            S376_LOG_INFO("ig", "wrote %s", screenshot_path.c_str());
+            rend->request_stop();
+            break;
+        }
         if (frames % 300 == 0 && host.have_eyepoint) {
             S376_LOG_INFO("ig", "%s", s376::diagnostics_dump(cfg, &host).c_str());
         }
@@ -256,5 +350,5 @@ int main(int argc, char** argv) {
                       s376::diagnostics_dump(cfg, &host).c_str());
     }
     s376::log::shutdown();
-    return 0;
+    return rc;
 }

@@ -22,6 +22,9 @@ window_title = "s376-visual"
 vsync = true
 msaa = 4                  # 4x MSAA; 0 off. GL 3.3 / Maxwell-safe
 aniso = 16                # anisotropic filter on DEM/globe drapes
+quality = "gtx980ti"      # gtx980ti | rtx | custom
+# gtx980ti: hdr/atmosphere/markings/detail/buildings on; ssao+shadows off
+# rtx:     same plus cheap AO and a sun-shadow toggle (CSM not drawn yet)
 
 [log]
 verbose = false

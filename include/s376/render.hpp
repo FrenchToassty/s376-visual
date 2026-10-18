@@ -32,6 +32,7 @@ class Renderer {
     virtual void frame(const HostState& host) = 0;
     virtual bool done() const = 0;
     virtual void request_stop() {}
+    virtual bool capture(const std::string&) { return false; }
     virtual void end() = 0;
     virtual std::string name() const = 0;
     virtual std::size_t view_count() const { return 0; }

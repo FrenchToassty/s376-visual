@@ -181,10 +181,57 @@ void test_airport() {
     }
     CHECK(threw);
 
+    auto bos = s376::kbos_public();
+    CHECK(bos.icao == "KBOS");
+    CHECK(bos.runways.size() == 5);
+    CHECK(bos.runways[1].ident_le == "04R" && bos.runways[1].ident_he == "22L");
+    CHECK(bos.runways[1].approach_le == "ALSF-2");
+    CHECK(bos.runways[3].ident_le == "15R" && bos.runways[3].approach_le == "ALSF-2");
+    CHECK_NEAR(bos.arp_lat, 42.3656, 1e-4);
+    CHECK_NEAR(bos.runways[1].length_m, 10006.0 * s376::geo::kFtToM, 1.0);
+    CHECK(bos.buildings.size() >= 2);
+    check_runway_length(bos.runways[1]);
+    check_lights(bos, 200, 400);
+    check_mesh(bos);
+    CHECK(s376::airport_by_icao("kbos").icao == "KBOS");
+
     const auto all = s376::all_public_airports();
-    CHECK(all.size() == 5);
+    CHECK(all.size() == 6);
     CHECK(all[0].icao == "KSEA" && all[1].icao == "KSFO" && all[2].icao == "KLAS");
-    CHECK(all[3].icao == "KLAX" && all[4].icao == "KJFK");
+    CHECK(all[3].icao == "KLAX" && all[4].icao == "KJFK" && all[5].icao == "KBOS");
+
+    {
+        auto p0 = s376::parse_shot_at("KJFK:04R");
+        CHECK(p0.icao == "KJFK" && p0.rwy == "04R");
+        CHECK_NEAR(p0.dist_nm, 0.0, 1e-9);
+        CHECK_NEAR(p0.hdg_true_deg, 31.0, 0.6);
+        CHECK_NEAR(p0.pitch_deg, 0.0, 1e-9);
+        auto p3 = s376::parse_shot_at("kjfk:04r:3");
+        CHECK_NEAR(p3.dist_nm, 3.0, 1e-9);
+        CHECK_NEAR(p3.pitch_deg, -3.0, 1e-6);
+        CHECK(p3.alt_ft > p0.alt_ft + 800.0);
+        auto lined = s376::parse_shot_at("KBOS:04R:0");
+        CHECK(lined.icao == "KBOS" && lined.rwy == "04R");
+        CHECK_NEAR(lined.hdg_true_deg, 35.0, 0.6);
+        bool bad = false;
+        try {
+            (void)s376::parse_shot_at("KJFK");
+        } catch (const std::exception&) {
+            bad = true;
+        }
+        CHECK(bad);
+    }
+
+    {
+        const auto marked = s376::build_airport_mesh(jfk, true, true);
+        const auto bare = s376::build_airport_mesh(jfk, false, false);
+        CHECK(marked.verts.size() > bare.verts.size());
+        CHECK(marked.verts.size() % 3 == 0);
+        float saw_mark = 0;
+        for (const auto& v : marked.verts)
+            saw_mark = std::max(saw_mark, v.mat);
+        CHECK(saw_mark >= 1.f);
+    }
 
     const auto url = s376::overpass_aeroway_url(37.60, -122.40, 37.64, -122.35);
     CHECK(url.find("overpass-api.de") != std::string::npos);
@@ -196,6 +243,7 @@ void test_airport() {
     CHECK(url.find("%5B") != std::string::npos);
     const auto q = s376::overpass_aeroway_query(37.60, -122.40, 37.64, -122.35);
     CHECK(q.find("[out:json]") != std::string::npos);
+    CHECK(q.find("building") != std::string::npos);
     CHECK(!s376::curl_glob_safe(q));
     const auto cmd = s376::http_get_command(url, "/tmp/s376-osm-test.json");
     CHECK(cmd.find(" -g ") != std::string::npos);
@@ -214,11 +262,16 @@ void test_airport() {
         "{\"lat\":37.620,\"lon\":-122.380},{\"lat\":37.621,\"lon\":-122.379}]},"
         "{\"type\":\"way\",\"tags\":{\"aeroway\":\"apron\"},\"geometry\":["
         "{\"lat\":37.616,\"lon\":-122.386},{\"lat\":37.617,\"lon\":-122.386},"
-        "{\"lat\":37.617,\"lon\":-122.385},{\"lat\":37.616,\"lon\":-122.385}]}"
+        "{\"lat\":37.617,\"lon\":-122.385},{\"lat\":37.616,\"lon\":-122.385}]},"
+        "{\"type\":\"way\",\"tags\":{\"building\":\"yes\",\"height\":\"18\"},\"geometry\":["
+        "{\"lat\":37.618,\"lon\":-122.384},{\"lat\":37.6185,\"lon\":-122.384},"
+        "{\"lat\":37.6185,\"lon\":-122.383},{\"lat\":37.618,\"lon\":-122.383}]}"
         "]}";
-    CHECK(s376::merge_osm_json(osm, sample) == 2);
+    CHECK(s376::merge_osm_json(osm, sample) == 3);
     CHECK(osm.taxiways.size() == taxis0 + 1);
     CHECK(osm.aprons.size() == aprons0 + 1);
+    CHECK(!osm.buildings.empty());
+    CHECK_NEAR(osm.buildings.back().height_m, 18.0, 0.1);
     CHECK(osm.taxiways.back().path.size() == 2);
     CHECK(osm.aprons.back().ring.size() == 4);
     auto osm_mesh = s376::build_airport_mesh(osm);
@@ -233,7 +286,7 @@ void test_airport() {
     }
     s376::Airport from_file;
     from_file.icao = "KSFO";
-    CHECK(s376::try_merge_osm_file(from_file, tmp + "/osm.json") == 2);
+    CHECK(s376::try_merge_osm_file(from_file, tmp + "/osm.json") == 3);
     CHECK(s376::try_merge_osm_file(from_file, tmp + "/missing.json") == 0);
     CHECK(s376::try_load_osm(from_file, tmp) >= 0);
 

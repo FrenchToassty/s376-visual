@@ -1,0 +1,52 @@
+# Overlay / example for a newer GPU (hangar RTX 5060 Ti).
+# Use: s376-visual --config config/quality-rtx.toml
+# or   s376-visual --quality rtx
+#
+# Same Raster ViewAngles. Expensive levers on: SSAO (cheap baked), shadows
+# (toggle only — CSM is not drawn on Maxwell). MSAA 4 / AF 16 stay.
+
+[render]
+engine = "auto"
+earth_file = "data/earth/s376.earth"
+frame_rate = 60
+vsync = true
+quality = "rtx"
+msaa = 4
+aniso = 16
+hdr = true
+atmosphere = true
+markings = true
+detail_textures = true
+buildings = true
+ssao = true
+shadows = true
+exposure = 1.05
+
+[[channels]]
+name = "front"
+heading_offset_deg = 0.0
+hfov_deg = 50.0
+vfov_deg = 32.5
+width = 1920
+height = 1080
+enabled = true
+
+[[channels]]
+name = "left"
+heading_offset_deg = 35.515
+hfov_deg = 50.0
+vfov_deg = 32.5
+monitor = 1
+width = 1920
+height = 1080
+enabled = true
+
+[[channels]]
+name = "right"
+heading_offset_deg = -35.25
+hfov_deg = 50.0
+vfov_deg = 32.5
+monitor = 2
+width = 1920
+height = 1080
+enabled = true

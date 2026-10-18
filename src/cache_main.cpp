@@ -34,7 +34,7 @@ void usage() {
            "fetch downloads Copernicus GLO-30 (or USGS 3DEP) plus NAIP / Sentinel-2\n"
            "cloudless into BC1/BC7 tiles with mipmaps. High-res LOD near the field,\n"
            "coarse far out. Downloaded rasters stay under cache/ (gitignored).\n"
-           "osm pulls Overpass aeroway=taxiway|apron (ODbL) into DIR/osm.json.\n"
+           "osm pulls Overpass aeroway=taxiway|apron + building=* (ODbL) into DIR/osm.json.\n"
            "geojson writes a FeatureCollection for the osgEarth airport layer.\n"
            "Never points at 10.1.95.0/24 or 192.168.173.0/24.\n";
 }
@@ -239,7 +239,7 @@ int main(int argc, char** argv) {
             s376::Airport apt = s376::airport_by_icao(ref.icao);
             const int n = s376::try_merge_osm_file(apt, json_path);
             s376::write_airport_geojson(apt, dest + "/osm.geojson");
-            std::cout << "wrote " << json_path << "  " << n << " aeroway ways (ODbL — © OSM)\n";
+            std::cout << "wrote " << json_path << "  " << n << " OSM ways (ODbL — © OSM)\n";
             s376::log::shutdown();
             return 0;
         }

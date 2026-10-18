@@ -6,6 +6,50 @@ account may stop mid-run — treat this file as the source of truth.
 **PR:** https://github.com/joeylawell/s376-visual/pull/1
 **Branch:** `cursor/s376-visual-v1-6852`
 
+## Milestone: image quality (2026-10-18)
+
+Joey's phone photo of Raster on 4R (day, two collimated channels) is
+**reference only** — gitignored under `refs/` / `raster-*.jpg`. Do not
+commit it. Goal: match Raster's crisp markings / blue sky / horizon,
+beat the tiled grass, repeating asphalt, painted-dome clouds, and
+blocky terminals, stay at 60 Hz × 3 on a GTX 980 Ti.
+
+- **Markings:** FAA AC 150/5340-1 from OurAirports geometry — threshold
+  bars (8/12), 5×7 numbers/L/R/C, aiming points, TDZ, 36 m centerline,
+  0.9 m edges, yellow hold-short pair. Geometry, not a texture, so they
+  stay sharp at grazing angles. Aniso 16 on drapes. Rubber strip in the
+  first 900 m.
+- **Ground:** NAIP/S2 drape × land-class noise (grass/dirt) that
+  tightens up close. `scripts/fetch-textures.sh` pulls CC0 Poly Haven
+  1K JPGs into `cache/textures/` (never committed). Shader hash is the
+  offline fallback. Allowlist: ambientcg.com, polyhaven.com/.org.
+- **Buildings:** schematic terminals plus OSM `building=*` extrude
+  (height / building:levels), cap 280, walls+roof mats. `s376-cache
+  osm` Overpass query now includes `way["building"]`.
+- **Sky:** analytic Preetham-like dome (40 km, bin −1) using local up
+  (not ECEF Z), sun disc, moon + stars at night, EXP2 aerial
+  perspective. Clouds keep hash-soft edges + sun wrap.
+- **Lighting:** ACES in every forward shader. `render.quality`
+  `gtx980ti` (default: hdr/atmosphere/markings/detail/buildings on,
+  ssao+shadows off) vs `rtx` (ssao+shadows on). SSAO is cheap wall
+  darkening. Shadows are a toggle only — no CSM yet (980 Ti budget).
+- **Shot:** `s376-visual --screenshot PATH --at ICAO:RWY[:dist_nm]`
+  (`KJFK:04R:0` lined-up looking at the numbers, `:3` = 3 nm / 3°).
+  Raster FOV still 50×32.5; front 0 / left +35.515 / right −35.25.
+- **KBOS** added (04R ALSF-2, 10006×150, hdg 35°) so we can tell
+  whether Joey's photo is JFK or Logan. `all_public_airports()` is 6.
+
+Hangar check (real GPU):
+
+```bash
+./build/s376-visual --screenshot /tmp/jfk-04r.ppm --at KJFK:04R:0 --channel front
+./build/s376-visual --screenshot /tmp/bos-04r.ppm --at KBOS:04R:0 --channel front
+./build/s376-visual --screenshot /tmp/jfk-04r-3nm.ppm --at KJFK:04R:3 --channel front
+```
+
+This agent Xvfb often fails `GLXBadFBConfig`; the hangar box is the
+visual check.
+
 ## Milestone: Overpass glob + high-res fetch (2026-10-18)
 
 Joey's first real `s376-cache osm KSEA` died with
@@ -55,8 +99,17 @@ ignored SIGTERM (`timeout 8` needed `kill -9`).
 
 ## Verified in this run
 
-- `s376-tests`: **9273 passed, 0 failed** (plan_gl_display, glob-safe
-  Overpass URL/`-g`/POST, tiled fetch estimate, plus previous suite).
+- `s376-tests`: **10725 passed, 0 failed** (KBOS 04R ALSF-2, shot pose
+  `KJFK:04R:0` / `:3`, FAA marking vert delta, OSM `building=*` merge,
+  quality presets `gtx980ti`/`rtx`, Poly Haven allowlist, plus previous
+  suite).
+- `--headless --at KJFK:04R:0`: pose 40.6253,-73.7762, 26 ft, hdg 31°,
+  pitch 0. `--at KBOS:04R:3 --quality rtx`: 3 nm final, 987 ft, pitch −3°.
+- `s376-doctor`: 0 fail, 1 warn (osgEarth). Now lists `cache-kbos`.
+  mesh-build **1.58 ms / 26250 verts / 8728 lights** (six fields +
+  markings + schematic terminals). This agent's Xvfb still cannot
+  realize a GL window (`GLXBadFBConfig`); hangar GPU is the visual
+  check (`--screenshot /tmp/jfk-04r.ppm --at KJFK:04R:0`).
 - `timeout -k 2 3 --headless --demo --duration 3600`: exit **124**
   (SIGTERM honored; stopped after 178 frames). Previously hung 60+ s.
 - `s376-doctor`: 0 fail, 1 warn (osgEarth). Reports `cache-ksea` 4.9 KiB,
@@ -136,7 +189,8 @@ See [docs/PARITY.md](docs/PARITY.md).
 Same generator as KSEA: OurAirports runway ends, FAA-charted ALS
 (ALSF-2 on KLAX 24R/24L/25R/25L and KJFK 04L/22R/13L/13R/31L), schematic
 taxi/apron, GPU lights on packet-112 switches 1–4. `data/airports/{klax,kjfk}.toml`
-holds the public numbers. `all_public_airports()` is now five fields.
+holds the public numbers. `all_public_airports()` later grew to six
+with KBOS (image-quality round).
 
 ## Milestone: KSEA earth file (2026-10-18)
 

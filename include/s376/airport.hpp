@@ -54,6 +54,12 @@ struct Apron {
     std::vector<std::pair<double, double>> ring; // lat, lon, closed or open
 };
 
+struct Building {
+    std::string name;
+    std::vector<std::pair<double, double>> ring;
+    float height_m = 12;
+};
+
 struct Airport {
     std::string icao;
     std::string name;
@@ -68,6 +74,7 @@ struct Airport {
     std::vector<Runway> runways;
     std::vector<Taxiway> taxiways;
     std::vector<Apron> aprons;
+    std::vector<Building> buildings;
     std::vector<LightPoint> lights;
 };
 
@@ -77,10 +84,22 @@ struct MeshVert {
     float r = 0.18f;
     float g = 0.18f;
     float b = 0.19f;
+    float mat = 0; // 0 asphalt, 1 marking, 2 concrete, 3 wall, 4 roof
 };
 
 struct AirportMesh {
     std::vector<MeshVert> verts; // triangles, 3 at a time
+};
+
+struct ShotPose {
+    std::string icao;
+    std::string rwy;
+    double dist_nm = 0;
+    double lat = 0;
+    double lon = 0;
+    double alt_ft = 0;
+    double hdg_true_deg = 0;
+    double pitch_deg = 0;
 };
 
 // Public OurAirports runway ends + FAA-chart lighting systems. Taxi
@@ -91,8 +110,13 @@ Airport ksfo_public();
 Airport klas_public();
 Airport klax_public();
 Airport kjfk_public();
+Airport kbos_public();
 Airport airport_by_icao(const std::string& icao);
 std::vector<Airport> all_public_airports();
+
+// `KJFK:04R` or `KJFK:04R:3` (nm before the threshold on a 3° path).
+ShotPose parse_shot_at(const std::string& spec);
+bool runway_shot_pose(const Airport& a, const std::string& ident, double dist_nm, ShotPose& out);
 
 // Merge Overpass `out geom` JSON (aeroway=taxiway|apron). Returns ways added.
 int merge_osm_json(Airport& a, const std::string& json);
@@ -105,7 +129,7 @@ int try_merge_osm_file(Airport& a, const std::string& path);
 int try_load_osm(Airport& a, const std::string& cache_dir);
 
 void generate_lights(Airport& a);
-AirportMesh build_airport_mesh(const Airport& a);
+AirportMesh build_airport_mesh(const Airport& a, bool buildings = true, bool markings = true);
 
 // GeoJSON FeatureCollection (runways / taxi / aprons) for an osgEarth
 // feature_geom layer. Coordinates are lon,lat. Not an RSI extract.

@@ -54,7 +54,18 @@ struct RenderConfig {
     int msaa = 4;  // 0 off; 4 is GL 3.3 / Maxwell-safe
     int aniso = 16; // 1 off; 16 is typical
     bool gl_debug = false; // OSG per-attribute GL error checks + notify
+    std::string quality = "gtx980ti"; // gtx980ti | rtx | custom
+    bool hdr = true;              // ACES tonemap
+    bool atmosphere = true;       // analytic sky + aerial perspective
+    bool markings = true;         // FAA AC 150/5340-1 painted markings
+    bool detail_textures = true;  // procedural / CC0 asphalt+grass
+    bool buildings = true;        // OSM extruded footprints
+    bool ssao = false;            // cheap baked AO; full SSAO on rtx
+    bool shadows = false;         // 1-cascade sun; off on 980 Ti
+    float exposure = 1.0f;
 };
+
+void apply_quality_preset(RenderConfig& r, const std::string& name);
 
 struct LogConfig {
     bool verbose = false;

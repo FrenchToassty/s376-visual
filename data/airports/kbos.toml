@@ -1,0 +1,83 @@
+# KBOS — public geometry only.
+# Runway ends / lengths / widths: OurAirports runways.csv (public domain).
+# Lighting systems from the published FAA chart (ALSF-2 on 04R/15R,
+# MALSR on 04L/33L/27). Taxi / apron connectors in the binary are schematic
+# offsets; replace with `s376-cache osm KBOS` (Overpass aeroway=* + building=*,
+# ODbL). Packet-112 switch numbers are ours, not RSI's.
+#
+# Joey's Raster 4R daytime photo may be this field (hdg 35°, 10006×150,
+# ALSF-2) or KJFK 04R (hdg 31°, 8400×200, MALSR). Compare with
+# `s376-visual --screenshot /tmp/bos-04r.ppm --at KBOS:04R:0 --channel front`.
+
+icao = "KBOS"
+name = "Boston Logan International"
+arp_lat = 42.3656
+arp_lon = -71.0096
+elev_ft = 20
+attribution = "OurAirports + FAA charted ALS"
+
+[lights]
+edge_switch = 1
+centerline_switch = 2
+approach_switch = 3
+threshold_switch = 4
+
+[[runways]]
+ident_le = "04L"
+ident_he = "22R"
+le_lat = 42.35157
+le_lon = -71.01625
+le_elev_ft = 19
+heading_deg = 35.0
+length_ft = 7864
+width_ft = 150
+approach_le = "MALSR"
+approach_he = "MALSR"
+
+[[runways]]
+ident_le = "04R"
+ident_he = "22L"
+le_lat = 42.35106
+le_lon = -71.01153
+le_elev_ft = 19
+heading_deg = 35.0
+length_ft = 10006
+width_ft = 150
+approach_le = "ALSF-2"
+approach_he = "MALSR"
+
+[[runways]]
+ident_le = "09"
+ident_he = "27"
+le_lat = 42.36056
+le_lon = -71.02361
+le_elev_ft = 19
+heading_deg = 93.0
+length_ft = 7001
+width_ft = 150
+approach_le = "MALSR"
+approach_he = "MALSR"
+
+[[runways]]
+ident_le = "15R"
+ident_he = "33L"
+le_lat = 42.37444
+le_lon = -71.02389
+le_elev_ft = 16
+heading_deg = 150.0
+length_ft = 10083
+width_ft = 150
+approach_le = "ALSF-2"
+approach_he = "MALSR"
+
+[[runways]]
+ident_le = "15L"
+ident_he = "33R"
+le_lat = 42.37278
+le_lon = -71.01694
+le_elev_ft = 16
+heading_deg = 150.0
+length_ft = 2557
+width_ft = 100
+approach_le = "NONE"
+approach_he = "NONE"

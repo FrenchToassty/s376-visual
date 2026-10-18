@@ -74,6 +74,8 @@ void test_fetch() {
     CHECK(s376::safety::is_allowed_data_host("copernicus-dem-30m.s3.eu-central-1.amazonaws.com"));
     CHECK(s376::safety::is_allowed_data_host("elevation.nationalmap.gov"));
     CHECK(s376::safety::is_allowed_data_host("tiles.maps.eox.at"));
+    CHECK(s376::safety::is_allowed_data_host("dl.polyhaven.org"));
+    CHECK(s376::safety::is_allowed_data_host("ambientcg.com"));
     CHECK(!s376::safety::is_allowed_data_host("10.1.95.1"));
 
     s376::FetchRequest req;

@@ -18,6 +18,7 @@ jobs:
         run: |
           bash -n scripts/setup-mint.sh
           bash -n scripts/build-osgearth.sh
+          bash -n scripts/fetch-textures.sh
           ./scripts/setup-mint.sh --dry-run --skip-apt --no-desktop | head
       - name: configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
@@ -36,6 +37,8 @@ jobs:
         run: |
           ./build/s376-visual --headless --demo --duration 2 --bind 127.0.0.1:2300 -c config/s376-visual.toml
           ./build/s376-visual --headless --demo-weather --duration 2 --bind 127.0.0.1:2300 -c config/s376-visual.toml
+          ./build/s376-visual --headless --at KJFK:04R:0 --duration 0.3 --bind 127.0.0.1:2300 -c config/s376-visual.toml
+          ./build/s376-visual --headless --at KBOS:04R:3 --quality rtx --duration 0.3 --bind 127.0.0.1:2300 -c config/s376-visual.toml
       - name: SIGTERM stops the IG
         run: |
           set +e
