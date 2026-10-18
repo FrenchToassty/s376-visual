@@ -35,9 +35,13 @@ constexpr std::array<float, kIntensitySteps> kEdge = {0.35f, 0.55f, 0.68f, 0.92f
 
 constexpr float kBaseSizePx = 2.5f;
 constexpr float kNoonSizePx = 2.8f;
-constexpr float kSizeMultNear = 12.f; // at 0 ft HAT
+constexpr float kSizeMultNear = 12.f; // at 0 ft HAT, *near* lights only
 constexpr float kSizeMultFar = 1.f;   // by 500 ft HAT
 constexpr float kSizeEaseFt = 500.f;
+// HAT boost eases to the Raster 2.5 px floor by this slant range.
+// Distant lights (22L ALS on a 04R short-final, taxi on the horizon)
+// must stay ~2.5 px and never grow with range.
+constexpr float kSizeNearM = 350.f;
 constexpr float kMaxRangeFt = 250000.f;
 
 constexpr double kBeaconPeriodS = 1.5;
@@ -57,9 +61,16 @@ float intensity(LightKind kind, int step); // 0 if step <= 0
 float tod_visibility(LightKind kind, float tod_hours);
 float size_mult_hat(float hat_ft);
 float base_size_px(float tod_hours);
-float point_size_px(float tod_hours, float hat_ft);
+// HAT boost applies only inside kSizeNearM. `range_m <= 0` is the near
+// size (used as the shader's uPointSize). Far size is always base_size_px.
+float point_size_px(float tod_hours, float hat_ft, float range_m = 0.f);
+// PAPI stays a bit larger than the 2.5 px floor so 2W2R reads at 0.6 nm
+// without letting horizon ALS grow. Other kinds stay at 1.
+float type_size_boost(LightKind kind);
 float type_range_scale(LightKind kind); // 1 = full kMaxRangeFt
 float max_range_m();
+// Inverse-square-ish fade; approach/PAPI keep a readable floor at 3 nm.
+float range_visibility(LightKind kind, float range_m);
 
 // PAPI 4-box: box 0 inboard (lowest angle) … box 3 outboard. 20' of arc
 // between units. White when the eye is above that unit's setting.

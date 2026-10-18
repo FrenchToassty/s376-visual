@@ -1,3 +1,4 @@
+#include "s376/airport.hpp"
 #include "s376/lights.hpp"
 #include "s376/tod.hpp"
 
@@ -74,12 +75,28 @@ void test_lights() {
     CHECK_NEAR(base_size_px(12.f), 2.8, 1e-4);
     CHECK_NEAR(base_size_px(0.f), 2.5, 1e-4);
     CHECK_NEAR(point_size_px(12.f, 0.f), 2.8 * 12.0, 1e-3);
+    CHECK_NEAR(point_size_px(12.f, 0.f, 0.f), 2.8 * 12.0, 1e-3);
+    // Distant lights clamp to the Raster 2.5–2.8 px floor and never grow
+    // with range (22L ALS / taxi on a 04R short-final horizon).
+    CHECK_NEAR(point_size_px(12.f, 0.f, kSizeNearM), 2.8, 1e-3);
+    CHECK_NEAR(point_size_px(12.f, 0.f, 5000.f), 2.8, 1e-3);
+    CHECK_NEAR(point_size_px(12.f, 204.f, 4000.f), base_size_px(12.f), 1e-3);
+    CHECK(point_size_px(14.5f, 204.f, 350.f) < point_size_px(14.5f, 204.f, 50.f));
+    CHECK(point_size_px(14.5f, 204.f, 4000.f) < 3.2f);
+    CHECK(range_visibility(s376::LightKind::Approach, 0.f) > 0.95f);
+    CHECK(range_visibility(s376::LightKind::Approach, 1200.f) > 0.25f);
+    CHECK(range_visibility(s376::LightKind::Vasi, 5000.f) >
+          range_visibility(s376::LightKind::TaxiEdge, 5000.f));
+    CHECK(range_visibility(s376::LightKind::TaxiEdge, 20000.f) < 0.15f);
+    CHECK_NEAR(range_visibility(s376::LightKind::Approach, max_range_m() + 10.f), 0.0, 1e-6);
     CHECK(tod_visibility(s376::LightKind::Edge, 14.5f) < 0.08f);
     CHECK(tod_visibility(s376::LightKind::Edge, 14.5f) > 0.02f);
     CHECK(tod_visibility(s376::LightKind::Night, 14.5f) <
           tod_visibility(s376::LightKind::Vasi, 14.5f));
     CHECK(tod_visibility(s376::LightKind::Approach, 14.5f) > 0.50f);
-    CHECK(tod_visibility(s376::LightKind::Vasi, 14.5f) > 0.40f);
+    CHECK(tod_visibility(s376::LightKind::Vasi, 14.5f) > 0.80f);
+    CHECK_NEAR(type_size_boost(s376::LightKind::Vasi), 2.3, 1e-4);
+    CHECK_NEAR(type_size_boost(s376::LightKind::Approach), 1.0, 1e-4);
     CHECK(tod_visibility(s376::LightKind::Threshold, 14.5f) > 0.35f);
     CHECK(papi_box_white(3.0f, 0, 3.0f) && papi_box_white(3.0f, 1, 3.0f));
     CHECK(!papi_box_white(3.0f, 2, 3.0f) && !papi_box_white(3.0f, 3, 3.0f));
@@ -91,6 +108,77 @@ void test_lights() {
         CHECK_NEAR(ang, 3.0, 0.15);
         CHECK(papi_box_white(ang, 0, 3.0f) && papi_box_white(ang, 1, 3.0f));
         CHECK(!papi_box_white(ang, 2, 3.0f) && !papi_box_white(ang, 3, 3.0f));
+    }
+    {
+        // 0.6 nm on 04R: four PAPI boxes must project left of the runway
+        // at the touchdown, stay distinct (~2.5 px), and read 2W/2R.
+        auto jfk = s376::kjfk_public();
+        s376::ShotPose pose;
+        CHECK(s376::runway_shot_pose(jfk, "04R", 0.6, pose));
+        const auto& rw = jfk.runways[1]; // 04R / 22L
+        const double tlat = rw.le_lat, tlon = rw.le_lon, telev = rw.le_elev_m;
+        const float hat = static_cast<float>(pose.alt_ft - telev * s376::geo::kMToFt);
+        const auto view = s376::geo::make_channel_view(
+            pose.lat, pose.lon, pose.alt_ft * s376::geo::kFtToM, pose.hdg_true_deg, pose.pitch_deg,
+            pose.roll_deg, 0, 0, 0, 50, 32.5, 1920, 1200);
+        struct Box {
+            int i = -1;
+            s376::geo::ProjectedPoint p;
+            bool white = false;
+            float size = 0;
+        };
+        Box boxes[4];
+        int n_horizon = 0;
+        float horizon_sz = 0;
+        for (const auto& L : jfk.lights) {
+            if (L.runway_k != 2)
+                continue;
+            if (L.kind == s376::LightKind::Approach || L.kind == s376::LightKind::End) {
+                const double dthr = s376::geo::ground_distance_m(tlat, tlon, L.lat, L.lon);
+                if (dthr > 2000.0) {
+                    const auto hp = s376::geo::project_lla(view, L.lat, L.lon, L.alt_m, 1920, 1200);
+                    if (hp.in_frame && std::fabs(hp.ndc_y) < 0.20) {
+                        ++n_horizon;
+                        horizon_sz = point_size_px(14.5f, hat, static_cast<float>(hp.depth_m));
+                    }
+                }
+            }
+            if (L.kind != s376::LightKind::Vasi || L.papi_box < 0 || L.papi_box > 3)
+                continue;
+            if (s376::geo::ground_distance_m(tlat, tlon, L.lat, L.lon) > 250.0)
+                continue; // 22L PAPI is at the far end
+            const auto pr = s376::geo::project_lla(view, L.lat, L.lon, L.alt_m, 1920, 1200);
+            const float ang = papi_eye_angle_deg(pose.lat, pose.lon, pose.alt_ft * s376::geo::kFtToM,
+                                                 L.lat, L.lon, L.alt_m);
+            Box& b = boxes[L.papi_box];
+            b.i = L.papi_box;
+            b.p = pr;
+            b.white = papi_box_white(ang, L.papi_box, L.papi_gs_deg);
+            b.size = point_size_px(14.5f, hat, static_cast<float>(pr.depth_m));
+        }
+        int n_ok = 0;
+        for (int i = 0; i < 4; ++i) {
+            CHECK(boxes[i].i == i);
+            CHECK(boxes[i].p.in_frame);
+            CHECK(boxes[i].p.ndc_x < -0.01); // left of centerline
+            CHECK(boxes[i].p.ndc_y < 0.15);  // touchdown, not the horizon row
+            const float vis = std::min(8.f, std::max(5.8f, boxes[i].size * type_size_boost(s376::LightKind::Vasi)));
+            CHECK(vis > 5.5f && vis < 8.5f);
+            ++n_ok;
+        }
+        CHECK(n_ok == 4);
+        CHECK(boxes[0].white && boxes[1].white);
+        CHECK(!boxes[2].white && !boxes[3].white);
+        // Inboard → outboard is leftward (more negative x) on a P4L.
+        CHECK(boxes[3].p.pix_x < boxes[2].p.pix_x);
+        CHECK(boxes[2].p.pix_x < boxes[1].p.pix_x);
+        CHECK(boxes[1].p.pix_x < boxes[0].p.pix_x);
+        const double gap = boxes[0].p.pix_x - boxes[1].p.pix_x;
+        CHECK(gap > boxes[0].size * 1.6);
+        // 22L ALS / end lights sit on the horizon as small points, not 20 px domes.
+        CHECK(n_horizon >= 8);
+        CHECK(horizon_sz < 3.2f);
+        CHECK(horizon_sz < point_size_px(14.5f, hat, 0.f) * 0.4f);
     }
     CHECK_NEAR(tod_visibility(s376::LightKind::Edge, 0.5f), 1.0, 1e-3);
     CHECK_NEAR(kMaxRangeFt, 250000.0, 1e-3);

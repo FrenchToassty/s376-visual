@@ -100,11 +100,13 @@ const char* kLitTexVS = R"(
 #version 120
 varying vec3 vN;
 varying vec2 vUV;
+varying vec2 vWorld;
 varying float vEyeDist;
 varying vec3 vView;
 void main() {
     vN = gl_Normal;
     vUV = gl_MultiTexCoord0.xy;
+    vWorld = gl_MultiTexCoord1.xy;
     vec4 eye = gl_ModelViewMatrix * gl_Vertex;
     vEyeDist = length(eye.xyz);
     vView = -eye.xyz;
@@ -128,6 +130,7 @@ uniform float uWater;
 uniform sampler2D sDetail;
 varying vec3 vN;
 varying vec2 vUV;
+varying vec2 vWorld;
 varying float vEyeDist;
 varying vec3 vView;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -157,16 +160,17 @@ void main() {
     float darkWater = (1.0 - smoothstep(0.05, 0.20, luma)) * smoothstep(0.00, 0.06, chroma);
     if (uWater > 0.5)
         wet = max(wet, darkWater);
+    vec2 wu = (dot(vWorld, vWorld) > 1.0) ? vWorld : vUV;
     if (wet < 0.55) {
-        float macro = 0.82 + 0.18 * noise(vUV * 24.0);
-        float micro = 0.90 + 0.10 * noise(vUV * 180.0);
+        float macro = 0.82 + 0.18 * noise(wu * 80.0);
+        float micro = 0.90 + 0.10 * noise(wu * 600.0);
         vec3 land = albedo * mix(1.0, macro * micro, uDetail);
         float gness = clamp((land.g - land.r) * 4.0, 0.0, 1.0);
         float close = clamp(1.0 - vEyeDist / 2500.0, 0.0, 1.0);
         float mid = clamp(1.0 - vEyeDist / 8000.0, 0.12, 1.0);
-        vec3 grass = vec3(0.20, 0.30, 0.13) * (0.82 + 0.18 * noise(vUV * 260.0));
-        vec3 dirt = vec3(0.30, 0.23, 0.14) * (0.88 + 0.12 * noise(vUV * 90.0));
-        vec2 duv = vUV * 90.0;
+        vec3 grass = vec3(0.20, 0.30, 0.13) * (0.82 + 0.18 * noise(wu * 900.0));
+        vec3 dirt = vec3(0.30, 0.23, 0.14) * (0.88 + 0.12 * noise(wu * 300.0));
+        vec2 duv = wu * 400.0;
         vec3 atlas = texture2D(sDetail, vec2(fract(duv.x) * 0.5 + (gness > 0.35 ? 0.0 : 0.5),
                                              fract(duv.y) * 0.5 + (wet > 0.2 ? 0.5 : 0.0))).rgb;
         land = mix(mix(land, dirt, 0.22), grass, gness * 0.40);
@@ -177,8 +181,8 @@ void main() {
     if (wet > 0.01) {
         vec3 view = normalize(vView);
         vec3 sun = normalize(uSunDir);
-        float n1 = noise(vUV * 160.0);
-        float n2 = noise(vUV * 380.0 + 11.0);
+        float n1 = noise(wu * 520.0);
+        float n2 = noise(wu * 1280.0 + 11.0);
         vec3 wn = normalize(n + vec3((n1 - 0.5) * 0.18, (n2 - 0.5) * 0.18, 0.0));
         float fres = pow(1.0 - clamp(dot(wn, view), 0.0, 1.0), 5.0);
         vec3 deep = vec3(0.02, 0.08, 0.16);
@@ -380,11 +384,18 @@ const char* kPointVS = R"(
 varying vec4 vCol;
 varying float vEyeDist;
 uniform float uPointSize;
+uniform float uPointSizeFar;
+uniform float uSizeNearM;
 void main() {
     vCol = gl_Color;
     vec4 eye = gl_ModelViewMatrix * gl_Vertex;
     vEyeDist = length(eye.xyz);
-    gl_PointSize = uPointSize;
+    float t = clamp(vEyeDist / max(uSizeNearM, 1.0), 0.0, 1.0);
+    t = t * t * (3.0 - 2.0 * t);
+    float sz = gl_MultiTexCoord1.x;
+    if (sz < 0.5)
+        sz = mix(uPointSize, uPointSizeFar, t);
+    gl_PointSize = sz;
     gl_Position = ftransform();
 }
 )";
@@ -401,11 +412,12 @@ vec3 aces(vec3 x) {
 }
 void main() {
     vec2 pc = gl_PointCoord * 2.0 - 1.0;
-    if (dot(pc, pc) > 1.0)
+    float r2 = dot(pc, pc);
+    if (r2 > 1.0)
         discard;
+    float core = exp(-r2 * 2.8);
     float f = exp(-uFogDensity * uFogDensity * vEyeDist * vEyeDist);
-    vec3 col = mix(uFogColor, vCol.rgb, clamp(f, 0.0, 1.0));
-    gl_FragColor = vec4(aces(col * uExposure), vCol.a);
+    gl_FragColor = vec4(aces(vCol.rgb * uExposure), vCol.a * core * clamp(f, 0.0, 1.0));
 }
 )";
 
@@ -630,6 +642,8 @@ void attach_unlit_color(osg::StateSet* ss) {
 void attach_points(osg::StateSet* ss, float size) {
     ss->setAttributeAndModes(new osg::Point(size));
     ss->addUniform(new osg::Uniform("uPointSize", size));
+    ss->addUniform(new osg::Uniform("uPointSizeFar", size));
+    ss->addUniform(new osg::Uniform("uSizeNearM", lights::kSizeNearM));
     ss->setAttributeAndModes(make_program(kPointVS, kPointFS), osg::StateAttribute::ON);
     strip_ff(ss);
     ss->setMode(GL_VERTEX_PROGRAM_POINT_SIZE, osg::StateAttribute::ON);
@@ -915,22 +929,78 @@ osg::Node* make_dem_patch(const CacheRegion& cache, float aniso = 16.f) {
     auto* verts = new osg::Vec3Array;
     auto* norms = new osg::Vec3Array;
     auto* uvs = new osg::Vec2Array;
-    verts->reserve(static_cast<std::size_t>(dem.w * dem.h));
-    for (int y = 0; y < dem.h; ++y) {
-        const double lat = dem.north - (dem.north - dem.south) * y / std::max(1, dem.h - 1);
-        for (int x = 0; x < dem.w; ++x) {
-            const double lon = dem.west + (dem.east - dem.west) * x / std::max(1, dem.w - 1);
-            double z = dem.z_m[static_cast<std::size_t>(y * dem.w + x)];
-            if (geo::land_coverage(lat, lon) < 0.35f && z < 2.5)
+    auto* wuvs = new osg::Vec2Array;
+    const int w = dem.w, h = dem.h;
+    const int nvert = w * h;
+    std::vector<double> zs(static_cast<std::size_t>(nvert));
+    std::vector<double> lats(static_cast<std::size_t>(nvert));
+    std::vector<double> lons(static_cast<std::size_t>(nvert));
+    std::vector<char> water(static_cast<std::size_t>(nvert), 0);
+    verts->reserve(static_cast<std::size_t>(nvert));
+    for (int y = 0; y < h; ++y) {
+        const double lat = dem.north - (dem.north - dem.south) * y / std::max(1, h - 1);
+        for (int x = 0; x < w; ++x) {
+            const double lon = dem.west + (dem.east - dem.west) * x / std::max(1, w - 1);
+            const int i = y * w + x;
+            lats[static_cast<std::size_t>(i)] = lat;
+            lons[static_cast<std::size_t>(i)] = lon;
+            double z = dem.z_m[static_cast<std::size_t>(i)];
+            const float cover = geo::land_coverage(lat, lon);
+            if (cover < 0.35f && z < 4.0) {
                 z = 0.0; // flatten bay so 96² tiles are not a faceted green grid
+                water[static_cast<std::size_t>(i)] = 1;
+            }
+            zs[static_cast<std::size_t>(i)] = z;
+        }
+    }
+    const double dlat_m =
+        geo::kWgsA * geo::kDeg * (dem.north - dem.south) / static_cast<double>(std::max(1, h - 1));
+    auto z_at = [&](int x, int y) {
+        x = std::max(0, std::min(w - 1, x));
+        y = std::max(0, std::min(h - 1, y));
+        return zs[static_cast<std::size_t>(y * w + x)];
+    };
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const int i = y * w + x;
+            const double lat = lats[static_cast<std::size_t>(i)];
+            const double lon = lons[static_cast<std::size_t>(i)];
+            const double z = zs[static_cast<std::size_t>(i)];
             const geo::Ecef p = geo::lla_to_ecef(lat, lon, z);
             verts->push_back(ecef_to_osg(p));
             geo::Ecef e, n, u;
             geo::ecef_to_enu_axes(lat, lon, e, n, u);
-            norms->push_back(osg::Vec3(static_cast<float>(u.x), static_cast<float>(u.y),
-                                       static_cast<float>(u.z)));
-            uvs->push_back(osg::Vec2((static_cast<float>(x) + 0.5f) / static_cast<float>(dem.w),
-                                     (static_cast<float>(y) + 0.5f) / static_cast<float>(dem.h)));
+            if (water[static_cast<std::size_t>(i)]) {
+                // Flat water: both sides of a tile edge share geodetic-up.
+                norms->push_back(osg::Vec3(static_cast<float>(u.x), static_cast<float>(u.y),
+                                           static_cast<float>(u.z)));
+            } else {
+                const double dlon_m = geo::kWgsA * geo::kDeg * std::cos(geo::deg2rad(lat)) *
+                                      (dem.east - dem.west) / static_cast<double>(std::max(1, w - 1));
+                const int xm = std::max(0, x - 1), xp = std::min(w - 1, x + 1);
+                const int ym = std::max(0, y - 1), yp = std::min(h - 1, y + 1);
+                const double de = std::max(1e-3, static_cast<double>(xp - xm) * dlon_m);
+                const double dn = std::max(1e-3, static_cast<double>(yp - ym) * dlat_m);
+                const double dze = (z_at(xp, y) - z_at(xm, y)) / de;
+                const double dzn = (z_at(x, ym) - z_at(x, yp)) / dn; // y grows south
+                geo::Ecef N{u.x - dze * e.x - dzn * n.x, u.y - dze * e.y - dzn * n.y,
+                            u.z - dze * e.z - dzn * n.z};
+                const double mag = std::sqrt(N.x * N.x + N.y * N.y + N.z * N.z);
+                if (mag > 1e-9) {
+                    N.x /= mag;
+                    N.y /= mag;
+                    N.z /= mag;
+                } else {
+                    N = u;
+                }
+                norms->push_back(osg::Vec3(static_cast<float>(N.x), static_cast<float>(N.y),
+                                           static_cast<float>(N.z)));
+            }
+            // Shared geographic edges sample the edge texel (not a half-texel
+            // inset, which painted a different colour on each side of a join).
+            uvs->push_back(osg::Vec2(static_cast<float>(x) / static_cast<float>(std::max(1, w - 1)),
+                                     static_cast<float>(y) / static_cast<float>(std::max(1, h - 1))));
+            wuvs->push_back(osg::Vec2(static_cast<float>(lon), static_cast<float>(lat)));
         }
     }
     auto* idx = new osg::DrawElementsUInt(GL_TRIANGLES);
@@ -949,17 +1019,17 @@ osg::Node* make_dem_patch(const CacheRegion& cache, float aniso = 16.f) {
         }
     }
     // Skirts: drop the boundary 40 m so adjacent-tile cracks do not show sky.
-    const int w = dem.w, h = dem.h;
     const unsigned base = static_cast<unsigned>(w * h);
     auto drop = [&](int x, int y) {
         const unsigned i = static_cast<unsigned>(y * w + x);
-        const double lat = dem.north - (dem.north - dem.south) * y / std::max(1, h - 1);
-        const double lon = dem.west + (dem.east - dem.west) * x / std::max(1, w - 1);
-        const double z = dem.z_m[static_cast<std::size_t>(y * w + x)] - 40.0;
+        const double lat = lats[i];
+        const double lon = lons[i];
+        const double z = zs[i] - 40.0;
         const geo::Ecef e = geo::lla_to_ecef(lat, lon, z);
         verts->push_back(ecef_to_osg(e));
         norms->push_back((*norms)[i]);
         uvs->push_back((*uvs)[i]);
+        wuvs->push_back((*wuvs)[i]);
         return static_cast<unsigned>(verts->size() - 1);
     };
     auto skirt_edge = [&](int x0, int y0, int x1, int y1) {
@@ -986,6 +1056,7 @@ osg::Node* make_dem_patch(const CacheRegion& cache, float aniso = 16.f) {
     geom->setVertexArray(verts);
     geom->setNormalArray(norms, osg::Array::BIND_PER_VERTEX);
     geom->setTexCoordArray(0, uvs);
+    geom->setTexCoordArray(1, wuvs);
     geom->addPrimitiveSet(idx);
 
     osg::Image* img = image_from_dds_or_rgb(cache);
@@ -1033,6 +1104,7 @@ osg::Node* make_local_ground(double lat0, double lon0, double radius_km, float a
     auto* verts = new osg::Vec3Array;
     auto* norms = new osg::Vec3Array;
     auto* uvs = new osg::Vec2Array;
+    auto* wuvs = new osg::Vec2Array;
     verts->reserve(static_cast<std::size_t>((n + 1) * (n + 1)));
     for (int j = 0; j <= n; ++j) {
         const double v = static_cast<double>(j) / n;
@@ -1051,6 +1123,7 @@ osg::Node* make_local_ground(double lat0, double lon0, double radius_km, float a
             norms->push_back(osg::Vec3(static_cast<float>(up.x), static_cast<float>(up.y),
                                        static_cast<float>(up.z)));
             uvs->push_back(osg::Vec2(static_cast<float>(u), static_cast<float>(1.0 - v)));
+            wuvs->push_back(osg::Vec2(static_cast<float>(lon), static_cast<float>(lat)));
         }
     }
     auto* idx = new osg::DrawElementsUInt(GL_TRIANGLES);
@@ -1070,6 +1143,7 @@ osg::Node* make_local_ground(double lat0, double lon0, double radius_km, float a
     geom->setVertexArray(verts);
     geom->setNormalArray(norms, osg::Array::BIND_PER_VERTEX);
     geom->setTexCoordArray(0, uvs);
+    geom->setTexCoordArray(1, wuvs);
     geom->addPrimitiveSet(idx);
     auto* tex = new osg::Texture2D(img);
     configure_terrain_tex(tex, img);
@@ -1138,6 +1212,7 @@ osg::Node* make_landmark_geode(const AirportMesh& mesh) {
 struct LightGpu {
     osg::ref_ptr<osg::Geometry> geom;
     osg::ref_ptr<osg::Vec4Array> colors;
+    osg::ref_ptr<osg::Vec2Array> sizes;
     std::vector<int> switches;
     std::vector<LightKind> kinds;
     std::vector<int> seq;
@@ -1154,6 +1229,7 @@ LightGpu make_light_gpu(const Airport& apt) {
     g.geom = new osg::Geometry;
     auto* verts = new osg::Vec3Array;
     g.colors = new osg::Vec4Array;
+    g.sizes = new osg::Vec2Array;
     verts->reserve(apt.lights.size());
     for (const auto& L : apt.lights) {
         const geo::Ecef p = geo::lla_to_ecef(L.lat, L.lon, L.alt_m);
@@ -1169,9 +1245,11 @@ LightGpu make_light_gpu(const Airport& apt) {
         g.alt_m.push_back(L.alt_m);
         g.papi_box.push_back(L.papi_box);
         g.papi_gs.push_back(L.papi_gs_deg);
+        g.sizes->push_back(osg::Vec2(lights::kBaseSizePx, 0.f));
     }
     g.geom->setVertexArray(verts);
     g.geom->setColorArray(g.colors, osg::Array::BIND_PER_VERTEX);
+    g.geom->setTexCoordArray(1, g.sizes);
     g.geom->addPrimitiveSet(
         new osg::DrawArrays(GL_POINTS, 0, static_cast<int>(apt.lights.size())));
     g.geom->setUseDisplayList(false);
@@ -1295,6 +1373,8 @@ void update_precip(PrecipGpu& g, const HostState& host, float dt) {
     if (auto* pt = dynamic_cast<osg::Point*>(pss->getAttribute(osg::StateAttribute::POINT)))
         pt->setSize(psz);
     if (auto* u = pss->getUniform("uPointSize"))
+        u->set(psz);
+    if (auto* u = pss->getUniform("uPointSizeFar"))
         u->set(psz);
     for (std::size_t i = 0; i < g.seed.size(); ++i) {
         osg::Vec3& s = g.seed[i];
@@ -1601,15 +1681,24 @@ void apply_light_steps(LightGpu& g, const HostState& host) {
         return;
     const float tod = host.have_env ? host.env.tod_hours : 14.5f;
     const float hat = host.have_hat ? host.hat_ft : std::max(0.f, static_cast<float>(host.eye.alt_ft));
-    const float psz = lights::point_size_px(tod, hat);
+    const float psz_near = lights::point_size_px(tod, hat, 0.f);
+    const float psz_far = lights::base_size_px(tod);
     if (g.geom) {
         auto* ss = g.geom->getOrCreateStateSet();
         if (auto* pt = dynamic_cast<osg::Point*>(ss->getAttribute(osg::StateAttribute::POINT)))
-            pt->setSize(psz);
+            pt->setSize(psz_near);
         if (auto* u = ss->getUniform("uPointSize"))
-            u->set(psz);
+            u->set(psz_near);
+        if (auto* u = ss->getUniform("uPointSizeFar"))
+            u->set(psz_far);
+        if (auto* u = ss->getUniform("uSizeNearM"))
+            u->set(lights::kSizeNearM);
     }
     const double t_s = host.last_rx_ns > 0 ? static_cast<double>(host.last_rx_ns) * 1e-9 : 0.0;
+    geo::Ecef eye{};
+    const bool have_eye = host.have_eyepoint;
+    if (have_eye)
+        eye = geo::lla_to_ecef(host.eye.lat_deg, host.eye.lon_deg, host.eye.alt_ft * geo::kFtToM);
     for (std::size_t i = 0; i < g.colors->size(); ++i) {
         int step = 3;
         if (i < g.switches.size()) {
@@ -1619,6 +1708,22 @@ void apply_light_steps(LightGpu& g, const HostState& host) {
         }
         const LightKind kind = i < g.kinds.size() ? g.kinds[i] : LightKind::Edge;
         float k = lights::intensity(kind, step) * lights::tod_visibility(kind, tod);
+        float range = 0.f;
+        if (have_eye && i < g.lat.size()) {
+            const geo::Ecef p = geo::lla_to_ecef(g.lat[i], g.lon[i], g.alt_m[i]);
+            const float dx = static_cast<float>(p.x - eye.x);
+            const float dy = static_cast<float>(p.y - eye.y);
+            const float dz = static_cast<float>(p.z - eye.z);
+            range = std::sqrt(dx * dx + dy * dy + dz * dz);
+            k *= lights::range_visibility(kind, range);
+        }
+        float sz = lights::point_size_px(tod, hat, range) * lights::type_size_boost(kind);
+        if (kind == LightKind::Vasi) {
+            sz = std::min(8.f, std::max(5.8f, sz));
+            k = std::max(k, 1.15f); // 2W2R must bloom a little in daylight
+        }
+        if (g.sizes && i < g.sizes->size())
+            (*g.sizes)[static_cast<unsigned>(i)] = osg::Vec2(sz, 0.f);
         if (kind == LightKind::Beacon && !lights::beacon_on(t_s))
             k = 0.f;
         if ((kind == LightKind::Strobe || kind == LightKind::Reil) && !lights::strobe_on(t_s))
@@ -1638,6 +1743,8 @@ void apply_light_steps(LightGpu& g, const HostState& host) {
         (*g.colors)[static_cast<unsigned>(i)] = osg::Vec4(b.r() * k, b.g() * k, b.b() * k, k);
     }
     g.colors->dirty();
+    if (g.sizes)
+        g.sizes->dirty();
     g.geom->dirtyBound();
 }
 

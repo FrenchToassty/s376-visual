@@ -154,6 +154,41 @@ ChannelView make_channel_view(double lat_deg, double lon_deg, double alt_m, doub
     return v;
 }
 
+ProjectedPoint project_channel(const ChannelView& v, const Ecef& world, int width, int height) {
+    ProjectedPoint o;
+    const double dx = world.x - v.eye.x;
+    const double dy = world.y - v.eye.y;
+    const double dz = world.z - v.eye.z;
+    const double fwd = dx * v.forward.x + dy * v.forward.y + dz * v.forward.z;
+    o.depth_m = fwd;
+    o.in_front = fwd > v.near_m;
+    if (!(fwd > 1e-6))
+        return o;
+    const double rx = v.forward.y * v.up.z - v.forward.z * v.up.y;
+    const double ry = v.forward.z * v.up.x - v.forward.x * v.up.z;
+    const double rz = v.forward.x * v.up.y - v.forward.y * v.up.x;
+    const double rlen = std::sqrt(rx * rx + ry * ry + rz * rz);
+    if (!(rlen > 1e-12))
+        return o;
+    const double right = (dx * rx + dy * ry + dz * rz) / rlen;
+    const double up = dx * v.up.x + dy * v.up.y + dz * v.up.z;
+    const double th = std::tan(deg2rad(std::max(1.0, v.hfov_deg) * 0.5));
+    const double tv = std::tan(deg2rad(std::max(1.0, v.vfov_deg) * 0.5));
+    o.ndc_x = right / (fwd * th);
+    o.ndc_y = up / (fwd * tv);
+    const int w = std::max(1, width);
+    const int h = std::max(1, height);
+    o.pix_x = (o.ndc_x * 0.5 + 0.5) * static_cast<double>(w);
+    o.pix_y = (0.5 - o.ndc_y * 0.5) * static_cast<double>(h); // top-left origin
+    o.in_frame = o.in_front && std::fabs(o.ndc_x) <= 1.0 && std::fabs(o.ndc_y) <= 1.0;
+    return o;
+}
+
+ProjectedPoint project_lla(const ChannelView& v, double lat_deg, double lon_deg, double alt_m,
+                           int width, int height) {
+    return project_channel(v, lla_to_ecef(lat_deg, lon_deg, alt_m), width, height);
+}
+
 namespace {
 
 float clampf(float x, float a, float b) {

@@ -88,6 +88,21 @@ ChannelView make_channel_view(double lat_deg, double lon_deg, double alt_m, doub
                               double vfov_deg, int width, int height, double eye_fwd_m = 0,
                               double eye_right_m = 0, double eye_up_m = 0);
 
+// Project a world point through the channel frustum. NDC is OpenGL
+// clip: x/y in [−1, 1] is inside the frame. pix origin is top-left.
+struct ProjectedPoint {
+    double ndc_x = 0;
+    double ndc_y = 0;
+    double depth_m = 0;
+    double pix_x = 0;
+    double pix_y = 0;
+    bool in_front = false;
+    bool in_frame = false;
+};
+ProjectedPoint project_channel(const ChannelView& v, const Ecef& world, int width, int height);
+ProjectedPoint project_lla(const ChannelView& v, double lat_deg, double lon_deg, double alt_m,
+                           int width, int height);
+
 // 0 = ocean, 1 = land. Soft edges so coasts are not stair-step texels.
 // Public geography only (coarse continents + a few US coastal cutouts).
 float land_coverage(double lat_deg, double lon_deg);

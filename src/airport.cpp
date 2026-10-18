@@ -346,8 +346,8 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
                 offset_m(plat, plon, hdg + 90.0, x, qlat, qlon);
                 const float g = i < 2 ? 1.f : 0.15f;
                 const float r = i < 2 ? 0.15f : 1.f;
-                push_light(a, qlat, qlon, light_alt_m(qlat, qlon, elev), r, g, 0.15f, sw_vasi,
-                           LightKind::Vasi, k, -1, i, static_cast<float>(gs));
+                push_light(a, qlat, qlon, std::max(light_alt_m(qlat, qlon, elev), elev) + 0.9,
+                           r, g, 0.15f, sw_vasi, LightKind::Vasi, k, -1, i, static_cast<float>(gs));
             }
         }
     };

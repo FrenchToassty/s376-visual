@@ -27,7 +27,23 @@ from tests/CI. `scripts/check-no-rsi.sh` fails the build if
 
 ## Current state (2026-10-18, this increment)
 
-**ALS / sky / water (this increment):** 04R ALSF-2 is on the extended
+**Light size / PAPI / tile seams (this increment):** The ~13 large
+white/red/green hemispheres on the 0.6 nm horizon were 22L ALSF-2 /
+threshold / end (and taxi) drawn at the near-field HAT size (~20 px
+circular point sprites). `point_size_px(tod, hat, range)` now applies
+the HAT boost only inside `kSizeNearM` (350 m); distant lights clamp
+to the Raster 2.5–2.8 px floor and never grow with range. The point
+shader sets per-vertex `gl_PointSize` from eye distance, fades with
+inverse-square + fog (alpha, not fog-coloured discs), and uses a
+soft core. A debug test projects 04R PAPI into the 0.6 nm front
+frame and asserts four distinct in-frame lights, left of the
+runway, coloured 2W/2R, with pixel gap > 1.6× point size; the same
+test asserts the 22L horizon row is < 3.2 px. Tile-edge grid over
+the bay: UV is `x/(w-1)` (shared edge texels), water uses geodetic-up
+and flattened z, land uses DEM slope normals, and detail/wave noise
+is keyed from lon/lat so it is continuous across tiles.
+
+**ALS / sky / water (prior increment):** 04R ALSF-2 is on the extended
 centerline (2400 ft bars, 1000 ft crossbar, red side-row barrettes,
 SFL) on DEM or over-water piers; daytime approach intensity is
 Raster-readable. PAPI is four boxes left of 04R at 3.00° and shows
@@ -52,10 +68,12 @@ on `[[channels]]` and the s376-wizard Display tab. `--channel all
 --record` / `--screenshot` writes a stitched Left|Front|Right strip
 (5760×1200). Verification frame uses this geometry.
 
-llvmpipe KJFK:04R:2.99 / 962 ft (`/tmp/kjfk-tiny`):
-`/opt/cursor/artifacts/kjfk_04r_front_1920x1200.png` (1920×1200) and
-`/opt/cursor/artifacts/kjfk_04r_wrap_LFR_1920x1200.png` (5760×1200
-Left|Front|Right, Left flipped). Tests: 129947 pass.
+llvmpipe KJFK:04R:0.6 and 2.99 / 962 ft (`/tmp/kjfk-tiny`):
+`/opt/cursor/artifacts/kjfk_04r_0.6nm_points_verified.png` and
+`/opt/cursor/artifacts/kjfk_04r_2.99nm_962ft_points_verified.png`.
+Horizon 22L ALS/taxi are ~2.5 px points (no 20 px hemispheres).
+04R PAPI is four distinct 2W2R lights left of touchdown. Tests:
+130589 pass.
 
 **Hangar record frame 140 (dda4f06) fixes:** clip-space sky camera
 (no zenith trapezoid, no hash grain); DXT pad to mod-4/POT at pack

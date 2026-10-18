@@ -47,7 +47,7 @@ float tod_visibility(LightKind kind, float tod_hours) {
         floor = 0.45f;
         break;
     case LightKind::Vasi:
-        floor = 0.50f; // 2W2R must read on a 3° path at noon
+        floor = 0.88f; // 2W2R must read on a 3° path at noon
         break;
     case LightKind::Night:
     case LightKind::SignGlow:
@@ -114,8 +114,44 @@ float base_size_px(float tod_hours) {
     return kBaseSizePx + (kNoonSizePx - kBaseSizePx) * noon;
 }
 
-float point_size_px(float tod_hours, float hat_ft) {
-    return base_size_px(tod_hours) * size_mult_hat(hat_ft);
+float point_size_px(float tod_hours, float hat_ft, float range_m) {
+    const float base = base_size_px(tod_hours);
+    const float near = base * size_mult_hat(hat_ft);
+    if (!std::isfinite(range_m) || range_m <= 0.f)
+        return near;
+    float t = std::min(1.f, range_m / kSizeNearM);
+    t = t * t * (3.f - 2.f * t);
+    return near + (base - near) * t;
+}
+
+float range_visibility(LightKind kind, float range_m) {
+    if (!std::isfinite(range_m) || range_m < 0.f)
+        range_m = 0.f;
+    const float maxr = max_range_m() * type_range_scale(kind);
+    if (!(maxr > 1.f) || range_m >= maxr)
+        return 0.f;
+    // 50 % at ~2 km; approach / PAPI keep a floor so 3 nm ALS still reads.
+    const float d0 = 2000.f;
+    const float inv = 1.f / (1.f + (range_m / d0) * (range_m / d0));
+    float floor = 0.05f;
+    switch (kind) {
+    case LightKind::Approach:
+    case LightKind::Strobe:
+    case LightKind::Flasher:
+    case LightKind::Reil:
+    case LightKind::Vasi:
+        floor = 0.78f;
+        break;
+    case LightKind::Threshold:
+    case LightKind::End:
+        floor = 0.14f;
+        break;
+    default:
+        floor = 0.05f;
+        break;
+    }
+    const float tail = 1.f - range_m / maxr;
+    return std::max(inv, floor * tail);
 }
 
 bool papi_box_white(float eye_angle_deg, int box, float gs_deg) {
@@ -138,6 +174,12 @@ float papi_eye_angle_deg(double eye_lat, double eye_lon, double eye_alt_m, doubl
     if (!(dist > 1.0) || !std::isfinite(dist))
         return 90.f;
     return static_cast<float>(geo::rad2deg(std::atan2(eye_alt_m - papi_alt_m, dist)));
+}
+
+float type_size_boost(LightKind kind) {
+    if (kind == LightKind::Vasi)
+        return 2.3f; // ~6.4 px at the Raster floor; 4 boxes stay distinct
+    return 1.f;
 }
 
 float type_range_scale(LightKind kind) {

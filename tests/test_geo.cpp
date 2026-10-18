@@ -100,4 +100,23 @@ void test_geo() {
     s376::geo::utm_to_wgs84(utm, ulat, ulon);
     const double utm_err = s376::geo::ground_distance_m(40.639928, -73.778692, ulat, ulon);
     CHECK(utm_err < 1.0);
+
+    {
+        // Point on the optical axis at 1 km → NDC origin, in frame.
+        const auto v = s376::geo::make_channel_view(40.62, -73.78, 100.0, 31.0, 0, 0, 0, 0, 0, 50,
+                                                    32.5, 1920, 1200);
+        s376::geo::Ecef tgt{v.eye.x + v.forward.x * 1000.0, v.eye.y + v.forward.y * 1000.0,
+                            v.eye.z + v.forward.z * 1000.0};
+        const auto p = s376::geo::project_channel(v, tgt, 1920, 1200);
+        CHECK(p.in_front && p.in_frame);
+        CHECK_NEAR(p.ndc_x, 0.0, 1e-6);
+        CHECK_NEAR(p.ndc_y, 0.0, 1e-6);
+        CHECK_NEAR(p.pix_x, 960.0, 0.5);
+        CHECK_NEAR(p.pix_y, 600.0, 0.5);
+        CHECK_NEAR(p.depth_m, 1000.0, 0.5);
+        // Behind the camera is not in frame.
+        s376::geo::Ecef back{v.eye.x - v.forward.x * 100.0, v.eye.y - v.forward.y * 100.0,
+                             v.eye.z - v.forward.z * 100.0};
+        CHECK(!s376::geo::project_channel(v, back, 1920, 1200).in_frame);
+    }
 }
