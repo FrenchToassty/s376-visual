@@ -44,6 +44,7 @@ void test_terrain();
 void test_airport();
 void test_hat();
 void test_fetch();
+void test_diagnostics();
 
 int main() {
     test_vaxfloat();
@@ -57,6 +58,7 @@ int main() {
     test_airport();
     test_hat();
     test_fetch();
+    test_diagnostics();
     std::cout << g_passes << " passed, " << g_fails << " failed\n";
     return g_fails ? 1 : 0;
 }

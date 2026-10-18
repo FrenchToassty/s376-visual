@@ -1,14 +1,27 @@
+#include "s376/airport.hpp"
 #include "s376/diagnostics.hpp"
+#include "s376/fetch.hpp"
+#include "s376/geo.hpp"
 #include "s376/host.hpp"
+#include "s376/render.hpp"
 #include "s376/safety.hpp"
 #include "s376/version.hpp"
 
+#include <algorithm>
+#include <cctype>
+#include <chrono>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <sstream>
 
 #ifdef S376_HAS_OSG
 #include <osg/Version>
+#ifndef _WIN32
+#include <X11/Xlib.h>
+#include <fcntl.h>
+#endif
 #endif
 #ifdef S376_HAS_OSGEARTH
 #include <osgEarth/Version>
@@ -51,9 +64,200 @@ void add(DoctorReport& r, Check c) {
     r.checks.push_back(std::move(c));
 }
 
+std::string lower_icao(std::string id) {
+    for (char& c : id)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return id;
+}
+
+bool looks_packed(const std::string& dir) {
+    return std::filesystem::exists(dir + "/elev.s376dem") ||
+           std::filesystem::exists(dir + "/lod0/elev.s376dem") ||
+           std::filesystem::exists(dir + "/imagery.dds");
+}
+
 } // namespace
 
-DoctorReport run_doctor(const AppConfig& cfg, const std::string& config_path, bool listen) {
+std::string format_byte_count(std::uint64_t n) {
+    std::ostringstream o;
+    o << std::fixed << std::setprecision(1);
+    if (n < 1024)
+        return std::to_string(n) + " B";
+    if (n < 1024ull * 1024)
+        o << (n / 1024.0) << " KiB";
+    else if (n < 1024ull * 1024 * 1024)
+        o << (n / (1024.0 * 1024.0)) << " MiB";
+    else
+        o << (n / (1024.0 * 1024.0 * 1024.0)) << " GiB";
+    return o.str();
+}
+
+std::vector<AirportCacheSize> scan_airport_caches(const std::string& root,
+                                                  const std::string& extra_dir) {
+    std::vector<AirportCacheSize> out;
+    auto push_unique = [&](const std::string& icao, const std::string& path) {
+        for (const auto& e : out) {
+            if (e.path == path || e.icao == icao)
+                return;
+        }
+        AirportCacheSize s;
+        s.icao = icao;
+        s.path = path;
+        s.bytes = directory_bytes(path);
+        out.push_back(std::move(s));
+    };
+
+    for (const auto& a : all_public_airports()) {
+        const std::string low = lower_icao(a.icao);
+        std::string path;
+        const std::string candidates[] = {
+            root + "/" + a.icao, root + "/" + low, extra_dir,
+        };
+        for (const auto& c : candidates) {
+            if (!c.empty() && std::filesystem::is_directory(c) &&
+                (looks_packed(c) || extra_dir != c)) {
+                if (c == extra_dir && !looks_packed(c) &&
+                    lower_icao(std::filesystem::path(c).filename().string()) != low &&
+                    std::filesystem::path(c).filename().string() != a.icao)
+                    continue;
+                path = c;
+                break;
+            }
+        }
+        if (path.empty())
+            path = root + "/" + low;
+        push_unique(a.icao, path);
+    }
+
+    if (std::filesystem::is_directory(root)) {
+        for (const auto& e : std::filesystem::directory_iterator(root)) {
+            if (!e.is_directory())
+                continue;
+            const std::string p = e.path().string();
+            if (!looks_packed(p))
+                continue;
+            std::string name = e.path().filename().string();
+            for (char& c : name)
+                c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            push_unique(name, p);
+        }
+    }
+    if (!extra_dir.empty() && looks_packed(extra_dir)) {
+        std::string name = std::filesystem::path(extra_dir).filename().string();
+        for (char& c : name)
+            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        if (name.empty())
+            name = "CACHE";
+        push_unique(name, extra_dir);
+    }
+    return out;
+}
+
+std::vector<ChannelFrameTime> bench_channel_times(const AppConfig& cfg, bool try_gpu) {
+    auto channels = select_channels(cfg, "all");
+    if (channels.empty())
+        channels = default_config().channels;
+
+    HostState host;
+    host.have_eyepoint = true;
+    host.have_env = true;
+    host.eye.lat_deg = 47.463684;
+    host.eye.lon_deg = -122.307751;
+    host.eye.alt_ft = 447;
+    host.eye.heading_deg = -180.34f;
+    host.eye.pitch_deg = 0;
+    host.env.tod_hours = 14.5f;
+    host.env.visible_range_ft = 60760.f;
+    host.light_steps.fill(5);
+
+    std::vector<ChannelFrameTime> out;
+    constexpr int kIters = 8000;
+    volatile double sink = 0;
+    for (const auto& ch : channels) {
+        ChannelFrameTime t;
+        t.name = ch.name;
+        const auto t0 = std::chrono::steady_clock::now();
+        for (int i = 0; i < kIters; ++i) {
+            auto v = geo::make_channel_view(
+                host.eye.lat_deg, host.eye.lon_deg, host.eye.alt_ft * geo::kFtToM,
+                host.eye.true_heading_deg(), host.eye.pitch_deg, host.eye.roll_deg,
+                ch.heading_offset_deg, ch.pitch_offset_deg, ch.roll_offset_deg, ch.hfov_deg,
+                ch.vfov_deg, ch.width, ch.height);
+            sink += v.eye.x + v.forward.y + v.up.z;
+        }
+        t.cpu_ms =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() /
+            kIters;
+        out.push_back(std::move(t));
+    }
+    (void)sink;
+
+#ifdef S376_HAS_OSG
+    bool have_display = false;
+#ifndef _WIN32
+    if (const char* dpy = std::getenv("DISPLAY")) {
+        if (dpy[0]) {
+            // XOpenDisplay prints to stderr when DISPLAY is stale; keep doctor quiet.
+            const int saved = dup(STDERR_FILENO);
+            const int n = open("/dev/null", O_WRONLY);
+            if (n >= 0) {
+                dup2(n, STDERR_FILENO);
+                close(n);
+            }
+            if (Display* x = XOpenDisplay(dpy)) {
+                XCloseDisplay(x);
+                have_display = true;
+            }
+            if (saved >= 0) {
+                dup2(saved, STDERR_FILENO);
+                close(saved);
+            }
+        }
+    }
+#else
+    have_display = try_gpu;
+#endif
+    if (try_gpu && have_display) {
+        try {
+            AppConfig c = cfg;
+            c.render.engine = "osg";
+            c.render.vsync = false;
+            auto chans = channels;
+            for (auto& ch : chans) {
+                ch.width = 160;
+                ch.height = 90;
+                ch.fullscreen = false;
+                ch.window_x = 0;
+                ch.window_y = 0;
+            }
+            auto rend = make_osg_renderer();
+            if (rend && rend->begin(c, chans)) {
+                rend->frame(host);
+                const int kFrames = 8;
+                const auto g0 = std::chrono::steady_clock::now();
+                for (int i = 0; i < kFrames; ++i)
+                    rend->frame(host);
+                const double composite_ms =
+                    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - g0)
+                        .count() /
+                    kFrames;
+                rend->end();
+                const double share = composite_ms / std::max<std::size_t>(1, out.size());
+                for (auto& t : out)
+                    t.gpu_ms = share;
+            }
+        } catch (...) {
+            // GPU bench is best-effort; CPU numbers still stand.
+        }
+    }
+#else
+    (void)try_gpu;
+#endif
+    return out;
+}
+
+DoctorReport run_doctor(const AppConfig& cfg, const std::string& config_path, bool listen,
+                        bool bench) {
     DoctorReport r;
     add(r, {"version", CheckStatus::Pass, std::string("s376-visual ") + version(), ""});
 #ifdef _WIN32
@@ -161,6 +365,51 @@ DoctorReport run_doctor(const AppConfig& cfg, const std::string& config_path, bo
                     "unset it in tests and CI"});
     } else {
         add(r, {"sim-lan-env", CheckStatus::Pass, "S376_ALLOW_SIM_LAN unset", ""});
+    }
+
+    const auto caches = scan_airport_caches("cache", cfg.render.cache_dir);
+    if (caches.empty()) {
+        add(r, {"cache-size", CheckStatus::Skip, "no airport cache dirs",
+                "s376-cache fetch KSEA --out cache/ksea"});
+    } else {
+        for (const auto& s : caches) {
+            const std::string name = "cache-" + lower_icao(s.icao);
+            if (s.bytes == 0) {
+                add(r, {name, CheckStatus::Skip, s.path + " not packed",
+                        "s376-cache fetch " + s.icao + " --out " + s.path});
+            } else {
+                add(r, {name, CheckStatus::Pass,
+                        format_byte_count(s.bytes) + " on disk (" + s.path + ")", ""});
+            }
+        }
+    }
+
+    if (bench) {
+        const auto mesh_t0 = std::chrono::steady_clock::now();
+        std::size_t verts = 0, lights = 0;
+        for (const auto& a : all_public_airports()) {
+            verts += build_airport_mesh(a).verts.size();
+            lights += a.lights.size();
+        }
+        const double mesh_ms =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - mesh_t0)
+                .count();
+        {
+            std::ostringstream d;
+            d << std::fixed << std::setprecision(2) << mesh_ms << " ms  " << verts << " verts  "
+              << lights << " lights";
+            add(r, {"mesh-build", CheckStatus::Pass, d.str(), ""});
+        }
+        const auto times = bench_channel_times(cfg, true);
+        for (const auto& t : times) {
+            std::ostringstream d;
+            d << std::fixed << std::setprecision(2) << (t.cpu_ms * 1000.0) << " us cpu/view";
+            if (t.gpu_ms >= 0)
+                d << ", " << std::setprecision(3) << t.gpu_ms << " ms/frame gpu (composite share)";
+            else
+                d << ", gpu skipped (no usable DISPLAY)";
+            add(r, {"frame-" + t.name, CheckStatus::Pass, d.str(), ""});
+        }
     }
 
     return r;

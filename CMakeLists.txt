@@ -78,6 +78,9 @@ if(OPENSCENEGRAPH_FOUND)
     if(osgEarth_FOUND)
         target_link_libraries(s376_core PUBLIC osgEarth)
     endif()
+    if(UNIX)
+        target_link_libraries(s376_core PUBLIC X11)
+    endif()
 endif()
 if(GDAL_FOUND)
     if(TARGET GDAL::GDAL)
@@ -113,6 +116,7 @@ add_executable(s376-tests
     tests/test_airport.cpp
     tests/test_hat.cpp
     tests/test_fetch.cpp
+    tests/test_diagnostics.cpp
 )
 target_link_libraries(s376-tests PRIVATE s376_core)
 

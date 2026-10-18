@@ -8,12 +8,17 @@
 
 int main(int argc, char** argv) {
     std::string config_path;
+    bool bench = true;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if ((a == "-c" || a == "--config") && i + 1 < argc)
             config_path = argv[++i];
+        else if (a == "--no-bench")
+            bench = false;
         else if (a == "-h" || a == "--help") {
-            std::cout << "s376-doctor — local environment checks (never sends off-box)\n";
+            std::cout << "s376-doctor — local environment checks (never sends off-box)\n"
+                         "  -c, --config PATH   TOML config (default config/s376-visual.toml)\n"
+                         "  --no-bench          skip per-channel frame-time bench\n";
             return 0;
         }
     }
@@ -34,7 +39,7 @@ int main(int argc, char** argv) {
     s376::log::Options lo;
     lo.no_file = true;
     s376::log::setup(lo, "doctor");
-    auto r = s376::run_doctor(cfg, config_path, true);
+    auto r = s376::run_doctor(cfg, config_path, true, bench);
     std::cout << s376::format_report(r);
     s376::log::shutdown();
     return r.fails ? 1 : 0;

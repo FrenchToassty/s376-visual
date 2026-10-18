@@ -24,7 +24,9 @@ jobs:
           unset S376_ALLOW_LAN
           ctest --test-dir build --output-on-failure
       - name: doctor
-        run: ./build/s376-doctor -c config/s376-visual.toml
+        run: |
+          ./build/s376-cache synth-ksea --out cache/ksea --size 32
+          ./build/s376-doctor -c config/s376-visual.toml
       - name: headless demo (loopback only)
         run: |
           ./build/s376-visual --headless --demo --duration 2 --bind 127.0.0.1:2300 -c config/s376-visual.toml

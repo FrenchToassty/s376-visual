@@ -8,8 +8,11 @@ account may stop mid-run — treat this file as the source of truth.
 
 ## Verified in this run
 
-- `s376-tests`: **5093 passed, 0 failed** (KSFO / KLAS layouts, OSM
-  merge, previous fetch / HAT / channel suite).
+- `s376-tests`: **5119 passed, 0 failed** (KSFO / KLAS, OSM merge,
+  doctor cache-size / frame-time, previous fetch / HAT / channel suite).
+- `s376-doctor`: 0 fail, 1 warn (osgEarth). Reports `cache-ksea` 4.9 KiB,
+  SKIP for unpacked KSFO/KLAS, `mesh-build` 0.17 ms / 4096 lights,
+  `frame-{front,left,right}` CPU view + GPU share when DISPLAY works.
 - `s376-visual --headless --demo --duration 2`: 40 datagrams / 40 eyepoints,
   KSEA 16L, env TOD 14.5 / vis 60760 ft.
 - `s376-visual --demo` under Xvfb: OSG window "front" 1920×1080, 50×32.5 FOV,
@@ -18,11 +21,19 @@ account may stop mid-run — treat this file as the source of truth.
 - `s376-cache synth-ksea --out /tmp/s376-ksea --size 64`: **18 608 bytes**
   (BC1 + `.s376dem`); `info` samples KSEA ARP at 433 ft; `--out 10.1.95.1:2300`
   refused.
-- `s376-doctor`: 0 fail, 1 warn (osgEarth not packaged on Ubuntu 24.04).
-  GDAL 3.8.4 PASSes.
+- GDAL 3.8.4 PASSes.
 - GitHub Actions `ci / linux` on `d3f6dfc` (HAT + KSEA + cache): **green**
   (ubuntu-24.04, 1984 tests, doctor, headless demo, sim-LAN refusal,
   `s376-cache` smoke). Optional osgEarth job is `workflow_dispatch` only.
+
+## Milestone: doctor size / perf (2026-10-18)
+
+`s376-doctor` lists on-disk `cache/<icao>` bytes for each public
+airport (and any extra packed dir) plus `frame-<channel>` times.
+CPU `make_channel_view` cost is always measured. GPU CompositeViewer
+ms/frame (tiny 160×90 windows, share of the composite) runs only when
+`XOpenDisplay` succeeds so CI stays headless. `--no-bench` skips the
+timing section. `mesh-build` is reported separately.
 
 ## Milestone: KSFO / KLAS layouts (2026-10-18)
 
@@ -97,7 +108,8 @@ are unit-tested.
   2301. Built into the IG (no bridge process).
 - TOML config with the three RSI channels (`config/s376-visual.toml`).
 - Logging (`-v`, `--debug`, rotating file under `logs/`).
-- `s376-doctor` / `--diagnostics`.
+- `s376-doctor` / `--diagnostics` (cache bytes per airport, frame time
+  per channel).
 - Minimal OSG renderer: WGS84 globe, host-driven camera, exp2 fog, sun
   from TOD. Local DEM patch + BC1 drape. osgEarth earth file is loaded
   when the lib is present.
@@ -119,11 +131,11 @@ are unit-tested.
 
 ## Next 5 concrete steps (in order)
 
-1. **s376-doctor** cache-size + per-channel frame time.
-2. **Build osgEarth** on the hangar box and confirm `s376.earth` drapes.
-3. **Asymmetric / off-axis projection** if ViewAngles overlap is not enough.
-4. **KLAX / KJFK** layouts the same way as KSEA / KSFO / KLAS.
-5. **NLIM / edge blend** — later.
+1. **Build osgEarth** on the hangar box and confirm `s376.earth` drapes.
+2. **Asymmetric / off-axis projection** if ViewAngles overlap is not enough.
+3. **KLAX / KJFK** layouts the same way as KSEA / KSFO / KLAS.
+4. **NLIM / edge blend** — later.
+5. **Loopback capture** (never commit the files).
 
 ## How to build / run / test (Linux Mint 22)
 

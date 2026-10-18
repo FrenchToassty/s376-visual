@@ -90,7 +90,9 @@ contact `10.1.95.0/24` or `192.168.173.0/24`.
 | `--diagnostics` | dump config and build options |
 | `--doctor` | environment checks (local only) |
 
-`s376-doctor` never sends a packet off the machine.
+`s376-doctor` never sends a packet off the machine. It reports on-disk
+`cache/<icao>` size for KSEA / KSFO / KLAS and a per-channel frame-time
+bench (CPU view cost always; GPU ms/frame when `DISPLAY` is set).
 
 ## Windows
 
