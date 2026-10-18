@@ -47,6 +47,10 @@ float intensity(LightKind kind, int step) {
     case LightKind::TaxiCenterline:
     case LightKind::Rwsl:
     case LightKind::End:
+    case LightKind::LeadOn:
+    case LightKind::SignGlow:
+    case LightKind::Beacon:
+    case LightKind::Night:
         return kEdge[static_cast<std::size_t>(i)];
     }
     return kEdge[static_cast<std::size_t>(i)];
@@ -80,6 +84,7 @@ float type_range_scale(LightKind kind) {
     case LightKind::Strobe:
     case LightKind::Flasher:
     case LightKind::Reil:
+    case LightKind::Beacon:
         return 1.f;
     case LightKind::Edge:
     case LightKind::Centerline:
@@ -91,6 +96,9 @@ float type_range_scale(LightKind kind) {
     case LightKind::StopBar:
     case LightKind::TaxiCenterline:
     case LightKind::Rwsl:
+    case LightKind::LeadOn:
+    case LightKind::SignGlow:
+    case LightKind::Night:
         return 0.35f;
     }
     return 0.70f;

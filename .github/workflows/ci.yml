@@ -19,6 +19,8 @@ jobs:
           bash -n scripts/setup-mint.sh
           bash -n scripts/build-osgearth.sh
           bash -n scripts/fetch-textures.sh
+          bash -n scripts/check-no-rsi.sh
+          ./scripts/check-no-rsi.sh
           ./scripts/setup-mint.sh --dry-run --skip-apt --no-desktop | head
       - name: configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
@@ -29,6 +31,8 @@ jobs:
           unset S376_ALLOW_SIM_LAN
           unset S376_ALLOW_LAN
           ctest --test-dir build --output-on-failure
+          ./build/s376-raster-parity --ours --icao KJFK | head
+          ./scripts/check-no-rsi.sh
       - name: doctor
         run: |
           ./build/s376-cache synth-ksea --out cache/ksea --size 32

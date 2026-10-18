@@ -53,9 +53,58 @@ numbers in committed airport TOML are **ours**, not RSI's.
 | In-cloud fog | Thick vis inside 125/126/127 | **ok** | EXP2 × 2.4 when eye MSL is between ceiling and top |
 | 131 display 0/1/2 | Channel off / on / standby | **gap** | Decoded, windows always on |
 | Channel geometry | 3 Raster frusta on 4 projector PCs | **ok** | far_left=left +35.515, mid_left=front 0, mid_right=front 0 (duplicate), far_right=right −35.25, 50×32.5. Optional FO `eye_right_m`. No off-axis / NLIM / edge blend |
-| Airport lights | Edge, CL, ALS, PAPI, taxi | **partial** | KJFK/KEWR from FAA both ends: ALSF-2 / MALSR / RLLS / NONE, PAPI side+angle, TDZ, REIL, EMAS, taxi edge/CL/stop bars. Other fields still OurAirports + charted ALS |
+| Airport lights | Edge, CL, ALS, PAPI, taxi | **partial** | See KJFK/KEWR scenery table. FAA types and sides. Host CSN movers still ignored |
 | Terrain / imagery | CERTS + NX tiles | **n/a** | Rebuilt from GLO-30/3DEP + NAIP/S2. Different pixels, same role |
-| Airport meshes | NX airport DB | **n/a** | Rebuilt from OurAirports + OSM. No RSI geometry |
+| Airport meshes | NX airport DB | **n/a** | Rebuilt from FAA + OSM + public stand-ins. No RSI geometry |
+
+## KJFK / KEWR 2023 scenery (public rebuild)
+
+What Raster's 2023 KJFK_KEWR pad showed, rebuilt from **FAA / OSM / public**
+data only. **FAA wins** when Raster disagrees (displaced thresholds, ALS
+type, PAPI side). Tracked in code (`s376::scenery_parity_items`) and
+`s376-raster-parity --ours`.
+
+| Item | Raster 2023 had | Status | How we build it |
+|---|---|---|---|
+| Runway ends / widths / displaced | NX airport DB | **ok** | FAA both ends. 22R **3424 ft**. 13L **200 ft** |
+| Edge / centreline | full | **ok** | FAA AC 150/5340-30 spacing |
+| TDZ | charted ends | **ok** | FAA AD 2.14 |
+| ALSF-2 + flashers | 04R/22L/13L + EWR 04R/22L | **ok** | Standard 2400 ft bars, not a single row |
+| MALSR + RAIL | 31R + EWR 04L/22R | **ok** | |
+| RLLS | 13R | **ok** | Lead-in groups |
+| PAPI all ends | yes | **ok** | 3.00°; 31R P4R; 13R two P4L |
+| REIL | some ends | **partial** | KEWR 22R/11/29; JFK none on the current FAA chart |
+| Blue taxi edge / green CL | full network | **ok** | Schematic + OSM |
+| Stop bars | SMGCS | **ok** | Red at taxi starts |
+| Lead-on | yes | **partial** | C/U connectors |
+| RWSL | yes | **partial** | Hold crossings; not live host-driven |
+| Sign glow | yes | **partial** | Yellow points on our signs |
+| Taxi names C1–C6, U1–U3 | 2022 diagram; **CC removed** | **partial** | Named connectors; full graph from `s376-cache osm` |
+| Signs / hold bars | full | **partial** | At named connectors |
+| Terminals incl. T5 | full | **partial** | Schematic T1/T4/T5/T7/T8 + OSM footprints |
+| Jetbridges | yes | **partial** | Stand-in boxes at gates |
+| Docking guidance | yes | **partial** | Stand-in bars |
+| Parked aircraft | static | **partial** | Gate stand-ins. Host CSN still a **gap** |
+| Tower + beacon | yes | **partial** | ATCT box + rotating-beacon point |
+| ~30 k buildings | yes | **partial** | OSM bake cap 8 k; mesh nearest 800 full / 2500 far (980 Ti) |
+| Trees | yes | **partial** | Rings off the pavement |
+| 12 moving-model routes | yes | **partial** | Paths stored; host CSN movers **gap** |
+| Marshallers | yes | **partial** | Gate poses; host CSN ignored |
+| Road traffic | yes | **gap** | Two road paths; no cars yet |
+| Summer imagery | CERTS | **partial** | NYS Latest / NAIP (`s376-cache fetch`) |
+| Winter imagery | second season | **partial** | `s376-cache fetch --season winter` → `cache/<ICAO>/winter` |
+| 15 m night lights | layer | **partial** | Spacing recorded 15 m; GPU subsample 60 m |
+| Full KEWR | yes | **partial** | FAA both ends + scenery stand-ins |
+
+Local compare (never commits Raster data):
+
+```bash
+./build/s376-raster-parity --ours --icao KJFK
+./build/s376-raster-parity /path/to/local/Raster/KJFK_KEWR --icao KJFK
+```
+
+CI fails if any `.nxt` / `.nxb` / `.nx3` / `nxHostPacket.h` enters the tree
+(`scripts/check-no-rsi.sh`).
 
 ## IG → host
 
@@ -78,7 +127,7 @@ or deep it is. Expensive levers are TOML toggles; `render.quality =
 | Mipmapped drapes | **ok** |
 | FAA AC 150/5340-1 markings | **ok** — geometry (threshold, 5×7 numbers/LRC, aiming, TDZ, CL, edge, hold-short). Stays sharp at grazing angles; no committed textures |
 | Asphalt / rubber / grass detail | **partial** — generated 128² atlas (grass/asphalt/dirt/concrete) blended over ortho with distance fade + hash noise. Optional CC0 Poly Haven / ambientCG via `scripts/fetch-textures.sh` (never committed) |
-| OSM buildings | **partial** — extruded footprints + schematic terminals. LOD cap 280. Instancing later |
+| OSM buildings | **partial** — extruded footprints + schematic terminals. Bake cap 8 k; mesh nearest 800 full / 2500 far |
 | Analytic sky + aerial perspective | **partial** — Preetham-like dome, sun disc, moon+stars at night, EXP2 + altitude haze (`uHaze`). Not a full Bruneton LUT |
 | Water / coastlines | **partial** — soft land mask + 40 km local patches at each airport, Fresnel + stable waves + sun glint. OSM water/coastline queried, not meshed yet |
 | Oblique mip / aniso | **ok** — 2048×1024 globe + local patches, trilinear, aniso 16, LOD bias −0.35 |
@@ -105,5 +154,6 @@ or deep it is. Expensive levers are TOML toggles; `render.quality =
 
 ## Safety (must never regress)
 
-- No RSI / CAE files, ICD text, captures, or NX tiles in git
+- No RSI / CAE files, ICD text, captures, or NX tiles in git (`scripts/check-no-rsi.sh`)
 - Tests/CI never send to `10.1.95.0/24`, `192.168.173.0/24`, or UDP 3340/3341
+- `s376-raster-parity` reads a local Raster path at runtime only; it does not copy or embed vendor files

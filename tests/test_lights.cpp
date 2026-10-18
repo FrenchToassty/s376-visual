@@ -62,6 +62,11 @@ void test_lights() {
     CHECK_NEAR(intensity(s376::LightKind::Strobe, 5), 1.0, 1e-6);
     CHECK_NEAR(intensity(s376::LightKind::Edge, 1), 0.35, 1e-6);
     CHECK_NEAR(intensity(s376::LightKind::Edge, 4), 0.92, 1e-6);
+    CHECK_NEAR(intensity(s376::LightKind::LeadOn, 5), 1.0, 1e-6);
+    CHECK_NEAR(intensity(s376::LightKind::SignGlow, 3), intensity(s376::LightKind::Edge, 3), 1e-6);
+    CHECK_NEAR(intensity(s376::LightKind::Night, 1), intensity(s376::LightKind::Edge, 1), 1e-6);
+    CHECK(s376::lights::type_range_scale(s376::LightKind::Beacon) > 0.9f);
+    CHECK(s376::lights::type_range_scale(s376::LightKind::Night) < 0.5f);
 
     CHECK_NEAR(size_mult_hat(0.f), 12.0, 1e-4);
     CHECK_NEAR(size_mult_hat(500.f), 1.0, 1e-4);

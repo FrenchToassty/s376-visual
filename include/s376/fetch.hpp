@@ -49,6 +49,7 @@ struct FetchRequest {
     std::string dem = "auto";      // auto | glo30 | 3dep
     std::string imagery = "auto";  // auto | nys | hro | naip | s2 | hillshade
     std::string out_dir;
+    std::string season = "summer"; // summer | winter (second pack under out/winter)
     bool dry_run = false;
     bool mips = true;
     double near_m = 1.0;       // imagery m/px near ARP + finals

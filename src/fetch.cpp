@@ -564,7 +564,11 @@ std::uint64_t fetch_and_pack(const FetchRequest& req, FetchPlan* plan_out) {
     if (plan_out)
         *plan_out = plan;
     const AirportRef apt = lookup_airport_ref(req.icao);
-    const std::string out = req.out_dir.empty() ? ("cache/" + apt.icao) : req.out_dir;
+    std::string out = req.out_dir.empty() ? ("cache/" + apt.icao) : req.out_dir;
+    if (req.season == "winter") {
+        if (out.size() < 7 || out.substr(out.size() - 7) != "/winter")
+            out += "/winter";
+    }
     if (req.dry_run)
         return 0;
 

@@ -1,14 +1,217 @@
 # HANDOFF
 
-A coworker (human or agent) can pick up from here. Cursor usage on this
-account may stop mid-run — treat this file as the source of truth.
+A coworker (human or agent) can pick up from here. Cursor usage on the
+original account may stop mid-run — **this file is the source of truth**.
+Update it at the end of every run.
 
-**PR:** https://github.com/joeylawell/s376-visual/pull/1
+**PR:** https://github.com/joeylawell/s376-visual/pull/1 (draft)
 **Branch:** `cursor/s376-visual-v1-6852`
+**Repo:** https://github.com/joeylawell/s376-visual (public)
 
-**Top rule:** beat Raster in every way; **accuracy first**. Never trade
-a FAA number for looks or speed. 980 Ti 60 Hz is the only other hard
-constraint. See `docs/ACCURACY.md`.
+**Top rule:** beat Raster in every way; **accuracy first**. FAA is the
+truth when it disagrees with Raster. Never trade a surveyed number for
+looks or speed. The GTX 980 Ti 60 Hz channel budget is the only other
+hard constraint. See `docs/ACCURACY.md` and `docs/PARITY.md`.
+
+Never commit RSI / CAE files, ICD text, NX tiles, Raster photos, or
+`nxHostPacket.h`. Never contact `10.1.95.0/24` or `192.168.173.0/24`
+from tests/CI. `scripts/check-no-rsi.sh` fails the build if
+`.nxt` / `.nxb` / `.nx3` / `nxHostPacket.h` enter the tree.
+
+---
+
+## Current state (2026-10-18, this increment)
+
+Accuracy core is landed (`702adb3`): KJFK / KEWR from both FAA ends,
+ALSF-2 / MALSR / RLLS / PAPI / EMAS / TDZ, accuracy suite (end 3 m,
+heading 0.1°, threshold 3 m, ALS/PAPI exact, imagery 1 m, elev 1 m),
+cache fetch refuses a pack whose lod0 misses the ARP or any end.
+
+This increment adds the **2023 KJFK_KEWR scenery checklist** and the
+local-only Raster comparer:
+
+- `docs/PARITY.md` — full feature list (own words) + per-item status
+- `src/scenery.cpp` — C1–C6 / U1–U3 (CC removed), signs, hold bars,
+  T5, jetbridges, docking, parked, tower+beacon, trees, 12 routes,
+  marshaller poses, 15 m night layer (GPU subsample 60 m / cap 2200)
+- `tools/raster-parity` (`s376-raster-parity`) — reads a **user path**
+  at runtime; heuristic lat/lon doubles only; never copies or embeds
+  Raster data
+- `scripts/check-no-rsi.sh` + `src/repo_guard.cpp` — CI guard
+
+This increment: **14195** unit tests passed, 0 failed. Doctor
+`faa-kjfk` 63 / `faa-kewr` 48, mesh-build 5.54 ms / 31146 verts /
+24440 lights, RSS peak 38.4 MiB (`--no-bench`). `s376-raster-parity
+--ours --icao KJFK` prints the checklist (5766 lights, C1–C6, U1–U3,
+T5, 12 routes, night 2200@15 m, CC=0). `scripts/check-no-rsi.sh` is
+clean.
+
+---
+
+## Build on Linux Mint 22 / Ubuntu 24.04
+
+```bash
+git clone https://github.com/joeylawell/s376-visual.git
+cd s376-visual
+git checkout cursor/s376-visual-v1-6852   # or main once merged
+./scripts/setup-mint.sh                   # apt + cmake + tests + synth KSEA
+# already have packages:
+./scripts/setup-mint.sh --skip-apt --no-desktop
+```
+
+Manual equivalent:
+
+```bash
+sudo apt install -y git cmake g++ libopenscenegraph-dev libgl-dev \
+  libglew-dev libgdal-dev xvfb
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
+cmake --build build -j"$(nproc)"
+unset S376_ALLOW_SIM_LAN S376_ALLOW_LAN
+ctest --test-dir build --output-on-failure
+./scripts/check-no-rsi.sh
+./build/s376-raster-parity --ours --icao KJFK
+```
+
+GL must be **compatibility**, not Core. Apt OSG 3.6.5 + NVIDIA 580
+(980 Ti) or 595 (5060 Ti) both work when we leave the Linux context
+version unset. Optional osgEarth: `scripts/build-osgearth.sh` →
+`/opt/osgearth`. Windows: README (CMake + optional vcpkg OSG).
+
+---
+
+## Fetch a cache, then doctor / screenshot
+
+The hangar KJFK pack was **mislocated** (~20 km SW; no lod0 north of
+40.614 N; field is 40.62–40.66 N). **Delete it and re-fetch centered
+on the FAA ARP** with NYS imagery:
+
+```bash
+rm -rf cache/KJFK
+./build/s376-cache fetch KJFK --out cache/KJFK --dem 3dep --imagery nys \
+  --near-m 1 --near-dem-m 2 --near-km 5 --approach-nm 10 --radius-km 35 \
+  --max-export 4000
+./build/s376-cache bake-osm cache/KJFK   # if osm.json exists; runtime uses osm.bin only
+./build/s376-doctor --cache-dir cache/KJFK --no-bench
+# expect [pass] faa-kjfk, [pass] faa-coverage (ARP + every end in lod0)
+# expect [pass] rss peak << 2 GiB
+
+./build/s376-visual --screenshot /tmp/jfk-12k-mid_left.ppm \
+  --cache-dir cache/KJFK --at KJFK --alt 12000 --hdg 036 \
+  --channel mid_left --screenshot-wait 5
+# expect: 1920×1080 P6+PNG, ortho on JFK/Rockaway (not flat green),
+# no top garbage band, zero `invalid enumerant`, blue sky,
+# runways as pavement not a white cross
+```
+
+KEWR (same flags). Winter pack (second season, same sources for now):
+
+```bash
+./build/s376-cache fetch KJFK --imagery nys --season winter --out cache/KJFK
+# writes cache/KJFK/winter
+```
+
+Local Raster compare (path stays on the caller's disk; nothing is
+copied into git):
+
+```bash
+./build/s376-raster-parity --ours --icao KJFK
+./build/s376-raster-parity /path/to/local/Raster/KJFK_KEWR --icao KJFK
+# or drop a tree under ./raster-local/ (gitignored)
+```
+
+---
+
+## Real-hardware results so far
+
+| When | Box | Result |
+|---|---|---|
+| OOM on first KJFK screenshot | Mint, 16 GB, RTX 5060 Ti | **Fixed.** Pager + `osm.bin` + compressed DDS. Peak **36 MiB RSS** on a later doctor/screenshot (4 GB cap, no crash). Must also hold on i7-5930K + GTX 980 Ti 6 GB / 16 GB RAM. |
+| Screenshot at **72df5f5** | same hangar GPU | Top ~7% **garbage band** (FBO 1920×1080 vs window 1920×1008; slave inherited window scissor). **16× `invalid enumerant`** (OSG 3.6 uploaded BC7 as `GL_COMPRESSED_RGBA_BPTC_UNORM`). Fixes landed in `3add51f` (FBO viewport/scissor/clear; BC7→DXT1 transcode). **Re-test after the re-fetch.** |
+| KJFK cache on Mint | hangar pack | **Mislocated.** 14 lod0 tiles never reach north of 40.614 N. `region.toml` sat ~20 km SW because fetch packed from `dems.front()` (iy=0 = SW tile). Fix landed in `702adb3` (ARP-centered merge; throw if ARP/ends outside lod0). **Re-fetch with `--imagery nys` is the next hangar step.** |
+| 8285de8 screenshot | Mint, NVIDIA 595.99, GL 4.6 compat | Valid-sized P6 but garbage at 1920×1008 (decorated window). FBO-at-channel-size landed later. |
+| 88992c4 GL spam | Mint, 5060 Ti, apt OSG 3.6.5 | ~27k `detected OpenGL error` + SIGTERM hang. Compat context + shader lighting + SIGINT/`g_stop` landed. |
+
+This cloud agent has no hangar GPU. Xvfb here often fails
+`GLXBadFBConfig`. Visual proof is the hangar `--screenshot`.
+
+---
+
+## GTX 980 Ti / NVIDIA 580 notes
+
+Target: i7-5930K + **GTX 980 Ti 6 GB Maxwell** / **NVIDIA 580** /
+OpenGL, 60 Hz at one channel (1920×1080, 50×32.5). `render.quality =
+"gtx980ti"` is the default; `"rtx"` may go higher.
+
+- Linux **must not** request a Core profile. We leave
+  `setGLContextVersion` unset so 580/595 give a 4.6 **compat**
+  context. `setGLContextVersion("3.3")` with no mask was Core on 595
+  and illegal for apt OSG's leftover FF StateSets.
+- Scene lighting / fog / points are GLSL 120. Maxwell-unsafe modes
+  (PointSprite, POINT_SMOOTH, FF LIGHTING/FOG) are stripped.
+- OSG 3.6 does not treat BPTC as compressed — we transcode our BC7
+  tiles to DXT1 before upload (980 Ti and 5060 Ti both get DXT1).
+- RAM/VRAM caps: `ram_mb=2048`, `vram_mb=5120`. Never mesh a 4000²
+  DEM; pager uses 96². Runtime OSM is `osm.bin` only.
+- 980 Ti scenery caps: OSM bake 8 k buildings; mesh nearest 800 full
+  / 2500 far; night layer recorded at 15 m, drawn at 60 m / 2200 pts.
+- Skip the display-correction GPU pass when the ramp is identity.
+- `gtx980ti`: HDR/atmosphere/markings/detail/buildings on; SSAO cheap
+  wall darken; shadows **off** (no CSM yet).
+
+---
+
+## Open issues
+
+| # | Item | Notes |
+|---|---|---|
+| 1 | **Hangar re-fetch KJFK** | `rm -rf cache/KJFK` then fetch `--imagery nys`. Confirm `faa-coverage`. |
+| 2 | **Hangar 12k re-test** | After re-fetch: ortho, no top band, zero `invalid enumerant`, blue sky, pavement runways. Paste doctor RSS + shot path. |
+| 3 | Host CSN movers | Type-100 CSN ≠ 1 counted, body ignored. 12 routes + marshaller poses are stored only. |
+| 4 | Road traffic cars | Two road paths; no vehicles. |
+| 5 | Full ~30 k OSM buildings | Bake cap 8 k; Raster pad had ~30 k. |
+| 6 | Winter imagery vintage | `--season winter` writes `cache/<ICAO>/winter`; still the same NYS/NAIP URL. |
+| 7 | NY region pager | `data/regions/ny.toml` exists; KEWR tiles load only when nearby — not wired. |
+| 8 | Ownship 109 beams | Decoded; no landing/taxi lobes, no beacon/strobe draw. |
+| 9 | Type 131 display | Decoded; windows always on. |
+| 10 | Type 124 runway condition | Decoded; unused. |
+| 11 | Cloud catalog / cell size | 105/125–127 drawn as stand-ins. |
+| 12 | CSM shadows | Toggle only. |
+| 13 | Off-axis frustum | Shared eye + heading offset. |
+| 14 | FO `eye_right_m` | Config exists, default 0. |
+
+---
+
+## Priority order (work this across runs)
+
+1. **Hangar re-fetch + 12k screenshot** (items 1–2). Blocking for
+   anyone looking at the picture. Keep CI green while it runs.
+2. **Host CSN movers / marshallers / road traffic** (3–4) — Raster
+   had 12 moving-model routes.
+3. **Raise OSM building cap toward 30 k** with the existing
+   near/far mesh split (5). Stay inside the 980 Ti RSS/VRAM caps.
+4. **Winter vintage URL + NY pager** (6–7).
+5. **109 beams, 131 display, 124 wet/snow, cloud catalog** (8–11).
+6. Shadows / off-axis / FO eye only if the hangar still needs them.
+
+FAA numbers always win. Do not invent packet types. Do not copy
+Raster photos or `nxHostPacket.h`.
+
+---
+
+## Milestone: KJFK/KEWR scenery parity + local Raster comparer (2026-10-18)
+
+Owner: public checklist of everything Raster's 2023 KJFK_KEWR pad
+had; local-only comparer; CI guard; FAA still wins.
+
+- Checklist: `docs/PARITY.md` + `s376::scenery_parity_items`.
+- Public stand-ins: 2022 taxi names C1–C6 / U1–U3 (no CC), signs,
+  hold bars, T5, jetbridges, docking, parked, ATCT+beacon, trees,
+  12 routes, marshallers, 15 m night layer.
+- `s376-raster-parity --ours | PATH` — positions via IEEE doubles
+  that look like lat/lon. Refuses sim-LAN paths. Warns if PATH is
+  this repo.
+- CI: `scripts/check-no-rsi.sh` on every Linux job; unit tests
+  `test_parity` / `test_repo_guard`.
 
 ## Milestone: FAA accuracy (KJFK/KEWR, cache centering) (2026-10-18)
 

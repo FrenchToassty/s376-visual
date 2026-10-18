@@ -52,6 +52,8 @@ CERTS*
 *.nxs
 *.nxo
 *.nx3
+# Local Raster tree (parity tool reads this at runtime; never commit)
+/raster-local/
 *.pfx
 *.ddc
 *.cc

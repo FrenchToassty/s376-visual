@@ -24,6 +24,7 @@ void usage() {
            "                       [--imagery auto|nys|hro|naip|s2|hillshade] [--dry-run]\n"
            "                       [--near-m M] [--near-dem-m M] [--mid-m M] [--far-m M]\n"
            "                       [--near-km N] [--approach-nm N] [--max-export N]\n"
+           "                       [--season summer|winter]\n"
            "  s376-cache synth-ksea [--out DIR] [--size N] [--lods]\n"
            "  s376-cache from-geotiff DEM.tif [--imagery FILE] [--out DIR] [--lods]\n"
            "  s376-cache pack-lods --from DIR --out DIR\n"
@@ -97,6 +98,7 @@ int main(int argc, char** argv) {
     int max_export = 4000;
     bool lods = false;
     bool dry = false;
+    std::string season = "summer";
     for (int i = 2; i < argc; ++i) {
         const std::string a = argv[i];
         auto need = [&](const char* flag) -> std::string {
@@ -136,6 +138,8 @@ int main(int argc, char** argv) {
             lods = true;
         else if (a == "--dry-run")
             dry = true;
+        else if (a == "--season")
+            season = need("--season");
         else if (a == "-h" || a == "--help") {
             usage();
             s376::log::shutdown();
@@ -170,6 +174,7 @@ int main(int argc, char** argv) {
             req.dem = dem_kind;
             req.imagery = img_kind;
             req.out_dir = out;
+            req.season = season;
             req.dry_run = dry;
             req.near_m = near_m;
             req.near_dem_m = near_dem_m;

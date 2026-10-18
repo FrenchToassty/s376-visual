@@ -185,6 +185,22 @@ void test_airport() {
     CHECK_NEAR(jfk.runways[3].length_m, 14511.0 * s376::geo::kFtToM, 8.0);
     CHECK(!jfk.source.name.empty());
     CHECK(jfk.source.effective == "2026-10-02");
+    bool saw_c1 = false, saw_u1 = false, saw_cc = false, saw_t5 = false;
+    for (const auto& t : jfk.taxiways) {
+        if (t.name == "C1")
+            saw_c1 = true;
+        if (t.name == "U1")
+            saw_u1 = true;
+        if (t.name == "CC")
+            saw_cc = true;
+    }
+    for (const auto& b : jfk.buildings)
+        if (b.name == "T5")
+            saw_t5 = true;
+    CHECK(saw_c1 && saw_u1 && !saw_cc && saw_t5);
+    CHECK(jfk.has_beacon && jfk.tower_h_m > 10.f);
+    CHECK(jfk.routes.size() >= 12);
+    CHECK(jfk.night.spacing_m == 15);
     check_runway_length(jfk.runways[0]);
     check_runway_length(jfk.runways[3]);
     check_lights(jfk, 200, 400);

@@ -570,6 +570,14 @@ const char* light_kind_name(LightKind k) {
         return "rwsl";
     case LightKind::End:
         return "end";
+    case LightKind::LeadOn:
+        return "lead_on";
+    case LightKind::SignGlow:
+        return "sign_glow";
+    case LightKind::Beacon:
+        return "beacon";
+    case LightKind::Night:
+        return "night";
     }
     return "?";
 }
@@ -693,6 +701,7 @@ Airport kjfk_public() {
     a.buildings.push_back(box_building("T7", 40.6488, -73.7832, 40.0, 220, 65, 18.f));
     a.buildings.push_back(box_building("hangar", 40.6515, -73.7940, 121.0, 180, 70, 16.f));
     a.buildings.push_back(box_building("cargo", 40.6550, -73.7720, 40.0, 200, 80, 14.f));
+    add_kjfk_public_scenery(a);
     generate_lights(a);
     return a;
 }
@@ -707,6 +716,11 @@ Airport kewr_public() {
     a.buildings.push_back(box_building("B", 40.6920, -74.1775, 26.0, 280, 70, 20.f));
     a.buildings.push_back(box_building("C", 40.6955, -74.1680, 95.0, 300, 75, 20.f));
     a.buildings.push_back(box_building("tower", 40.6928, -74.1688, 26.0, 40, 40, 55.f));
+    a.tower_lat = 40.6928;
+    a.tower_lon = -74.1688;
+    a.tower_h_m = 55.f;
+    a.has_beacon = true;
+    add_kewr_public_scenery(a);
     generate_lights(a);
     return a;
 }
@@ -1052,19 +1066,20 @@ int merge_osm_file_stream(Airport& a, const std::string& path, std::uint64_t max
             const bool is_apron = chunk.find("apron") != std::string::npos;
             // Same caps as write_osm_bin — a 400 MB Overpass dump must not
             // grow unbounded Airport vectors at bake time.
-            if (is_bldg && a.buildings.size() >= 280) {
+            if (is_bldg && a.buildings.size() >= kMaxOsmBuildings) {
                 pos = end + 1;
                 continue;
             }
-            if (is_apron && !is_bldg && a.aprons.size() >= 80) {
+            if (is_apron && !is_bldg && a.aprons.size() >= kMaxOsmAprons) {
                 pos = end + 1;
                 continue;
             }
-            if (!is_bldg && !is_apron && a.taxiways.size() >= 400) {
+            if (!is_bldg && !is_apron && a.taxiways.size() >= kMaxOsmTaxiways) {
                 pos = end + 1;
                 continue;
             }
-            if (a.taxiways.size() >= 400 && a.aprons.size() >= 80 && a.buildings.size() >= 280)
+            if (a.taxiways.size() >= kMaxOsmTaxiways && a.aprons.size() >= kMaxOsmAprons &&
+                a.buildings.size() >= kMaxOsmBuildings)
                 return added;
             added += merge_osm_json(a, chunk);
             pos = end + 1;
@@ -1142,9 +1157,9 @@ bool write_osm_bin(const Airport& a, const std::string& path) {
         return false;
     o.write("S376OSM1", 8);
     write_u32(o, 1);
-    const auto nt = std::min<std::size_t>(a.taxiways.size(), 400);
-    const auto na = std::min<std::size_t>(a.aprons.size(), 80);
-    const auto nb = std::min<std::size_t>(a.buildings.size(), 280);
+    const auto nt = std::min<std::size_t>(a.taxiways.size(), kMaxOsmTaxiways);
+    const auto na = std::min<std::size_t>(a.aprons.size(), kMaxOsmAprons);
+    const auto nb = std::min<std::size_t>(a.buildings.size(), kMaxOsmBuildings);
     write_u32(o, static_cast<std::uint32_t>(nt));
     write_u32(o, static_cast<std::uint32_t>(na));
     write_u32(o, static_cast<std::uint32_t>(nb));
@@ -1253,6 +1268,7 @@ void generate_lights(Airport& a) {
     for (std::size_t i = 0; i < a.runways.size(); ++i)
         lights_for_runway(a, a.runways[i], static_cast<int>(i) + 1);
     lights_for_taxi(a);
+    add_scenery_lights(a);
 }
 
 std::string airport_geojson(const Airport& a) {
@@ -1380,11 +1396,32 @@ AirportMesh build_airport_mesh(const Airport& a, bool buildings, bool markings) 
             }
         }
     }
-    constexpr int kMaxBuildings = 280;
+    std::vector<std::size_t> order;
+    order.reserve(a.buildings.size());
+    for (std::size_t i = 0; i < a.buildings.size(); ++i)
+        order.push_back(i);
+    std::sort(order.begin(), order.end(), [&](std::size_t i, std::size_t j) {
+        auto dist2 = [&](std::size_t k) {
+            if (a.buildings[k].ring.empty())
+                return 1e18;
+            double clat = 0, clon = 0;
+            for (const auto& p : a.buildings[k].ring) {
+                clat += p.first;
+                clon += p.second;
+            }
+            clat /= static_cast<double>(a.buildings[k].ring.size());
+            clon /= static_cast<double>(a.buildings[k].ring.size());
+            const double dlat = clat - a.arp_lat;
+            const double dlon = clon - a.arp_lon;
+            return dlat * dlat + dlon * dlon;
+        };
+        return dist2(i) < dist2(j);
+    });
     int nb = 0;
-    for (const auto& b : a.buildings) {
-        if (!buildings || nb >= kMaxBuildings)
+    for (std::size_t idx : order) {
+        if (!buildings || nb >= kMeshBuildingsFar)
             break;
+        const auto& b = a.buildings[idx];
         if (b.ring.size() < 3)
             continue;
         double clat = 0, clon = 0;
@@ -1400,21 +1437,38 @@ AirportMesh build_airport_mesh(const Airport& a, bool buildings, bool markings) 
         geo::Ecef e, n, u;
         geo::ecef_to_enu_axes(clat, clon, e, n, u);
         const geo::Ecef roof_c = geo::lla_to_ecef(clat, clon, z1);
-        for (std::size_t i = 0; i < b.ring.size(); ++i) {
+        const bool far = nb >= kMeshBuildingsNear;
+        const std::size_t step = far ? std::max<std::size_t>(1, b.ring.size() / 4) : 1;
+        for (std::size_t i = 0; i < b.ring.size(); i += step) {
             const auto& p0 = b.ring[i];
-            const auto& p1 = b.ring[(i + 1) % b.ring.size()];
+            const auto& p1 = b.ring[(i + step) % b.ring.size()];
             const geo::Ecef A = geo::lla_to_ecef(p0.first, p0.second, z0);
             const geo::Ecef B = geo::lla_to_ecef(p1.first, p1.second, z0);
             const geo::Ecef C = geo::lla_to_ecef(p1.first, p1.second, z1);
             const geo::Ecef D = geo::lla_to_ecef(p0.first, p0.second, z1);
             geo::Ecef wn{B.x - A.x, B.y - A.y, B.z - A.z};
-            // Cheap wall normal: cross(edge, up)
             geo::Ecef nn{wn.y * u.z - wn.z * u.y, wn.z * u.x - wn.x * u.z, wn.x * u.y - wn.y * u.x};
             add_tri(mesh, A, B, C, nn, 0.62f, 0.58f, 0.52f, 3.f);
             add_tri(mesh, A, C, D, nn, 0.62f, 0.58f, 0.52f, 3.f);
             add_tri(mesh, roof_c, D, C, u, 0.28f, 0.30f, 0.32f, 4.f);
         }
         ++nb;
+    }
+    for (const auto& t : a.trees) {
+        strip_quad(mesh, t.lat, t.lon, t.lat + 0.00004, t.lon, 0.0, 1.6, a.elev_m, a.elev_m + t.height_m,
+                   0.18f, 0.32f, 0.14f, 4.f);
+    }
+    for (const auto& p : a.parked) {
+        double nlat, nlon;
+        offset_m(p.lat, p.lon, p.hdg_deg, 18.0, nlat, nlon);
+        strip_quad(mesh, p.lat, p.lon, nlat, nlon, p.hdg_deg, 7.0, a.elev_m + 2.5, a.elev_m + 2.5,
+                   0.72f, 0.73f, 0.76f, 3.f);
+    }
+    for (const auto& j : a.jetbridges) {
+        double nlat, nlon;
+        offset_m(j.lat, j.lon, j.hdg_deg, j.length_m, nlat, nlon);
+        strip_quad(mesh, j.lat, j.lon, nlat, nlon, j.hdg_deg, 2.2, a.elev_m + 5.0, a.elev_m + 5.0,
+                   0.55f, 0.56f, 0.58f, 3.f);
     }
     return mesh;
 }

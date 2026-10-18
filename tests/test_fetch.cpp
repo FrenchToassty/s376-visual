@@ -99,6 +99,10 @@ void test_fetch() {
     req.icao = "KSEA";
     req.radius_km = 25;
     req.dry_run = true;
+    CHECK(req.season == "summer");
+    req.season = "winter";
+    CHECK(req.season == "winter");
+    req.season = "summer";
     auto plan = s376::plan_fetch(req);
     CHECK(plan.dem_kind == "3dep");
     CHECK(plan.img_kind == "naip");

@@ -2,6 +2,7 @@
 
 #include "s376/geo.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -33,8 +34,20 @@ enum class LightKind {
     Flasher,
     Reil,
     Rwsl,
-    End
+    End,
+    LeadOn,
+    SignGlow,
+    Beacon,
+    Night
 };
+
+// OSM bake / mesh caps. Raster's 2023 KJFK pad had ~30 k footprints;
+// we keep up to 8 k from OSM and mesh the nearest first (980 Ti).
+constexpr std::size_t kMaxOsmTaxiways = 800;
+constexpr std::size_t kMaxOsmAprons = 200;
+constexpr std::size_t kMaxOsmBuildings = 8000;
+constexpr int kMeshBuildingsNear = 800;
+constexpr int kMeshBuildingsFar = 2500;
 
 struct LightPoint {
     double lat = 0;
@@ -107,6 +120,66 @@ struct Building {
     float height_m = 12;
 };
 
+struct AirportSign {
+    std::string text;
+    double lat = 0;
+    double lon = 0;
+    double hdg_deg = 0;
+};
+
+struct HoldBar {
+    double lat = 0;
+    double lon = 0;
+    double hdg_deg = 0;
+    double width_m = 23;
+};
+
+struct Tree {
+    double lat = 0;
+    double lon = 0;
+    float height_m = 10;
+};
+
+struct ParkedAircraft {
+    std::string stand;
+    double lat = 0;
+    double lon = 0;
+    double hdg_deg = 0;
+};
+
+struct Jetbridge {
+    std::string gate;
+    double lat = 0;
+    double lon = 0;
+    double hdg_deg = 0;
+    double length_m = 28;
+};
+
+struct DockingGuide {
+    std::string stand;
+    double lat = 0;
+    double lon = 0;
+    double hdg_deg = 0;
+};
+
+struct SceneRoute {
+    std::string name;
+    std::string kind; // taxi | road | air
+    std::vector<std::pair<double, double>> path;
+};
+
+struct Marshaller {
+    std::string gate;
+    double lat = 0;
+    double lon = 0;
+    double hdg_deg = 0;
+};
+
+struct NightLayer {
+    double spacing_m = 15;
+    int points = 0;
+};
+
 struct Airport {
     std::string icao;
     std::string name;
@@ -127,6 +200,19 @@ struct Airport {
     std::vector<Apron> aprons;
     std::vector<Building> buildings;
     std::vector<LightPoint> lights;
+    std::vector<AirportSign> signs;
+    std::vector<HoldBar> hold_bars;
+    std::vector<Tree> trees;
+    std::vector<ParkedAircraft> parked;
+    std::vector<Jetbridge> jetbridges;
+    std::vector<DockingGuide> docking;
+    std::vector<SceneRoute> routes;
+    std::vector<Marshaller> marshallers;
+    NightLayer night;
+    double tower_lat = 0;
+    double tower_lon = 0;
+    float tower_h_m = 0;
+    bool has_beacon = false;
 };
 
 struct MeshVert {
@@ -204,6 +290,9 @@ int bake_osm_bin(const std::string& json_path, const std::string& bin_path);
 int try_load_osm(Airport& a, const std::string& cache_dir);
 
 void generate_lights(Airport& a);
+void add_kjfk_public_scenery(Airport& a); // 2022 taxi names, T5, tower, trees…
+void add_kewr_public_scenery(Airport& a);
+void add_scenery_lights(Airport& a);
 AirportMesh build_airport_mesh(const Airport& a, bool buildings = true, bool markings = true);
 
 // GeoJSON FeatureCollection (runways / taxi / aprons) for an osgEarth

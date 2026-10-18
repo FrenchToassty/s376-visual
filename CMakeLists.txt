@@ -39,6 +39,9 @@ set(S376_CORE_SRC
     src/tod.cpp
     src/faa.cpp
     src/accuracy.cpp
+    src/scenery.cpp
+    src/parity.cpp
+    src/repo_guard.cpp
 )
 
 if(S376_WITH_GDAL)
@@ -123,6 +126,9 @@ target_link_libraries(s376-doctor PRIVATE s376_core)
 add_executable(s376-cache src/cache_main.cpp)
 target_link_libraries(s376-cache PRIVATE s376_core)
 
+add_executable(s376-raster-parity tools/raster-parity/main.cpp)
+target_link_libraries(s376-raster-parity PRIVATE s376_core)
+
 add_executable(s376-tests
     tests/test_main.cpp
     tests/test_vaxfloat.cpp
@@ -141,6 +147,8 @@ add_executable(s376-tests
     tests/test_display.cpp
     tests/test_lights.cpp
     tests/test_accuracy.cpp
+    tests/test_parity.cpp
+    tests/test_repo_guard.cpp
 )
 target_link_libraries(s376-tests PRIVATE s376_core)
 
