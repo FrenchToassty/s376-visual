@@ -26,16 +26,20 @@ textures, databases, binaries, or packet captures.
 
 ```bash
 sudo apt update
-sudo apt install -y git cmake g++ libopenscenegraph-dev libgl-dev libglew-dev
+sudo apt install -y git cmake g++ libopenscenegraph-dev libgl-dev libglew-dev libgdal-dev
 
 git clone https://github.com/joeylawell/s376-visual.git
 cd s376-visual
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
 cmake --build build -j"$(nproc)"
 ctest --test-dir build --output-on-failure
 ```
 
-Binaries land in `build/`: `s376-visual`, `s376-synth`, `s376-doctor`, `s376-tests`.
+Use **g++**, not the default clang: Ubuntu 24.04 / Mint 22 clang often lacks a
+matching `libstdc++` and the link fails with `cannot find -lstdc++`.
+
+Binaries land in `build/`: `s376-visual`, `s376-synth`, `s376-doctor`,
+`s376-cache`, `s376-tests`.
 
 ### Run without a VAX (demo)
 
@@ -43,8 +47,10 @@ Binaries land in `build/`: `s376-visual`, `s376-synth`, `s376-doctor`, `s376-tes
 ./build/s376-visual --demo --channel front
 ```
 
-A synthetic 737 takes off from KSEA 16L and the camera follows. `--headless`
-runs the same path with no window (useful on SSH).
+A synthetic 737 takes off from KSEA 16L. Default is three channel windows
+(Front / Left +35.515° / Right −35.25°), tiled on a single display or
+placed on `monitor` 0/1/2. `--channel front` is the laptop single-window
+fallback. `--headless` runs the same path with no GL.
 
 ### Run against SIMH (emulated host)
 
@@ -76,7 +82,8 @@ contact `10.1.95.0/24` or `192.168.173.0/24`.
 |---|---|
 | `-c / --config PATH` | TOML file (see `config/s376-visual.toml`) |
 | `--bind HOST:PORT` | override listen address |
-| `--channel front\|left\|right` | which frustum to open |
+| `--channel front\|left\|right\|all` | frustum(s) to open (default: all enabled, tiled on one display) |
+| `--cache-dir PATH` | packed DEM/imagery from `s376-cache` |
 | `--headless` | decoder + socket, no GL |
 | `--demo` | in-process synth to loopback |
 | `-v` / `--debug` | verbose / per-packet hex |
@@ -100,33 +107,84 @@ ctest --test-dir build -C Release --output-on-failure
 
 Without OSG the core, tests, synth, and `--headless` IG still build.
 
-## osgEarth (streamed DEM + imagery)
+## Local DEM + imagery (no osgEarth required)
 
-Ubuntu 24.04 does not package osgEarth. After the OSG packages above:
+The IG drapes a local height field even when osgEarth is absent. Pack a
+region once, offline:
 
 ```bash
-sudo apt install -y libgdal-dev libgeos-dev libprotobuf-dev protobuf-compiler libtinyxml-dev
-git clone --depth 1 https://github.com/gwaldron/osgearth.git
-cmake -S osgearth -B osgearth/build -DCMAKE_BUILD_TYPE=Release
-cmake --build osgearth/build -j"$(nproc)"
-sudo cmake --install osgearth/build
-# then re-configure s376-visual so it picks osgEarth up
+# synthetic 25 km Sea-Tac box (no download) — a few hundred KiB
+./build/s376-cache synth-ksea --out cache/ksea
+
+# real Copernicus GLO-30 clip + optional NAIP / Sentinel-2 GeoTIFF
+./build/s376-cache from-geotiff ~/data/glo30-ksea.tif \
+    --imagery ~/data/naip-ksea.tif --out cache/ksea
+
+./build/s376-visual --demo --cache-dir cache/ksea
 ```
 
+Output is `elev.s376dem` (portable grid) + `imagery.dds` (BC1/DXT1 GPU
+texture) + `region.toml`. A 1° GLO-30 clip is tens of MiB. RSI CERTS
+for a comparable area was ~857 GB uncompressed; we do not convert those
+tiles. KTX2/Basis can replace the DDS later; the drape slot is the same.
+
+`from-geotiff` needs GDAL (`libgdal-dev`). Without GDAL the portable
+`.s376dem` path and `synth-ksea` still work.
+
+## osgEarth from source (Linux Mint 22 / Ubuntu 24.04)
+
+Ubuntu 24.04 **does not** package osgEarth. The every-PR CI job therefore
+builds the OSG globe + local DEM only. An optional
+[osgEarth workflow](.github/workflows/osgearth.yml) (`workflow_dispatch`)
+compiles osgEarth 3.7.2 from source — about 20–40 minutes, not practical
+on every push.
+
+On the hangar box, after the OSG + GDAL packages above:
+
+```bash
+sudo apt install -y libgeos-dev libproj-dev libprotobuf-dev protobuf-compiler \
+    libtinyxml-dev libcurl4-openssl-dev libsqlite3-dev
+
+git clone --depth 1 --branch osgearth-3.7.2 https://github.com/gwaldron/osgearth.git
+cmake -S osgearth -B osgearth/build \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_CXX_COMPILER=g++ \
+    -DOSGEARTH_BUILD_TOOLS=OFF \
+    -DOSGEARTH_BUILD_EXAMPLES=OFF \
+    -DOSGEARTH_BUILD_IMGUI_NODEKIT=OFF \
+    -DOSGEARTH_ENABLE_FASTDXT=OFF
+cmake --build osgearth/build -j"$(nproc)"
+sudo cmake --install osgearth/build
+sudo ldconfig
+
+# re-configure s376-visual so it defines S376_HAS_OSGEARTH
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
+cmake --build build -j"$(nproc)"
+```
+
+`s376-doctor` WARNs when OSG is present but osgEarth is not. After a
+source install it should PASS the osgearth check.
+
 `data/earth/s376.earth` points at Esri World Imagery for a first look.
-Replace it with local NAIP / Sentinel-2 / Copernicus GLO-30 — see
-[docs/SOURCES.md](docs/SOURCES.md).
+Replace the image/elevation layers with local NAIP / Sentinel-2 /
+Copernicus GLO-30 — see [docs/SOURCES.md](docs/SOURCES.md).
+
+Apt OSG 3.6.5 is enough for osgEarth 3.7.x. Building OSG from source
+with `-DOPENGL_PROFILE=GL3` is only needed if you want a Core profile;
+the hangar NVIDIA box runs the compatibility profile that apt OSG uses.
 
 ## What is in the box
 
 - Clean-room xT4 decoder (eyepoint, TOD, visibility, fog, light steps, lights)
 - HAT / status reply the S376 host already knows how to read
 - Channel TOML (Front 0°, Left +35.515°, Right −35.25°, 50° × 32.5°)
+- Three CompositeViewer windows, or `--channel front` on a laptop
 - Logging, `--debug`, `--doctor`, `--diagnostics`
 - `s376-synth` kinematic takeoff from KSEA 16L
-- Single-window globe, camera from the host, fog, sun from time of day
+- Globe + local DEM drape (BC1), camera from the host, fog, sun from TOD
+- `s376-cache` offline tile packer (synth or GDAL GeoTIFF)
 
-Not yet: airport meshes, light points, three windows, NLIM, landing-light
+Not yet: airport meshes, light-point GPU pass, NLIM, landing-light
 beams. The plan is in [docs/AIRPORTS.md](docs/AIRPORTS.md) and
 [docs/DESIGN.md](docs/DESIGN.md). Protocol field layouts:
 [docs/PROTOCOL.md](docs/PROTOCOL.md).

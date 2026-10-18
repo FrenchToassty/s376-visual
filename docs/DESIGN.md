@@ -36,6 +36,8 @@ from source (see the README). v0.1 therefore:
 
 - always builds a headless-safe core (decoder, host socket, config, tests);
 - builds an OSG window + procedural WGS84 globe when OSG is present;
+- drapes a local DEM (portable `.s376dem` or GDAL GeoTIFF) with BC1/DXT1
+  imagery from `s376-cache` / `render.cache_dir`;
 - loads `data/earth/s376.earth` and uses streamed tiles when osgEarth is
   found at configure time (`S376_HAS_OSGEARTH`).
 
@@ -85,8 +87,9 @@ CAE 737-300 RSI setup:
 | Left | +35.515° | 50° × 32.5° |
 | Right | −35.25° | 50° × 32.5° |
 
-v0.1 opens one window (the first enabled channel). Three windows come
-next; the config already describes all three.
+The IG opens every enabled `[[channels]]` entry (CompositeViewer). One
+display tiles left|front|right; three monitors use `monitor` 0/1/2.
+`--channel front` is the single-window laptop fallback.
 
 ## Terrain and airports
 

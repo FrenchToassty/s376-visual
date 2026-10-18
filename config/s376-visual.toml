@@ -16,7 +16,7 @@ allow_lan = false
 [render]
 engine = "auto"           # auto | osgearth | osg | null
 earth_file = "data/earth/s376.earth"
-cache_dir = ""
+cache_dir = ""            # packed region from s376-cache; empty = synth KSEA DEM
 frame_rate = 60
 window_title = "s376-visual"
 vsync = true

@@ -27,15 +27,34 @@ offline or need airport-grade resolution.
 | SRTM 1 arc-second | 30 m | Void-filled copies via USGS / CGIAR. Weaker at high latitude |
 | A local GeoTIFF | whatever you clip | Point the earth file `<elevation driver="gdal">` at it |
 
-v0.1 without osgEarth uses a smooth WGS84 ellipsoid (no DEM). With
-osgEarth, add an elevation layer to `s376.earth` and the same camera
-path will ride the mesh.
+Without osgEarth the IG still has a local DEM: a portable `.s376dem`
+grid (row-major metres MSL) plus a BC1/DXT1 DDS drape. `s376-cache
+synth-ksea` writes a 25 km Sea-Tac box in a few hundred KiB. Point
+`s376-cache from-geotiff` at a Copernicus GLO-30 clip (and optional
+NAIP / Sentinel-2 GeoTIFF) for a real region — tens of MiB, not the
+857 GB uncompressed RSI CERTS farm.
+
+With osgEarth, add an elevation layer to `s376.earth` and the same
+camera path rides the streamed mesh.
 
 ## Caching
 
-Put a cache directory in the config (`render.cache_dir`). osgEarth's
-default file cache is enough for a hangar machine. Do not commit
-downloaded tiles.
+```bash
+# synthetic KSEA (no download, CI and laptops)
+./build/s376-cache synth-ksea --out cache/ksea
+
+# real Copernicus GLO-30 + optional imagery (GDAL)
+./build/s376-cache from-geotiff ~/data/glo30-ksea.tif \
+    --imagery ~/data/naip-ksea.tif --out cache/ksea
+```
+
+Then set `render.cache_dir = "cache/ksea"` (or `--cache-dir`). Packed
+files are `elev.s376dem`, `imagery.dds` (BC1), and `region.toml`.
+KTX2/Basis is a later swap for the same drape slot; BC1 is the v0
+GPU format because OSG 3.6 already understands DXT1.
+
+osgEarth's own file cache is separate and is enough for a hangar box
+that has the library. Do not commit downloaded tiles.
 
 ## What we will not ship
 

@@ -67,11 +67,18 @@ DoctorReport run_doctor(const AppConfig& cfg, const std::string& config_path, bo
 #elif defined(S376_HAS_OSG)
     add(r,
         {"osgearth", CheckStatus::Warn,
-         "OSG " + std::string(osgGetVersion()) + " present; osgEarth not found (procedural globe)",
-         "build osgEarth from source and re-cmake (see README)"});
+         "OSG " + std::string(osgGetVersion()) + " present; osgEarth not found (procedural globe + local DEM)",
+         "build osgEarth from source on Mint 22 (see README) and re-cmake"});
 #else
     add(r, {"osgearth", CheckStatus::Warn, "no OSG; renderer is null/headless",
             "apt install libopenscenegraph-dev"});
+#endif
+
+#ifdef S376_HAS_GDAL
+    add(r, {"gdal", CheckStatus::Pass, "GDAL present — GeoTIFF DEM/imagery path enabled", ""});
+#else
+    add(r, {"gdal", CheckStatus::Warn, "GDAL not built in; portable .s376dem only",
+            "apt install libgdal-dev and re-cmake"});
 #endif
 
     if (!config_path.empty()) {

@@ -13,7 +13,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cmake g++ libopenscenegraph-dev libgl-dev libglew-dev xvfb
+            cmake g++ libopenscenegraph-dev libgl-dev libglew-dev libgdal-dev xvfb
       - name: configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
       - name: build
@@ -36,5 +36,13 @@ jobs:
           fi
           if ./build/s376-synth --dest 192.168.173.10:2300 --duration 0.1; then
             echo "synth must refuse the visual LAN" >&2
+            exit 1
+          fi
+      - name: offline tile cache
+        run: |
+          ./build/s376-cache synth-ksea --out /tmp/s376-ci-ksea --size 64
+          ./build/s376-cache info /tmp/s376-ci-ksea
+          if ./build/s376-cache synth-ksea --out 10.1.95.1:2300; then
+            echo "cache must refuse a sim-LAN dest" >&2
             exit 1
           fi

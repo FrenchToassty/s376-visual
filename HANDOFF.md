@@ -8,16 +8,30 @@ account may stop mid-run — treat this file as the source of truth.
 
 ## Verified in this run
 
-- `s376-tests`: **796 passed, 0 failed** (VAX floats, all 4 wire encodings, golden
+- `s376-tests`: **856 passed, 0 failed** (VAX floats, all 4 wire encodings, golden
   Python-builder hex, HAT host-side decode, safety refusals, TOML, sun/ECEF,
-  200-step synth stream, live UDP 127.0.0.1).
+  200-step synth stream, live UDP 127.0.0.1, channel layout, DEM/BC1/GDAL).
 - `s376-visual --headless --demo --duration 2`: 40 datagrams / 40 eyepoints,
   KSEA 16L, env TOD 14.5 / vis 60760 ft.
 - `s376-visual --demo` under Xvfb: OSG window "front" 1920×1080, 50×32.5 FOV,
   procedural globe, camera on the eyepoint.
 - `s376-synth --dest 10.1.95.1:2300` and `192.168.173.10:2300`: refused.
+- `s376-cache synth-ksea --out /tmp/s376-ksea --size 64`: **18 608 bytes**
+  (BC1 + `.s376dem`); `info` samples KSEA ARP at 433 ft; `--out 10.1.95.1:2300`
+  refused.
 - `s376-doctor`: 0 fail, 1 warn (osgEarth not packaged on Ubuntu 24.04).
-- GitHub Actions `ci / linux` on this branch: **green** (ubuntu-24.04 build, 796 tests, doctor, headless demo, sim-LAN refusal).
+  GDAL 3.8.4 PASSes.
+- GitHub Actions `ci / linux` on this branch: **green** on the three-channel
+  commit; this terrain commit adds `libgdal-dev` + an `s376-cache` smoke.
+
+## Milestone: local DEM + cache (2026-10-18)
+
+Portable `.s376dem` + BC1/DXT1 DDS + `s376-cache`. GDAL GeoTIFF in when
+`libgdal-dev` is present (`S376_HAS_GDAL`). Renderer drapes the packed
+region (or a synth 25 km KSEA box) on the globe. osgEarth-from-source
+recipe is in the README (Mint 22 / Ubuntu 24.04, tag `osgearth-3.7.2`).
+Every-PR CI does **not** compile osgEarth; optional
+`.github/workflows/osgearth.yml` is `workflow_dispatch` only.
 
 ## Milestone: three channels (2026-10-17)
 
@@ -26,7 +40,7 @@ left|front|right (verified under Xvfb 1920×1080: three 640×360 windows at
 x=0/640/1280, heading offsets 35.515 / 0 / −35.25). `--channel front|left|right`
 is the single-window fallback. Shared eyepoint; each view rotates by the
 TOML heading offset (RSI ViewAngles). `select_channels` / `layout_channels`
-are unit-tested (822 passed).
+are unit-tested.
 
 ## What's done and working
 
@@ -48,7 +62,10 @@ are unit-tested (822 passed).
 - Logging (`-v`, `--debug`, rotating file under `logs/`).
 - `s376-doctor` / `--diagnostics`.
 - Minimal OSG renderer: WGS84 globe, host-driven camera, exp2 fog, sun
-  from TOD. osgEarth earth file is loaded when the lib is present.
+  from TOD. Local DEM patch + BC1 drape. osgEarth earth file is loaded
+  when the lib is present.
+- `s376-cache`: `synth-ksea` / `from-geotiff` / `info`. Packed KSEA box
+  is tens of KiB, not 857 GB.
 - Airport rebuild plan: `docs/AIRPORTS.md`. Terrain sources: `docs/SOURCES.md`.
 - Safety: `10.1.95.0/24` and `192.168.173.0/24` refused unless
   `host.allow_sim_lan` / `S376_ALLOW_SIM_LAN=1`. Tests never set that.
@@ -58,7 +75,7 @@ are unit-tested (822 passed).
 | Item | Path | What's left |
 |---|---|---|
 | osgEarth tiles | `data/earth/s376.earth` | Build osgEarth on the hangar box; add a Copernicus elevation layer |
-| Real HAT | `src/host.cpp` (`HostReceiver::loop`) | Sample osgEarth elevation instead of `hat = alt_ft` |
+| Real HAT | `src/host.cpp` (`HostReceiver::loop`) | Sample the DEM (`HeightSource`) instead of `hat = alt_ft` |
 | Airport meshes | `docs/AIRPORTS.md` | Generator not started. Start with KSEA |
 | Light points | decoder stores `light_steps[256]` in `HostState` | No GPU pass yet |
 | Off-axis frustum | camera is rotated by heading offset | Shared eyepoint + asymmetric projection later |
@@ -66,25 +83,25 @@ are unit-tested (822 passed).
 
 ## Next 5 concrete steps (in order)
 
-1. **Local DEM + imagery.** GDAL GeoTIFF path, BC/DXT compressed textures,
-   `s376-cache` offline tile tool. Document osgEarth-from-source on Mint 22.
-2. **KSEA airport v0.** OurAirports runways + generated taxi/approach lights.
-3. **Real HAT** from the DEM under the eyepoint.
+1. **KSEA airport v0.** OurAirports runways + generated taxi/approach lights.
+2. **Real HAT** from the DEM under the eyepoint (`DemHeightSource` is ready).
+3. **Light-point GPU pass** driven by packet-112 intensity steps.
 4. **Build osgEarth** on the hangar box and confirm `s376.earth` drapes.
-5. **Light-point GPU pass** driven by packet-112 intensity steps.
+5. **Asymmetric / off-axis projection** if ViewAngles overlap is not enough.
 
 ## How to build / run / test (Linux Mint 22)
 
 ```bash
-sudo apt install -y git cmake g++ libopenscenegraph-dev libgl-dev libglew-dev
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+sudo apt install -y git cmake g++ libopenscenegraph-dev libgl-dev libglew-dev libgdal-dev
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
 cmake --build build -j"$(nproc)"
 unset S376_ALLOW_SIM_LAN S376_ALLOW_LAN
 ctest --test-dir build --output-on-failure
+./build/s376-cache synth-ksea --out cache/ksea
 ./build/s376-doctor -c config/s376-visual.toml
 ./build/s376-visual --headless --demo --duration 3 --bind 127.0.0.1:2300
 # three tiled windows (one display) or --channel front for a single view:
-./build/s376-visual --demo
+./build/s376-visual --demo --cache-dir cache/ksea
 ./build/s376-visual --demo --channel front
 ```
 
@@ -93,9 +110,11 @@ tests do not need OSG.
 
 ## Known issues
 
-- osgEarth is **not** in Ubuntu 24.04 apt. v0.1 is useful without it.
+- osgEarth is **not** in Ubuntu 24.04 apt. v0.1 is useful without it
+  (procedural globe + local DEM). Source-build recipe is in the README.
 - IEEE packers assume a little-endian CPU (every hangar box we have).
-- HAT elevation is a stand-in (MSL altitude) until a DEM is sampled.
+- HAT elevation is still a stand-in (`hat = alt_ft`). `DemHeightSource`
+  is ready; wire it in `HostReceiver::loop` next.
 - `s376-doctor` tries to bind `127.0.0.1:2300`; if the IG is already
   running that check WARNs.
 - No capture/replay yet (the old bridge had it). Add a pcap writer only
@@ -118,7 +137,7 @@ tests do not need OSG.
 
 ```
 include/s376/     public headers
-src/              core + s376-visual / s376-synth / s376-doctor
+src/              core + s376-visual / s376-synth / s376-doctor / s376-cache
 tests/            assert-style unit tests (no Catch2)
 config/           default TOML
 data/earth/       osgEarth earth file

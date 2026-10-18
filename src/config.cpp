@@ -218,6 +218,7 @@ std::string dump_config(const AppConfig& cfg) {
     o << "host.allow_sim_lan=" << (cfg.host.allow_sim_lan ? "true" : "false") << "\n";
     o << "render.engine=" << cfg.render.engine << "\n";
     o << "render.earth_file=" << cfg.render.earth_file << "\n";
+    o << "render.cache_dir=" << cfg.render.cache_dir << "\n";
     o << "render.frame_rate=" << cfg.render.frame_rate << "\n";
     for (const auto& ch : cfg.channels) {
         o << "channel " << ch.name << " hdg=" << ch.heading_offset_deg << " fov=" << ch.hfov_deg

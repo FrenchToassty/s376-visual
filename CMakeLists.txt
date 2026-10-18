@@ -7,6 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(S376_WITH_OSG "Build the OSG / osgEarth renderer" ON)
+option(S376_WITH_GDAL "Load Copernicus GeoTIFF DEM/imagery through GDAL" ON)
 
 if(MSVC)
     add_compile_options(/W4 /permissive-)
@@ -28,7 +29,23 @@ set(S376_CORE_SRC
     src/geo.cpp
     src/diagnostics.cpp
     src/render.cpp
+    src/terrain.cpp
+    src/dxt.cpp
 )
+
+if(S376_WITH_GDAL)
+    find_package(GDAL QUIET)
+    if(GDAL_FOUND)
+        add_compile_definitions(S376_HAS_GDAL)
+        if(DEFINED GDAL_VERSION)
+            message(STATUS "GDAL ${GDAL_VERSION} — GeoTIFF DEM/imagery enabled")
+        else()
+            message(STATUS "GDAL found — GeoTIFF DEM/imagery enabled")
+        endif()
+    else()
+        message(STATUS "GDAL not found — portable .s376dem + synth DEM only")
+    endif()
+endif()
 
 if(S376_WITH_OSG)
     find_package(OpenSceneGraph COMPONENTS osg osgDB osgGA osgViewer osgUtil osgText)
@@ -60,6 +77,14 @@ if(OPENSCENEGRAPH_FOUND)
         target_link_libraries(s376_core PUBLIC osgEarth)
     endif()
 endif()
+if(GDAL_FOUND)
+    if(TARGET GDAL::GDAL)
+        target_link_libraries(s376_core PUBLIC GDAL::GDAL)
+    else()
+        target_include_directories(s376_core PUBLIC ${GDAL_INCLUDE_DIRS})
+        target_link_libraries(s376_core PUBLIC ${GDAL_LIBRARIES})
+    endif()
+endif()
 
 add_executable(s376-visual src/main.cpp)
 target_link_libraries(s376-visual PRIVATE s376_core)
@@ -70,6 +95,9 @@ target_link_libraries(s376-synth PRIVATE s376_core)
 add_executable(s376-doctor src/doctor_main.cpp)
 target_link_libraries(s376-doctor PRIVATE s376_core)
 
+add_executable(s376-cache src/cache_main.cpp)
+target_link_libraries(s376-cache PRIVATE s376_core)
+
 add_executable(s376-tests
     tests/test_main.cpp
     tests/test_vaxfloat.cpp
@@ -79,6 +107,7 @@ add_executable(s376-tests
     tests/test_geo.cpp
     tests/test_synth_loop.cpp
     tests/test_channels.cpp
+    tests/test_terrain.cpp
 )
 target_link_libraries(s376-tests PRIVATE s376_core)
 

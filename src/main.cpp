@@ -31,6 +31,7 @@ void usage() {
            "  -c, --config PATH     TOML config (default config/s376-visual.toml if present)\n"
            "  --bind HOST:PORT      override host.bind (default 0.0.0.0:2300)\n"
            "  --channel NAME        front|left|right|all  (default: all enabled channels)\n"
+           "  --cache-dir PATH      packed DEM/imagery from s376-cache\n"
            "  --headless            run the host receiver with no GL window\n"
            "  --demo                in-process synth to 127.0.0.1 (no VAX needed)\n"
            "  --duration SEC        exit after SEC seconds (tests)\n"
@@ -48,6 +49,7 @@ int main(int argc, char** argv) {
     std::string config_path;
     std::string bind_override;
     std::string channel_name;
+    std::string cache_override;
     bool headless = false;
     bool demo = false;
     bool verbose = false;
@@ -79,6 +81,8 @@ int main(int argc, char** argv) {
             bind_override = need(a.c_str());
         else if (a == "--channel")
             channel_name = need(a.c_str());
+        else if (a == "--cache-dir")
+            cache_override = need(a.c_str());
         else if (a == "--headless")
             headless = true;
         else if (a == "--demo")
@@ -116,6 +120,8 @@ int main(int argc, char** argv) {
     }
     if (!bind_override.empty())
         cfg.host.bind = bind_override;
+    if (!cache_override.empty())
+        cfg.render.cache_dir = cache_override;
     if (verbose)
         cfg.log.verbose = true;
     if (debug)

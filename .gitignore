@@ -18,6 +18,7 @@ compile_commands.json
 # Runtime
 /logs/
 /recordings/
+/cache/
 *.jsonl
 
 # Local overrides (may contain LAN addresses)

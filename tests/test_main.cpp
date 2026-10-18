@@ -40,6 +40,7 @@ void test_config();
 void test_geo();
 void test_synth_loop();
 void test_channels();
+void test_terrain();
 
 int main() {
     test_vaxfloat();
@@ -49,6 +50,7 @@ int main() {
     test_geo();
     test_synth_loop();
     test_channels();
+    test_terrain();
     std::cout << g_passes << " passed, " << g_fails << " failed\n";
     return g_fails ? 1 : 0;
 }

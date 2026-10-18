@@ -1,6 +1,8 @@
+#include "s376/dxt.hpp"
 #include "s376/geo.hpp"
 #include "s376/log.hpp"
 #include "s376/render.hpp"
+#include "s376/terrain.hpp"
 
 #ifdef S376_HAS_OSG
 
@@ -23,6 +25,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <stdexcept>
 
 namespace s376 {
 namespace {
@@ -136,6 +142,125 @@ osg::Node* make_procedural_globe() {
     return geode;
 }
 
+osg::Image* image_from_rgb(const ImageRgb& im) {
+    auto* img = new osg::Image;
+    img->allocateImage(im.w, im.h, 1, GL_RGB, GL_UNSIGNED_BYTE);
+    if (!im.rgb.empty())
+        std::memcpy(img->data(), im.rgb.data(), im.rgb.size());
+    return img;
+}
+
+osg::Image* image_from_dds_or_rgb(const CacheRegion& cache) {
+    if (!cache.imagery_dds.empty() && std::filesystem::exists(cache.imagery_dds)) {
+        if (auto loaded = osgDB::readRefImageFile(cache.imagery_dds))
+            return loaded.release();
+        // OSG may lack a DDS plugin; decode BC1 ourselves.
+        try {
+            std::ifstream in(cache.imagery_dds, std::ios::binary);
+            std::vector<char> hdr(128);
+            in.read(hdr.data(), 128);
+            const int w = static_cast<unsigned char>(hdr[16]) |
+                          (static_cast<unsigned char>(hdr[17]) << 8) |
+                          (static_cast<unsigned char>(hdr[18]) << 16) |
+                          (static_cast<unsigned char>(hdr[19]) << 24);
+            const int h = static_cast<unsigned char>(hdr[12]) |
+                          (static_cast<unsigned char>(hdr[13]) << 8) |
+                          (static_cast<unsigned char>(hdr[14]) << 16) |
+                          (static_cast<unsigned char>(hdr[15]) << 24);
+            const auto n = dxt::bc1_size(w, h);
+            std::vector<std::uint8_t> blocks(n);
+            in.read(reinterpret_cast<char*>(blocks.data()), static_cast<std::streamsize>(n));
+            if (in) {
+                auto rgb = dxt::decode_bc1(blocks.data(), w, h);
+                ImageRgb im;
+                im.w = w;
+                im.h = h;
+                im.rgb = std::move(rgb);
+                return image_from_rgb(im);
+            }
+        } catch (...) {
+        }
+    }
+    if (!cache.imagery.rgb.empty())
+        return image_from_rgb(cache.imagery);
+    return image_from_rgb(ImageRgb::hillshade(cache.dem));
+}
+
+osg::Node* make_dem_patch(const CacheRegion& cache) {
+    const DemGrid& dem = cache.dem;
+    if (dem.empty())
+        return nullptr;
+    auto* geode = new osg::Geode;
+    auto* geom = new osg::Geometry;
+    auto* verts = new osg::Vec3Array;
+    auto* norms = new osg::Vec3Array;
+    auto* uvs = new osg::Vec2Array;
+    verts->reserve(static_cast<std::size_t>(dem.w * dem.h));
+    for (int y = 0; y < dem.h; ++y) {
+        const double lat = dem.north - (dem.north - dem.south) * y / std::max(1, dem.h - 1);
+        for (int x = 0; x < dem.w; ++x) {
+            const double lon = dem.west + (dem.east - dem.west) * x / std::max(1, dem.w - 1);
+            const double z = dem.z_m[static_cast<std::size_t>(y * dem.w + x)];
+            const geo::Ecef p = geo::lla_to_ecef(lat, lon, z);
+            verts->push_back(ecef_to_osg(p));
+            geo::Ecef e, n, u;
+            geo::ecef_to_enu_axes(lat, lon, e, n, u);
+            norms->push_back(osg::Vec3(static_cast<float>(u.x), static_cast<float>(u.y),
+                                       static_cast<float>(u.z)));
+            uvs->push_back(osg::Vec2(static_cast<float>(x) / std::max(1, dem.w - 1),
+                                     static_cast<float>(y) / std::max(1, dem.h - 1)));
+        }
+    }
+    auto* idx = new osg::DrawElementsUInt(GL_TRIANGLES);
+    for (int y = 0; y < dem.h - 1; ++y) {
+        for (int x = 0; x < dem.w - 1; ++x) {
+            const unsigned a = static_cast<unsigned>(y * dem.w + x);
+            const unsigned b = a + 1;
+            const unsigned c = a + static_cast<unsigned>(dem.w);
+            const unsigned d = c + 1;
+            idx->push_back(a);
+            idx->push_back(c);
+            idx->push_back(b);
+            idx->push_back(b);
+            idx->push_back(c);
+            idx->push_back(d);
+        }
+    }
+    geom->setVertexArray(verts);
+    geom->setNormalArray(norms, osg::Array::BIND_PER_VERTEX);
+    geom->setTexCoordArray(0, uvs);
+    geom->addPrimitiveSet(idx);
+
+    auto* tex = new osg::Texture2D(image_from_dds_or_rgb(cache));
+    tex->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
+    tex->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
+    tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
+    tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
+    geom->getOrCreateStateSet()->setTextureAttributeAndModes(0, tex, osg::StateAttribute::ON);
+    auto* mat = new osg::Material;
+    mat->setDiffuse(osg::Material::FRONT_AND_BACK, osg::Vec4(1, 1, 1, 1));
+    mat->setAmbient(osg::Material::FRONT_AND_BACK, osg::Vec4(0.2f, 0.2f, 0.2f, 1));
+    geom->getOrCreateStateSet()->setAttributeAndModes(mat);
+    geode->addDrawable(geom);
+    return geode;
+}
+
+CacheRegion load_or_synth_cache(const std::string& dir) {
+    if (!dir.empty()) {
+        try {
+            auto r = load_cache(dir);
+            S376_LOG_INFO("render", "loaded DEM cache %s  %dx%d", dir.c_str(), r.dem.w, r.dem.h);
+            return r;
+        } catch (const std::exception& ex) {
+            S376_LOG_WARN("render", "cache %s: %s — using synth KSEA DEM", dir.c_str(), ex.what());
+        }
+    }
+    auto r = generate_ksea_cache();
+    S376_LOG_INFO("render", "synth KSEA DEM %dx%d (run s376-cache for a packed region)", r.dem.w,
+                  r.dem.h);
+    return r;
+}
+
 void apply_view_camera(osg::Camera* cam, const ChannelConfig& ch, const HostState& host) {
     if (!cam || !host.have_eyepoint)
         return;
@@ -179,6 +304,15 @@ class OsgRenderer final : public Renderer {
 #else
         root->addChild(make_procedural_globe());
 #endif
+        {
+            const CacheRegion cache = load_or_synth_cache(cfg.render.cache_dir);
+            if (auto* patch = make_dem_patch(cache)) {
+                root->addChild(patch);
+                S376_LOG_INFO("render", "draped %s DEM  %.3f,%.3f .. %.3f,%.3f  BC1/hillshade",
+                              cache.name.empty() ? "region" : cache.name.c_str(), cache.dem.west,
+                              cache.dem.south, cache.dem.east, cache.dem.north);
+            }
+        }
         light_ = new osg::LightSource;
         auto* L = light_->getLight();
         L->setLightNum(0);
