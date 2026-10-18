@@ -105,6 +105,12 @@ s376::HostState host_from_shot(const s376::ShotPose& p) {
     h.env.month = 6;
     h.env.day = 21;
     h.env.year = 2024;
+    h.light_steps.fill(3);
+    const s376::Airport apt = s376::airport_by_icao(p.icao);
+    const float elev_ft = static_cast<float>(apt.elev_m * s376::geo::kMToFt);
+    h.terrain_elev_ft = elev_ft;
+    h.hat_ft = static_cast<float>(p.alt_ft) - elev_ft;
+    h.have_hat = true;
     return h;
 }
 

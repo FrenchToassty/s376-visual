@@ -92,10 +92,10 @@ projectors show the **same front view** (duplicated front, not a split).
 
 | PC / `--channel` | Raster channel | Heading | FOV | Output |
 |---|---|---|---|---|
-| far_left | left (flipped) | +35.515° | 50° × 32.5° | 1920×1200 |
+| far_left | left (output flip only) | −50° | 50° × 32.5° | 1920×1200 |
 | mid_left | front (captain) | 0° | 50° × 32.5° | 1920×1200 |
 | mid_right | front (FO duplicate) | 0° | 50° × 32.5° | 1920×1200 |
-| far_right | right | −35.25° | 50° × 32.5° | 1920×1200 |
+| far_right | right | +50° | 50° × 32.5° | 1920×1200 |
 
 Aspect is tan(25°)/tan(16.25°) ≈ 1.60 (16:10). `resolution = "WxH"`
 on each `[[channels]]` block; 1920×1200 until the projector res is

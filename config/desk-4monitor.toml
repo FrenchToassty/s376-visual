@@ -57,7 +57,7 @@ enabled = true
 
 [[channels]]
 name = "left"
-heading_offset_deg = 35.515
+heading_offset_deg = -50.0
 pitch_offset_deg = 0.0
 roll_offset_deg = 0.0
 hfov_deg = 50.0
@@ -87,7 +87,7 @@ enabled = true
 
 [[channels]]
 name = "right"
-heading_offset_deg = -35.25
+heading_offset_deg = 50.0
 pitch_offset_deg = 0.0
 roll_offset_deg = 0.0
 hfov_deg = 50.0

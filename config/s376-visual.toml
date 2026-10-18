@@ -2,15 +2,16 @@
 # Copy to config/local.toml (gitignored) for machine-specific ports / LAN flags.
 #
 # Collimated cross-cockpit display. Four projectors, four PCs, Raster's
-# THREE channels (startup log: front 0 / left +35.515 / right −35.25,
-# 50×32.5, 1920×1200 16:10). Captain sees far_left + mid_left; FO sees mid_right + far_right
-# (mirrors hide the other side). The two middle projectors show the SAME
-# front view — a duplicated front channel, not a split.
+# THREE channels (front 0 / left −50 / right +50, 50×32.5, 1920×1200
+# 16:10). Heading offset is added to true heading. Left flip_vertical is
+# a projector framebuffer mirror only. Captain sees far_left + mid_left;
+# FO sees mid_right + far_right (mirrors hide the other side). The two
+# middle projectors show the SAME front view — a duplicated front, not a split.
 #
-#   far_left  PC  = Raster left   (+35.515)
+#   far_left  PC  = Raster left   (−50)
 #   mid_left  PC  = Raster front  (0)      captain
 #   mid_right PC  = Raster front  (0)      FO duplicate
-#   far_right PC  = Raster right  (−35.25)
+#   far_right PC  = Raster right  (+50)
 #
 # Each PC:
 #   s376-visual --config config/s376-visual.toml --channel mid_left
@@ -79,12 +80,12 @@ dir = "logs"
 
 [[channels]]
 name = "far_left"             # Raster left — captain outboard
-heading_offset_deg = 35.515
+heading_offset_deg = -50.0    # aviation: look left = true heading − 50
 pitch_offset_deg = 0.0
 roll_offset_deg = 0.0
 hfov_deg = 50.0
 vfov_deg = 32.5
-flip_vertical = true          # Raster Left was flipped
+flip_vertical = true          # projector framebuffer mirror only
 monitor = 0
 resolution = "1920x1200"      # 16:10 until Joey confirms projector res
 fullscreen = false
@@ -122,7 +123,7 @@ enabled = true
 
 [[channels]]
 name = "far_right"            # Raster right — FO outboard
-heading_offset_deg = -35.25
+heading_offset_deg = 50.0     # look right = true heading + 50
 pitch_offset_deg = 0.0
 roll_offset_deg = 0.0
 hfov_deg = 50.0

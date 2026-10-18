@@ -74,6 +74,11 @@ void test_lights() {
     CHECK_NEAR(base_size_px(12.f), 2.8, 1e-4);
     CHECK_NEAR(base_size_px(0.f), 2.5, 1e-4);
     CHECK_NEAR(point_size_px(12.f, 0.f), 2.8 * 12.0, 1e-3);
+    CHECK(tod_visibility(s376::LightKind::Edge, 14.5f) < 0.08f);
+    CHECK(tod_visibility(s376::LightKind::Edge, 14.5f) > 0.02f);
+    CHECK(tod_visibility(s376::LightKind::Night, 14.5f) <
+          tod_visibility(s376::LightKind::Vasi, 14.5f));
+    CHECK_NEAR(tod_visibility(s376::LightKind::Edge, 0.5f), 1.0, 1e-3);
     CHECK_NEAR(kMaxRangeFt, 250000.0, 1e-3);
     CHECK(max_range_m() > 70000.f);
 

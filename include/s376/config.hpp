@@ -32,7 +32,9 @@ struct ChannelConfig {
     int window_y = -1;
     // Original Raster: Front=0, Left=1, Right=2. −1 = not a channel PC.
     int raster_ch = -1;
-    bool flip_vertical = false; // Left channel was flipped
+    // Projector output mirror only (Left Raster). Never a camera
+    // orientation; the preview strip and FBO shots stay unflipped.
+    bool flip_vertical = false;
     // "channel" draws a collimated view. "host_io" is operator + host I/O.
     std::string role = "channel";
     std::string correction_file = "data/display/correction.toml";
@@ -148,6 +150,10 @@ std::vector<ChannelConfig> select_channels(const AppConfig& cfg, const std::stri
 // (mid_right) and non-channel roles (host_io / ios).
 std::vector<ChannelConfig> wrap_channels(const std::vector<ChannelConfig>& channels);
 void wrap_strip_size(const std::vector<ChannelConfig>& channels, int& w, int& h);
+
+// Desk-tile order: left, captain front, FO front, right. Independent of
+// heading-offset sign (Left is −50° of front, not “largest heading”).
+int channel_tile_order(const ChannelConfig& ch);
 
 // Type-200 HAT: hat_responder must be on, and reply_master empty or selected.
 bool hat_reply_enabled(const HostConfig& h, const std::vector<ChannelConfig>& selected);

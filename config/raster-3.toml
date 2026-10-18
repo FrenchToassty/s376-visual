@@ -1,9 +1,10 @@
 # Original Raster layout: three channel PCs plus one Host IO PC.
 # Host IO does the operator display and host I/O only — it does not
 # draw a collimated channel. Each channel is 50 × 32.5 deg at 60 Hz.
-# Positive heading is CCW / left. Headings stay configurable: Host IO
-# listed Left +35.515 / Right −35.25, but the warp grids look closer
-# to 37 / 35.5. Flip the Left channel vertically (the original did).
+# Heading offset is added to true heading (clockwise from north).
+# Left is −50° of front, Right +50°, pitch/roll 0. Raster's Left
+# flip_vertical is a projector framebuffer mirror only — never a
+# camera orientation, never the preview strip.
 #
 # Map this process to a channel with --channel front|left|right|host_io.
 # Do not put simulator-LAN addresses in bind or reply_to. The original
@@ -59,7 +60,9 @@ enabled = true
 name = "left"
 role = "channel"
 raster_ch = 1
-heading_offset_deg = 35.515
+heading_offset_deg = -50.0
+pitch_offset_deg = 0.0
+roll_offset_deg = 0.0
 hfov_deg = 50.0
 vfov_deg = 32.5
 flip_vertical = true
@@ -71,7 +74,9 @@ enabled = true
 name = "right"
 role = "channel"
 raster_ch = 2
-heading_offset_deg = -35.25
+heading_offset_deg = 50.0
+pitch_offset_deg = 0.0
+roll_offset_deg = 0.0
 hfov_deg = 50.0
 vfov_deg = 32.5
 flip_vertical = false

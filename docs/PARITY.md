@@ -52,7 +52,7 @@ numbers in committed airport TOML are **ours**, not RSI's.
 | 128 layer height | Fog deck AGL | **partial** | Thickens EXP2 when last HAT is below height+200 ft. No visible deck slab |
 | In-cloud fog | Thick vis inside 125/126/127 | **ok** | EXP2 × 2.4 when eye MSL is between ceiling and top |
 | 131 display 0/1/2 | Channel off / on / standby | **gap** | Decoded, windows always on |
-| Channel geometry | 3 Raster frusta on 4 projector PCs | **ok** | far_left=left +35.515, mid_left=front 0, mid_right=front 0 (duplicate), far_right=right −35.25, 50×32.5. Optional FO `eye_right_m`. No off-axis / NLIM / edge blend |
+| Channel geometry | 3 Raster frusta on 4 projector PCs | **ok** | far_left=left −50, mid_left=front 0, mid_right=front 0 (duplicate), far_right=right +50, 50×32.5. Left flip is projector output only. Optional FO `eye_right_m`. |
 | Airport lights | Edge, CL, ALS, PAPI, taxi | **partial** | See KJFK/KEWR scenery table. FAA types and sides. Host CSN movers still ignored |
 | Terrain / imagery | CERTS + NX tiles | **n/a** | Rebuilt from GLO-30/3DEP + NAIP/S2. Different pixels, same role |
 | Airport meshes | NX airport DB | **n/a** | Rebuilt from FAA + OSM + public stand-ins. No RSI geometry |

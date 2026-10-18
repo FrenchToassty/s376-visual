@@ -152,20 +152,28 @@ AppConfig default_config() {
     // Both middles are the same front frustum (duplicate).
     ChannelConfig fl, ml, mr, fr;
     fl.name = "far_left"; // Raster left
-    fl.heading_offset_deg = 35.515;
+    fl.heading_offset_deg = -50.0;
+    fl.pitch_offset_deg = 0;
+    fl.roll_offset_deg = 0;
     fl.raster_ch = 1;
     fl.monitor = 0;
-    fl.flip_vertical = true; // Raster Left channel was flipped
+    fl.flip_vertical = true; // projector framebuffer mirror only
     ml.name = "mid_left"; // Raster front (captain)
     ml.heading_offset_deg = 0;
+    ml.pitch_offset_deg = 0;
+    ml.roll_offset_deg = 0;
     ml.raster_ch = 0;
     ml.monitor = 1;
     mr.name = "mid_right"; // Raster front (FO duplicate)
     mr.heading_offset_deg = 0;
+    mr.pitch_offset_deg = 0;
+    mr.roll_offset_deg = 0;
     mr.raster_ch = 0;
     mr.monitor = 2;
     fr.name = "far_right"; // Raster right
-    fr.heading_offset_deg = -35.25;
+    fr.heading_offset_deg = 50.0;
+    fr.pitch_offset_deg = 0;
+    fr.roll_offset_deg = 0;
     fr.raster_ch = 2;
     fr.monitor = 3;
     c.channels = {fl, ml, mr, fr};
@@ -454,6 +462,24 @@ std::string format_resolution(int w, int h) {
     return std::to_string(std::max(8, w)) + "x" + std::to_string(std::max(8, h));
 }
 
+int channel_tile_order(const ChannelConfig& ch) {
+    if (ch.name == "far_left" || ch.name == "left")
+        return 0;
+    if (ch.name == "mid_left" || ch.name == "front")
+        return 1;
+    if (ch.name == "mid_right" || ch.name == "front_fo" || ch.name == "fo_front")
+        return 2;
+    if (ch.name == "far_right" || ch.name == "right")
+        return 3;
+    if (ch.raster_ch == 1)
+        return 0;
+    if (ch.raster_ch == 0)
+        return 1;
+    if (ch.raster_ch == 2)
+        return 3;
+    return 8;
+}
+
 std::vector<ChannelConfig> wrap_channels(const std::vector<ChannelConfig>& channels) {
     const ChannelConfig *left = nullptr, *front = nullptr, *right = nullptr;
     for (const auto& ch : channels) {
@@ -530,7 +556,7 @@ std::vector<WindowPlacement> layout_channels(const std::vector<ChannelConfig>& c
     std::vector<ChannelConfig> ordered = channels;
     if (tile) {
         std::stable_sort(ordered.begin(), ordered.end(), [](const ChannelConfig& a, const ChannelConfig& b) {
-            return a.heading_offset_deg > b.heading_offset_deg; // left, front, right
+            return channel_tile_order(a) < channel_tile_order(b);
         });
     }
 

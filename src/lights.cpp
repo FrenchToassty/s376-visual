@@ -27,6 +27,41 @@ bool is_runway_switch(int sw, int offset) {
     return false;
 }
 
+float tod_visibility(LightKind kind, float tod_hours) {
+    float h = tod_hours;
+    if (!std::isfinite(h))
+        h = 12.f;
+    // 1 at night; ramps down through dawn/dusk; noon is the floor.
+    const float night = std::min(1.f, std::max(0.f, std::fabs(h - 12.f) - 5.f) / 4.f);
+    const float day = 1.f - night;
+    float floor = 0.04f;
+    switch (kind) {
+    case LightKind::Vasi:
+        floor = 0.16f; // PAPI still readable in daylight
+        break;
+    case LightKind::Approach:
+    case LightKind::Threshold:
+    case LightKind::End:
+        floor = 0.07f;
+        break;
+    case LightKind::Night:
+    case LightKind::SignGlow:
+    case LightKind::TaxiEdge:
+    case LightKind::TaxiCenterline:
+    case LightKind::LeadOn:
+        floor = 0.015f; // street/taxi wash off in day
+        break;
+    case LightKind::Edge:
+    case LightKind::Centerline:
+        floor = 0.035f; // daytime runway edge barely visible
+        break;
+    default:
+        floor = 0.05f;
+        break;
+    }
+    return night + day * floor;
+}
+
 float intensity(LightKind kind, int step) {
     if (step <= 0)
         return 0.f;

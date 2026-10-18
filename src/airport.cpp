@@ -1573,7 +1573,7 @@ AirportMesh build_airport_mesh(const Airport& a, bool buildings, bool markings) 
     AirportMesh mesh;
     for (const auto& rw : a.runways) {
         strip_quad(mesh, rw.le_lat, rw.le_lon, rw.he_lat, rw.he_lon, rw.heading_deg,
-                   rw.width_m * 0.5, rw.le_elev_m + 0.4, rw.he_elev_m + 0.4, 0.16f, 0.16f, 0.17f,
+                   rw.width_m * 0.5, rw.le_elev_m + 0.65, rw.he_elev_m + 0.65, 0.42f, 0.42f, 0.44f,
                    0.f);
         auto emas = [&](bool le) {
             const bool on = le ? rw.emas_le : rw.emas_he;
@@ -1608,14 +1608,14 @@ AirportMesh build_airport_mesh(const Airport& a, bool buildings, bool markings) 
         }
         clat /= static_cast<double>(ap.ring.size());
         clon /= static_cast<double>(ap.ring.size());
-        const geo::Ecef C = geo::lla_to_ecef(clat, clon, a.elev_m + 0.3);
+        const geo::Ecef C = geo::lla_to_ecef(clat, clon, a.elev_m + 0.55);
         geo::Ecef e, n, u;
         geo::ecef_to_enu_axes(clat, clon, e, n, u);
         for (std::size_t i = 0; i < ap.ring.size(); ++i) {
             const auto& p0 = ap.ring[i];
             const auto& p1 = ap.ring[(i + 1) % ap.ring.size()];
-            add_tri(mesh, C, geo::lla_to_ecef(p0.first, p0.second, a.elev_m + 0.3),
-                    geo::lla_to_ecef(p1.first, p1.second, a.elev_m + 0.3), u, 0.28f, 0.27f, 0.25f,
+            add_tri(mesh, C, geo::lla_to_ecef(p0.first, p0.second, a.elev_m + 0.55),
+                    geo::lla_to_ecef(p1.first, p1.second, a.elev_m + 0.55), u, 0.40f, 0.39f, 0.38f,
                     2.f);
         }
     }
@@ -1629,8 +1629,8 @@ AirportMesh build_airport_mesh(const Airport& a, bool buildings, bool markings) 
             const double dlon =
                 (lon1 - lon0) * geo::kDeg * kR * std::cos(geo::deg2rad((lat0 + lat1) * 0.5));
             const double hdg = wrap360(geo::rad2deg(std::atan2(dlon, dlat)));
-            strip_quad(mesh, lat0, lon0, lat1, lon1, hdg, tx.width_m * 0.5, a.elev_m + 0.35,
-                       a.elev_m + 0.35, 0.22f, 0.22f, 0.20f, 2.f);
+            strip_quad(mesh, lat0, lon0, lat1, lon1, hdg, tx.width_m * 0.5, a.elev_m + 0.58,
+                       a.elev_m + 0.58, 0.38f, 0.38f, 0.36f, 2.f);
             if (markings) {
                 mark_rect(mesh, lat0, lon0, hdg, a.elev_m + 0.46, 78.0, 79.2, -tx.width_m * 0.45,
                           tx.width_m * 0.45, 0.92f, 0.78f, 0.12f);

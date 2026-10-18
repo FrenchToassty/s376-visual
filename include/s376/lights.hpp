@@ -52,6 +52,8 @@ int runway_switch(int k, int offset);
 bool is_runway_switch(int sw, int offset);
 
 float intensity(LightKind kind, int step); // 0 if step <= 0
+// 1 at night; daytime edge/taxi/night-layer barely visible (~0.04).
+float tod_visibility(LightKind kind, float tod_hours);
 float size_mult_hat(float hat_ft);
 float base_size_px(float tod_hours);
 float point_size_px(float tod_hours, float hat_ft);

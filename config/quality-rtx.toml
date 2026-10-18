@@ -33,7 +33,9 @@ sync_to_host = true
 
 [[channels]]
 name = "far_left"
-heading_offset_deg = 35.515
+heading_offset_deg = -50.0
+pitch_offset_deg = 0.0
+roll_offset_deg = 0.0
 hfov_deg = 50.0
 vfov_deg = 32.5
 flip_vertical = true
@@ -62,7 +64,9 @@ enabled = true
 
 [[channels]]
 name = "far_right"
-heading_offset_deg = -35.25
+heading_offset_deg = 50.0
+pitch_offset_deg = 0.0
+roll_offset_deg = 0.0
 hfov_deg = 50.0
 vfov_deg = 32.5
 flip_vertical = false

@@ -36,10 +36,14 @@ void test_channels() {
     CHECK(all.size() == 4);
     CHECK(all[0].name == "far_left" && all[1].name == "mid_left");
     CHECK(all[2].name == "mid_right" && all[3].name == "far_right");
-    CHECK_NEAR(all[0].heading_offset_deg, 35.515, 1e-6);
+    CHECK_NEAR(all[0].heading_offset_deg, -50.0, 1e-6);
     CHECK_NEAR(all[1].heading_offset_deg, 0.0, 1e-6);
     CHECK_NEAR(all[2].heading_offset_deg, 0.0, 1e-6);
-    CHECK_NEAR(all[3].heading_offset_deg, -35.25, 1e-6);
+    CHECK_NEAR(all[3].heading_offset_deg, 50.0, 1e-6);
+    CHECK_NEAR(all[0].pitch_offset_deg, 0.0, 1e-9);
+    CHECK_NEAR(all[0].roll_offset_deg, 0.0, 1e-9);
+    CHECK_NEAR(all[3].pitch_offset_deg, 0.0, 1e-9);
+    CHECK_NEAR(all[3].roll_offset_deg, 0.0, 1e-9);
     CHECK(all[0].width == 1920 && all[0].height == 1200);
     CHECK(all[0].flip_vertical);
     CHECK(!all[1].flip_vertical && !all[2].flip_vertical && !all[3].flip_vertical);
@@ -142,17 +146,17 @@ void test_channels() {
     }
     CHECK(found);
 
-    // Shared eyepoint, left channel looks ~35.5° to the left of front.
+    // Shared eyepoint, left is −50° of front (aviation heading).
     const auto front = s376::geo::make_channel_view(47.46, -122.31, 136.0, 180.34, 0, 0, 0, 0, 0,
                                                     50, 32.5, 1920, 1200);
-    const auto left = s376::geo::make_channel_view(47.46, -122.31, 136.0, 180.34, 0, 0, 35.515, 0, 0,
+    const auto left = s376::geo::make_channel_view(47.46, -122.31, 136.0, 180.34, 0, 0, -50.0, 0, 0,
                                                    50, 32.5, 1920, 1200);
-    const auto right = s376::geo::make_channel_view(47.46, -122.31, 136.0, 180.34, 0, 0, -35.25, 0, 0,
+    const auto right = s376::geo::make_channel_view(47.46, -122.31, 136.0, 180.34, 0, 0, 50.0, 0, 0,
                                                     50, 32.5, 1920, 1200);
     CHECK_NEAR(front.eye.x, left.eye.x, 1e-6);
     CHECK_NEAR(front.eye.x, right.eye.x, 1e-6);
-    CHECK_NEAR(left.heading_deg, 180.34 + 35.515, 1e-6);
-    CHECK_NEAR(right.heading_deg, 180.34 - 35.25, 1e-6);
+    CHECK_NEAR(left.heading_deg, 180.34 - 50.0, 1e-6);
+    CHECK_NEAR(right.heading_deg, 180.34 + 50.0, 1e-6);
     // Forward vectors should differ (not parallel).
     const double dot = front.forward.x * left.forward.x + front.forward.y * left.forward.y +
                        front.forward.z * left.forward.z;

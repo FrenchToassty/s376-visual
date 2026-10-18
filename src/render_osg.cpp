@@ -2,6 +2,7 @@
 #include "s376/control.hpp"
 #include "s376/dxt.hpp"
 #include "s376/geo.hpp"
+#include "s376/lights.hpp"
 #include "s376/landmarks.hpp"
 #include "s376/missiles.hpp"
 #include "s376/traffic.hpp"
@@ -248,7 +249,8 @@ void main() {
         float fade = clamp(1.0 - vEyeDist / 4500.0, 0.0, 1.0);
         albedo = mix(vec3(0.17, 0.17, 0.18), albedo, fade);
     }
-    vec3 col = albedo * (uAmbient + uDiffuse * ndl);
+    float lit = (mat < 0.5 || (mat > 1.5 && mat < 2.5)) ? mix(0.72, ndl, 0.28) : ndl;
+    vec3 col = albedo * (uAmbient + uDiffuse * lit);
     float g = 1.0 - clamp(abs(dot(n, normalize(uUp))), 0.0, 1.0);
     float h = uFogDensity + uHaze * (0.12 + 0.45 * g);
     float f = exp(-h * h * vEyeDist * vEyeDist);
@@ -392,6 +394,9 @@ vec3 aces(vec3 x) {
     return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
 }
 void main() {
+    vec2 pc = gl_PointCoord * 2.0 - 1.0;
+    if (dot(pc, pc) > 1.0)
+        discard;
     float f = exp(-uFogDensity * uFogDensity * vEyeDist * vEyeDist);
     vec3 col = mix(uFogColor, vCol.rgb, clamp(f, 0.0, 1.0));
     gl_FragColor = vec4(aces(col * uExposure), vCol.a);
@@ -413,6 +418,7 @@ uniform vec3 uSunDir;
 uniform vec3 uUp;
 uniform vec3 uFwd;
 uniform vec3 uRight;
+uniform vec3 uCamUp;
 uniform vec3 uFogColor;
 uniform float uExposure;
 uniform float uTanHalfH;
@@ -426,7 +432,10 @@ void main() {
     vec3 up = normalize(uUp);
     vec3 fwd = normalize(uFwd);
     vec3 right = normalize(uRight);
-    vec3 d = normalize(fwd + right * (vNdc.x * uTanHalfH) + cross(right, up) * (vNdc.y * uTanHalfV));
+    vec3 camUp = normalize(uCamUp);
+    if (dot(camUp, camUp) < 1e-8)
+        camUp = normalize(cross(right, fwd));
+    vec3 d = normalize(fwd + right * (vNdc.x * uTanHalfH) + camUp * (vNdc.y * uTanHalfV));
     float h = clamp(dot(d, up), -1.0, 1.0);
     vec3 sun = normalize(uSunDir);
     float m = max(dot(d, sun), 0.0);
@@ -436,8 +445,8 @@ void main() {
     vec3 sky = mix(horiz, zenith, pow(clamp(h, 0.0, 1.0), 0.55));
     if (h < 0.0)
         sky = mix(horiz, ground, clamp(-h * 2.0, 0.0, 1.0));
-    sky += vec3(1.0, 0.92, 0.75) * pow(m, 32.0) * 0.55;
-    sky += vec3(1.0, 0.85, 0.55) * pow(m, 8.0) * 0.12;
+    sky += vec3(1.0, 0.96, 0.82) * smoothstep(0.9994, 0.99985, m) * 0.55;
+    sky += vec3(1.0, 0.90, 0.70) * pow(m, 512.0) * 0.18;
     float hz = pow(1.0 - abs(h), 1.25);
     sky = mix(sky, uFogColor, 0.16 * hz);
     float night = clamp(-dot(sun, up) * 2.0, 0.0, 1.0);
@@ -584,6 +593,7 @@ void configure_terrain_tex(osg::Texture2D* tex, osg::Image* img) {
         tex->setUseHardwareMipMapGeneration(false);
     } else {
         tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR_MIPMAP_LINEAR);
+        tex->setUseHardwareMipMapGeneration(true);
     }
 }
 
@@ -614,9 +624,10 @@ void attach_unlit_color(osg::StateSet* ss) {
 void attach_points(osg::StateSet* ss, float size) {
     ss->setAttributeAndModes(new osg::Point(size));
     ss->addUniform(new osg::Uniform("uPointSize", size));
-    ss->setMode(GL_VERTEX_PROGRAM_POINT_SIZE, osg::StateAttribute::ON);
     ss->setAttributeAndModes(make_program(kPointVS, kPointFS), osg::StateAttribute::ON);
     strip_ff(ss);
+    ss->setMode(GL_VERTEX_PROGRAM_POINT_SIZE, osg::StateAttribute::ON);
+    ss->setMode(GL_POINT_SPRITE, osg::StateAttribute::ON);
 }
 
 struct ShaderEnv {
@@ -636,6 +647,7 @@ struct ShaderEnv {
     osg::ref_ptr<osg::Uniform> right;
     osg::ref_ptr<osg::Uniform> tan_half_h;
     osg::ref_ptr<osg::Uniform> tan_half_v;
+    osg::ref_ptr<osg::Uniform> cam_up;
 };
 
 void attach_env_uniforms(osg::StateSet* ss, ShaderEnv& env) {
@@ -655,6 +667,7 @@ void attach_env_uniforms(osg::StateSet* ss, ShaderEnv& env) {
     env.right = new osg::Uniform("uRight", osg::Vec3(1.f, 0.f, 0.f));
     env.tan_half_h = new osg::Uniform("uTanHalfH", 0.466f);
     env.tan_half_v = new osg::Uniform("uTanHalfV", 0.292f);
+    env.cam_up = new osg::Uniform("uCamUp", osg::Vec3(0.f, 0.f, 1.f));
     ss->addUniform(env.sun_dir);
     ss->addUniform(env.ambient);
     ss->addUniform(env.diffuse);
@@ -671,6 +684,7 @@ void attach_env_uniforms(osg::StateSet* ss, ShaderEnv& env) {
     ss->addUniform(env.right);
     ss->addUniform(env.tan_half_h);
     ss->addUniform(env.tan_half_v);
+    ss->addUniform(env.cam_up);
     strip_ff(ss);
 }
 
@@ -1044,7 +1058,7 @@ osg::Node* make_airport_geode(const AirportMesh& mesh) {
     geom->addPrimitiveSet(new osg::DrawArrays(GL_TRIANGLES, 0, static_cast<int>(mesh.verts.size())));
     auto* ss = geom->getOrCreateStateSet();
     attach_lit_color(ss);
-    ss->setAttributeAndModes(new osg::PolygonOffset(-8.f, -8.f), osg::StateAttribute::ON);
+    ss->setAttributeAndModes(new osg::PolygonOffset(-24.f, -24.f), osg::StateAttribute::ON);
     ss->setMode(GL_POLYGON_OFFSET_FILL, osg::StateAttribute::ON);
     ss->setRenderBinDetails(2, "RenderBin");
     geode->addDrawable(geom);
@@ -1082,6 +1096,8 @@ struct LightGpu {
     osg::ref_ptr<osg::Geometry> geom;
     osg::ref_ptr<osg::Vec4Array> colors;
     std::vector<int> switches;
+    std::vector<LightKind> kinds;
+    std::vector<int> seq;
     std::vector<osg::Vec4> base;
 };
 
@@ -1098,6 +1114,8 @@ LightGpu make_light_gpu(const Airport& apt) {
         g.colors->push_back(c);
         g.base.push_back(c);
         g.switches.push_back(L.switch_num);
+        g.kinds.push_back(L.kind);
+        g.seq.push_back(L.seq);
     }
     g.geom->setVertexArray(verts);
     g.geom->setColorArray(g.colors, osg::Array::BIND_PER_VERTEX);
@@ -1107,9 +1125,9 @@ LightGpu make_light_gpu(const Airport& apt) {
     g.geom->setUseVertexBufferObjects(true);
     auto* ss = g.geom->getOrCreateStateSet();
     ss->setMode(GL_BLEND, osg::StateAttribute::ON);
-    ss->setAttributeAndModes(new osg::BlendFunc(GL_SRC_ALPHA, GL_ONE));
+    ss->setAttributeAndModes(new osg::BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
     ss->setAttributeAndModes(new osg::Depth(osg::Depth::LEQUAL, 0, 1, false));
-    attach_points(ss, 5.0f);
+    attach_points(ss, lights::kBaseSizePx);
     ss->setRenderBinDetails(20, "DepthSortedBin");
     return g;
 }
@@ -1528,6 +1546,17 @@ void update_storms(MeshGpu& g, const HostState& host, float flash) {
 void apply_light_steps(LightGpu& g, const HostState& host) {
     if (!g.colors || g.colors->empty())
         return;
+    const float tod = host.have_env ? host.env.tod_hours : 14.5f;
+    const float hat = host.have_hat ? host.hat_ft : std::max(0.f, static_cast<float>(host.eye.alt_ft));
+    const float psz = lights::point_size_px(tod, hat);
+    if (g.geom) {
+        auto* ss = g.geom->getOrCreateStateSet();
+        if (auto* pt = dynamic_cast<osg::Point*>(ss->getAttribute(osg::StateAttribute::POINT)))
+            pt->setSize(psz);
+        if (auto* u = ss->getUniform("uPointSize"))
+            u->set(psz);
+    }
+    const double t_s = host.last_rx_ns > 0 ? static_cast<double>(host.last_rx_ns) * 1e-9 : 0.0;
     for (std::size_t i = 0; i < g.colors->size(); ++i) {
         int step = 3;
         if (i < g.switches.size()) {
@@ -1535,7 +1564,15 @@ void apply_light_steps(LightGpu& g, const HostState& host) {
             if (sw >= 0 && sw < xt4::kMaxLightSwitches)
                 step = host.light_steps[static_cast<std::size_t>(sw)];
         }
-        const float k = step <= 0 ? 0.f : std::min(1.f, step / 5.f);
+        const LightKind kind = i < g.kinds.size() ? g.kinds[i] : LightKind::Edge;
+        float k = lights::intensity(kind, step) * lights::tod_visibility(kind, tod);
+        if (kind == LightKind::Beacon && !lights::beacon_on(t_s))
+            k = 0.f;
+        if ((kind == LightKind::Strobe || kind == LightKind::Reil) && !lights::strobe_on(t_s))
+            k = 0.f;
+        const int seq = i < g.seq.size() ? g.seq[i] : -1;
+        if (kind == LightKind::Flasher && seq >= 0 && !lights::sfl_on(t_s, seq))
+            k = 0.f;
         const osg::Vec4& b = g.base[i];
         (*g.colors)[static_cast<unsigned>(i)] = osg::Vec4(b.r() * k, b.g() * k, b.b() * k, k);
     }
@@ -1573,13 +1610,82 @@ void apply_view_camera(osg::Camera* cam, const ChannelConfig& ch, const HostStat
         epos + osg::Vec3d(v.forward.x, v.forward.y, v.forward.z) * 100.0;
     const osg::Vec3d upv(v.up.x, v.up.y, v.up.z);
     cam->setComputeNearFarMode(osg::CullSettings::DO_NOT_COMPUTE_NEAR_FAR);
-    cam->setProjectionMatrixAsPerspective(v.vfov_deg, v.aspect, v.near_m, v.far_m);
+    const double n = std::max(0.5, v.near_m);
+    const double rh = n * std::tan(geo::deg2rad(std::max(1.0, v.hfov_deg)) * 0.5);
+    const double rv = n * std::tan(geo::deg2rad(std::max(1.0, v.vfov_deg)) * 0.5);
+    cam->setProjectionMatrixAsFrustum(-rh, rh, -rv, rv, n, v.far_m);
     cam->setViewMatrixAsLookAt(epos, center, upv);
-    // Raster Left was projected flipped vertically.
-    if (ch.flip_vertical)
-        cam->setProjectionMatrix(cam->getProjectionMatrix() *
-                                 osg::Matrixd::scale(1.0, -1.0, 1.0));
+    // flip_vertical is a projector framebuffer mirror, never a camera
+    // orientation and never applied to FBO / wrap-strip shots.
+    auto* ss = cam->getOrCreateStateSet();
+    const osg::Vec3 f(static_cast<float>(v.forward.x), static_cast<float>(v.forward.y),
+                      static_cast<float>(v.forward.z));
+    osg::Vec3 rgt = f ^ upv;
+    if (rgt.length2() > 1e-12f)
+        rgt.normalize();
+    else
+        rgt = osg::Vec3(1.f, 0.f, 0.f);
+    const unsigned ov = osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE;
+    ss->addUniform(new osg::Uniform("uFwd", f), ov);
+    ss->addUniform(new osg::Uniform("uRight", rgt), ov);
+    ss->addUniform(new osg::Uniform("uCamUp", osg::Vec3(static_cast<float>(upv.x()),
+                                                       static_cast<float>(upv.y()),
+                                                       static_cast<float>(upv.z()))),
+                   ov);
+    ss->addUniform(new osg::Uniform("uTanHalfH",
+                                   static_cast<float>(std::tan(
+                                       geo::deg2rad(std::max(1.0, ch.hfov_deg) * 0.5)))),
+                   ov);
+    ss->addUniform(new osg::Uniform("uTanHalfV",
+                                   static_cast<float>(std::tan(
+                                       geo::deg2rad(std::max(1.0, ch.vfov_deg) * 0.5)))),
+                   ov);
 }
+
+// Final projector-output Y mirror. Used only on a single live channel
+// window (the hangar Left PC). Never on FBO shots or the wrap strip.
+struct OutputMirrorCallback : public osg::Camera::DrawCallback {
+    mutable std::vector<unsigned char> pix;
+    mutable std::vector<unsigned char> row;
+    void operator()(osg::RenderInfo& ri) const override {
+        osg::Camera* cam = ri.getCurrentCamera();
+        if (!cam || !cam->getViewport())
+            return;
+        const osg::Viewport* vp = cam->getViewport();
+        const int w = static_cast<int>(vp->width());
+        const int h = static_cast<int>(vp->height());
+        if (w < 2 || h < 2)
+            return;
+        const int x = static_cast<int>(vp->x());
+        const int y = static_cast<int>(vp->y());
+        pix.resize(static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4u);
+        row.resize(static_cast<std::size_t>(w) * 4u);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glReadBuffer(GL_BACK);
+        glReadPixels(x, y, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pix.data());
+        for (int r = 0; r < h / 2; ++r) {
+            unsigned char* a = pix.data() + static_cast<std::size_t>(r) * w * 4;
+            unsigned char* b = pix.data() + static_cast<std::size_t>(h - 1 - r) * w * 4;
+            std::memcpy(row.data(), a, row.size());
+            std::memcpy(a, b, row.size());
+            std::memcpy(b, row.data(), row.size());
+        }
+        glMatrixMode(GL_PROJECTION);
+        glPushMatrix();
+        glLoadIdentity();
+        glOrtho(0, w, 0, h, -1, 1);
+        glMatrixMode(GL_MODELVIEW);
+        glPushMatrix();
+        glLoadIdentity();
+        glRasterPos2i(0, 0);
+        glDrawPixels(w, h, GL_RGBA, GL_UNSIGNED_BYTE, pix.data());
+        glPopMatrix();
+        glMatrixMode(GL_PROJECTION);
+        glPopMatrix();
+        glMatrixMode(GL_MODELVIEW);
+    }
+};
 
 // LDR RGBA8 FBO readback. PACK_ALIGNMENT 1 so a non-multiple-of-4 width
 // cannot shift rows into stripe noise. Image is GL bottom-up.
@@ -1813,9 +1919,10 @@ class OsgRenderer final : public Renderer {
         cfg_ = cfg;
         channels_ = channels;
         if (prefer_rgb_textures()) {
-            cfg_.render.aniso = 1;
             cfg_.render.ssao = false;
             cfg_.render.msaa = 0;
+            if (cfg_.render.aniso < 16)
+                cfg_.render.aniso = 16;
         }
         if (channels_.empty()) {
             S376_LOG_ERROR("render", "no channels to open");
@@ -1870,7 +1977,7 @@ class OsgRenderer final : public Renderer {
 #endif
         osg::ref_ptr<osg::Node> globe;
         if (!used_earth_)
-            globe = make_procedural_globe(static_cast<float>(prefer_rgb_textures() ? 1.f : cfg.render.aniso));
+            globe = make_procedural_globe(static_cast<float>(std::max(16, cfg.render.aniso)));
         if (!used_earth_) {
             const std::string dir = cfg.render.cache_dir;
             tiles_root_ = new osg::Group;
@@ -2051,6 +2158,8 @@ class OsgRenderer final : public Renderer {
                 cam->setClearColor(osg::Vec4(0.35f, 0.50f, 0.72f, 1));
                 cam->setNearFarRatio(0.0001);
                 cam->setComputeNearFarMode(osg::CullSettings::DO_NOT_COMPUTE_NEAR_FAR);
+                if (channels_.size() == 1 && ch.flip_vertical)
+                    cam->setPostDrawCallback(new OutputMirrorCallback);
                 if (auto* vp = cam->getViewport()) {
                     place.w = static_cast<int>(vp->width());
                     place.h = static_cast<int>(vp->height());
@@ -2429,6 +2538,11 @@ class OsgRenderer final : public Renderer {
             r.node = node;
             r.cpu = estimate_tile_cpu_bytes(t, mesh_n_);
             r.vram = t.dds_bytes;
+            r.lod = t.lod;
+            r.west = t.west;
+            r.south = t.south;
+            r.east = t.east;
+            r.north = t.north;
             resident_cpu_ += r.cpu;
             resident_vram_ += r.vram;
             resident_.push_back(std::move(r));
@@ -2496,16 +2610,18 @@ class OsgRenderer final : public Renderer {
                 while (dh < -180.0)
                     dh += 360.0;
                 // Keep the pad under the eye; drop far tiles well outside the frustum.
-                if (km > 10.0 && std::fabs(dh) > 75.0)
+                if (km > 18.0 && std::fabs(dh) > 90.0)
                     continue;
             }
-            const double w = (t.lod == 0) ? 1.0 : (t.lod == 1) ? 0.35 : 0.15;
+            // Lower score pages first. lod0 near the eye must win over leftover coarse.
+            const double w = (t.lod == 0) ? (km < 4.0 ? 0.12 : 0.35)
+                                          : (t.lod == 1) ? 0.70 : 1.40;
             want.push_back({&t, km * w});
         }
         std::sort(want.begin(), want.end(),
                   [](const Scored& a, const Scored& b) { return a.score < b.score; });
         int loaded = 0;
-        const int kMaxNewPerFrame = coarse_only ? 24 : 2;
+        const int kMaxNewPerFrame = coarse_only ? 24 : 12;
         for (const auto& s : want) {
             if (loaded >= kMaxNewPerFrame)
                 break;
@@ -2540,18 +2656,37 @@ class OsgRenderer final : public Renderer {
             if (load_one_tile(*s.t))
                 ++loaded;
         }
+        // Drop coarse tiles that a resident lod0 now covers so the 1 m
+        // (soon 0.3 m) ortho is what the near camera samples.
         if (!coarse_only) {
+            for (int i = static_cast<int>(resident_.size()) - 1; i >= 0; --i) {
+                if (resident_[static_cast<std::size_t>(i)].lod < 2)
+                    continue;
+                const auto& c = resident_[static_cast<std::size_t>(i)];
+                bool covered = false;
+                for (const auto& r : resident_) {
+                    if (r.lod != 0)
+                        continue;
+                    if (r.west < c.east && r.east > c.west && r.south < c.north &&
+                        r.north > c.south) {
+                        covered = true;
+                        break;
+                    }
+                }
+                if (covered)
+                    evict_tile(static_cast<std::size_t>(i));
+            }
             int need = 0, have = 0;
             for (const auto& s : want) {
-                if (s.t->lod != 0 || s.score > 30.0)
+                if (s.t->lod != 0 || s.score > 8.0)
                     continue;
                 ++need;
                 if (tile_resident(s.t->path))
                     ++have;
-                if (need >= 8)
+                if (need >= 16)
                     break;
             }
-            tiles_ready_ = (need == 0) || (have >= std::min(need, 4));
+            tiles_ready_ = (need == 0) || (have >= std::min(need, 8));
         }
     }
 
@@ -2835,6 +2970,8 @@ class OsgRenderer final : public Renderer {
         osg::ref_ptr<osg::Node> node;
         std::uint64_t cpu = 0;
         std::uint64_t vram = 0;
+        int lod = 0;
+        double west = 0, south = 0, east = 0, north = 0;
     };
     std::vector<CacheTileRef> tile_index_;
     std::vector<ResidentTile> resident_;

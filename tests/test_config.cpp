@@ -40,10 +40,12 @@ void test_config() {
     CHECK(d.channels[1].name == "mid_left");
     CHECK(d.channels[2].name == "mid_right");
     CHECK(d.channels[3].name == "far_right");
-    CHECK_NEAR(d.channels[0].heading_offset_deg, 35.515, 1e-6);
+    CHECK_NEAR(d.channels[0].heading_offset_deg, -50.0, 1e-6);
     CHECK_NEAR(d.channels[1].heading_offset_deg, 0.0, 1e-6);
     CHECK_NEAR(d.channels[2].heading_offset_deg, 0.0, 1e-6);
-    CHECK_NEAR(d.channels[3].heading_offset_deg, -35.25, 1e-6);
+    CHECK_NEAR(d.channels[3].heading_offset_deg, 50.0, 1e-6);
+    CHECK_NEAR(d.channels[0].roll_offset_deg, 0.0, 1e-9);
+    CHECK_NEAR(d.channels[3].roll_offset_deg, 0.0, 1e-9);
     CHECK_NEAR(d.channels[0].hfov_deg, 50.0, 1e-9);
     CHECK_NEAR(d.channels[0].vfov_deg, 32.5, 1e-9);
     CHECK(d.channels[0].width == 1920 && d.channels[0].height == 1200);
@@ -178,7 +180,7 @@ void test_config() {
         CHECK(rtx_file.render.ssao && rtx_file.render.shadows);
         CHECK(rtx_file.host.reply_master == "mid_left");
         CHECK_NEAR(rtx_file.channels[1].heading_offset_deg, 0.0, 1e-6);
-        CHECK_NEAR(rtx_file.channels[0].heading_offset_deg, 35.515, 1e-6);
+        CHECK_NEAR(rtx_file.channels[0].heading_offset_deg, -50.0, 1e-6);
     }
     {
         std::string ch3 = "config/channels-3.toml";
@@ -192,7 +194,7 @@ void test_config() {
         CHECK(c3.channels[0].name == "front");
         CHECK(c3.host.reply_master == "front");
         CHECK(!c3.render.sync_to_host);
-        CHECK_NEAR(c3.channels[1].heading_offset_deg, 35.515, 1e-6);
+        CHECK_NEAR(c3.channels[1].heading_offset_deg, -50.0, 1e-6);
         CHECK(c3.channels[0].width == 1920 && c3.channels[0].height == 1200);
         CHECK(c3.channels[1].flip_vertical);
         auto wrap3 = s376::wrap_channels(c3.channels);
@@ -243,12 +245,12 @@ void test_config() {
         }
         if (ch.name == "left") {
             left = ch.window_x == 1920;
-            CHECK_NEAR(ch.heading_offset_deg, 35.515, 1e-6);
+            CHECK_NEAR(ch.heading_offset_deg, -50.0, 1e-6);
         }
         if (ch.name == "front")
             front = ch.window_x == 3840;
         if (ch.name == "right")
-            right = ch.window_x == 5760 && ch.heading_offset_deg < 0;
+            right = ch.window_x == 5760 && ch.heading_offset_deg > 0;
     }
     CHECK(ios && left && front && right);
     auto placed = s376::layout_channels(s376::select_channels(desk_cfg, "all"), 1, 7680, 1080);

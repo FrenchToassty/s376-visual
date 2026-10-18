@@ -67,9 +67,10 @@ Binaries land in `build/`: `s376-visual`, `s376-synth`, `s376-doctor`,
 A synthetic 737 takes off from KSEA 16L. Production is **one process per
 projector PC** (`--channel far_left|mid_left|mid_right|far_right`, or
 `$S376_CHANNEL`). The two middle PCs show the same Raster front frustum
-(0°); far_left is Raster left (+35.515°), far_right is Raster right
-(−35.25°); all 50° × 32.5° at 1920×1200 (16:10; `resolution = "WxH"`).
-far_left is flipped vertically (Raster Left). `--channel front` still
+(0°); far_left is Raster left (−50°), far_right is Raster right
+(+50°); all 50° × 32.5° at 1920×1200 (16:10; `resolution = "WxH"`).
+far_left `flip_vertical` is a projector framebuffer mirror only.
+`--channel front` still
 aliases `mid_left`. Omit `--channel` (or `--channel all`) to tile every
 enabled window on a laptop. `--channel all --record` / `--screenshot`
 writes a stitched Left|Front|Right strip. `config/channels-3.toml` is
@@ -267,7 +268,7 @@ the hangar NVIDIA box runs the compatibility profile that apt OSG uses.
 
 - Clean-room xT4 decoder (eyepoint, TOD, visibility, fog, light steps, lights)
 - HAT / HOT reply sampled from the local DEM (host-compatible 64-byte BE IEEE)
-- Channel TOML: 4 projector PCs / Raster 3 frusta (far_left +35.515°,
+- Channel TOML: 4 projector PCs / Raster 3 frusta (far_left −50°,
   mid_left 0°, mid_right 0° duplicate front, far_right −35.25°, 50° × 32.5°)
 - One process per PC via `--channel`; laptop tiles all four. `reply_master`
   + `sync_to_host` keep the four boxes on the same host pose
