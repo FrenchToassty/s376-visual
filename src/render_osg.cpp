@@ -208,11 +208,16 @@ void main() {
     float ndl = max(dot(n, normalize(uSunDir)), 0.0);
     ndl *= shadow_term(vPos);
     float luma = dot(albedo, vec3(0.30, 0.50, 0.20));
-    // Blue-over-red only — dark vegetation (low chroma) must not become water.
+    // Imagery chroma only. vWaterMask is a GSHHS land_coverage knife; Jamaica
+    // Bay marsh and the Rockaway inlet must read from the ortho, not a navy
+    // flood fill. The mask is a soft hint and only where the texel is already
+    // bluish/dark.
     float chroma = albedo.b - max(albedo.r, albedo.g) * 0.85;
     float darkWater = (1.0 - smoothstep(0.04, 0.12, luma)) * smoothstep(0.04, 0.14, chroma);
-    if (uWater > 0.5)
-        wet = max(wet, max(darkWater, clamp(vWaterMask, 0.0, 1.0)));
+    if (uWater > 0.5) {
+        float maskHint = clamp(vWaterMask, 0.0, 1.0) * smoothstep(-0.02, 0.10, chroma);
+        wet = max(wet, max(darkWater, maskHint * 0.55));
+    }
     vec2 wu = (dot(vWorld, vWorld) > 1.0) ? vWorld : vUV;
     float gness = clamp((albedo.g - albedo.r) * 4.0, 0.0, 1.0);
     if (wet < 0.55) {
@@ -257,7 +262,8 @@ void main() {
         float foam = smoothstep(0.42, 0.68, wet) * (1.0 - smoothstep(0.78, 0.98, wet));
         foam *= 0.40 + 0.35 * noise(wu * 900.0 + vec2(uTime * 0.15, 0.0));
         wcol = mix(wcol, vec3(0.70, 0.76, 0.80), foam * 0.35);
-        col = mix(col, wcol, wet * 0.78);
+        // Keep most of the ortho so marsh / shallow bay stay photographic.
+        col = mix(col, wcol, wet * 0.34);
     }
     if (uBloom > 0.5 && uNight > 0.25 && wet < 0.40) {
         float urban = smoothstep(0.14, 0.36, luma) * (1.0 - gness);
@@ -2296,7 +2302,8 @@ osg::Geode* make_gradient_geode(int w, int h) {
     return geode;
 }
 
-osg::ref_ptr<osg::GraphicsContext> make_gl_context(int x, int y, int w, int h) {
+osg::ref_ptr<osg::GraphicsContext> make_gl_context(int x, int y, int w, int h,
+                                                   bool offscreen = false) {
     auto try_one = [&](bool pbuffer) -> osg::ref_ptr<osg::GraphicsContext> {
         osg::ref_ptr<osg::GraphicsContext::Traits> tr =
             new osg::GraphicsContext::Traits(osg::DisplaySettings::instance());
@@ -2304,6 +2311,12 @@ osg::ref_ptr<osg::GraphicsContext> make_gl_context(int x, int y, int w, int h) {
         tr->setUndefinedScreenDetailsToDefaultScreen();
         tr->x = x;
         tr->y = y;
+        // If a pbuffer is unavailable, park the fallback window off the
+        // desktop so hangar projectors do not flash a review frame.
+        if (offscreen && !pbuffer) {
+            tr->x = -32000;
+            tr->y = -32000;
+        }
         tr->width = std::max(8, w);
         tr->height = std::max(8, h);
         tr->windowDecoration = false; // projectors / screenshots: no chrome, exact WxH
@@ -2330,6 +2343,11 @@ osg::ref_ptr<osg::GraphicsContext> make_gl_context(int x, int y, int w, int h) {
                       tr->displayName().c_str());
         return gc;
     };
+    if (offscreen) {
+        if (auto gc = try_one(true))
+            return gc;
+        return try_one(false);
+    }
     if (auto gc = try_one(false))
         return gc;
     return try_one(true);
@@ -2766,15 +2784,15 @@ class OsgRenderer final : public Renderer {
             // Undecorated exact-size window so the sky quad and the
             // channel viewport are the same pixels (no chrome band).
             osg::ref_ptr<osg::GraphicsContext> gc =
-                make_gl_context(place.x, place.y, win_w, win_h);
+                make_gl_context(place.x, place.y, win_w, win_h, cfg.render.offscreen);
             if (gc) {
                 if (auto* cam = view->getCamera()) {
                     cam->setGraphicsContext(gc);
                     cam->setViewport(new osg::Viewport(0, 0, win_w, win_h));
                 }
-            } else if (place.fullscreen) {
+            } else if (!cfg.render.offscreen && place.fullscreen) {
                 view->setUpViewOnSingleScreen(static_cast<unsigned>(place.screen));
-            } else {
+            } else if (!cfg.render.offscreen) {
                 view->setUpViewInWindow(place.x, place.y, win_w, win_h,
                                         static_cast<unsigned>(place.screen));
             }
@@ -2782,7 +2800,7 @@ class OsgRenderer final : public Renderer {
                 osg::GraphicsContext* have = cam->getGraphicsContext();
                 if (!have || !have->valid()) {
                     osg::ref_ptr<osg::GraphicsContext> gc2 =
-                        make_gl_context(place.x, place.y, win_w, win_h);
+                        make_gl_context(place.x, place.y, win_w, win_h, cfg.render.offscreen);
                     if (gc2) {
                         cam->setGraphicsContext(gc2);
                         cam->setViewport(new osg::Viewport(0, 0, win_w, win_h));

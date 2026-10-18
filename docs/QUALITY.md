@@ -68,10 +68,16 @@ Joey's Mint PC is back.
 under 16.67 ms. Official runway/taxi coordinates are not changed.
 
 `--bench` flies KJFK:04R (or `--approach`) and prints per-sample GPU ms
-from `GL_TIME_ELAPSED` plus a budgeted pass table. `gtx980ti` sets
-`render.auto_drop` so extras (SSAO, bloom, FXAA, detail, filmic,
-shadows) turn off if a measured frame exceeds `gpu_budget_ms`. Water,
-markings, buildings, and atmosphere stay on.
+from `GL_TIME_ELAPSED` plus a budgeted pass table, then one pasteable
+line:
+
+`SUMMARY  s376 --bench quality=gtx980ti budget=12.20ms max=…ms@…nm avg=…ms dropped=none result=UNDER 60Hz=YES`
+
+`gtx980ti` sets `render.auto_drop` so extras (SSAO, bloom, FXAA, detail,
+filmic, shadows) turn off if a measured frame exceeds `gpu_budget_ms`.
+Water, markings, buildings, and atmosphere stay on. `--offscreen` prefers
+a pbuffer so hangar projectors stay dark (`scripts/hangar-review.sh`,
+`scripts/hangar-queue.sh`).
 
 Night-light GPU impact on the 980 Ti (same point-sprite path):
 

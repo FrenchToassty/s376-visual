@@ -359,6 +359,8 @@ static void fill_render(RenderConfig& r, const std::unordered_map<std::string, s
         parse_bool(kv.at("render.auto_drop"), r.auto_drop);
     if (kv.count("render.gpu_budget_ms"))
         r.gpu_budget_ms = static_cast<float>(std::stod(kv.at("render.gpu_budget_ms")));
+    if (kv.count("render.offscreen"))
+        parse_bool(kv.at("render.offscreen"), r.offscreen);
 }
 
 static ChannelConfig fill_channel(const std::unordered_map<std::string, std::string>& kv) {
@@ -502,6 +504,7 @@ std::string dump_config(const AppConfig& cfg, const std::vector<std::string>& se
     o << "render.mesh_n=" << cfg.render.mesh_n << "\n";
     o << "render.auto_drop=" << (cfg.render.auto_drop ? "true" : "false") << "\n";
     o << "render.gpu_budget_ms=" << cfg.render.gpu_budget_ms << "\n";
+    o << "render.offscreen=" << (cfg.render.offscreen ? "true" : "false") << "\n";
     if (!selected.empty()) {
         o << "selected=";
         for (std::size_t i = 0; i < selected.size(); ++i) {

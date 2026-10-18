@@ -122,6 +122,8 @@ contact `10.1.95.0/24` or `192.168.173.0/24`.
 | `-v` / `--debug` | verbose / per-packet hex |
 | `--gl-debug` | OSG per-attribute GL error checks (off in Release) |
 | `--quality NAME` | `gtx980ti` (default, 2 GB RAM / 5 GB VRAM cap) / `rtx` / `custom` — see `docs/QUALITY.md` |
+| `--bench` | fly 04R and print GPU ms + a pasteable `SUMMARY  s376 --bench …` line |
+| `--offscreen` | pbuffer first (no projector window); shots still use the FBO |
 | `--screenshot PATH` | write the first channel (offscreen FBO at channel WxH, default 1920×1200, PPM+PNG) after warmup and exit |
 | `--screenshot-wait SEC` | settle time before capture (default 3; pager idle or this) |
 | `--self-test-shot DIR` | render a known solid/gradient, check pixels, write PPM+PNG |
@@ -150,6 +152,17 @@ only — never commit it):
 # Wraparound strip (Left|Front|Right) at Raster 50×32.5 / 1920×1200:
 ./build/s376-visual --cache-dir cache/KJFK --channel all --approach KJFK:04R \
   --start-agl 2000 --gs 3.0 --kts 140 --fps 30 --record wrap.mp4
+```
+
+On Joey's Mint (repo `~/s376-visual`, cache `~/s376-visual/cache/KJFK`):
+
+```bash
+# One-shot 04R review + pasteable --bench (pbuffer, no projector windows):
+scripts/hangar-review.sh
+
+# Unattended hours-long queue (resumable; start the moment Mint is back):
+scripts/hangar-queue.sh
+# usage: scripts/hangar-queue.sh [--from NN] [--only NN] [--list] [--dry-run] [--root DIR] [--out DIR] [--kjfk DIR]
 ```
 
 `s376-doctor` never sends a packet off the machine. It reports on-disk

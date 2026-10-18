@@ -104,6 +104,7 @@ struct RenderConfig {
     int mesh_n = 96;              // DEM mesh samples per tile side
     bool auto_drop = true;        // gtx980ti: drop extras if GPU ms over budget
     float gpu_budget_ms = 12.20f; // shadows-off hangar budget (60 Hz = 16.67)
+    bool offscreen = false;       // pbuffer / FBO first — no projector window
 };
 
 void apply_quality_preset(RenderConfig& r, const std::string& name);

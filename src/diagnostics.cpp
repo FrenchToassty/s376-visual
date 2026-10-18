@@ -176,6 +176,47 @@ std::string format_approach_bench(const std::vector<ApproachBenchSample>& rows, 
     return o.str();
 }
 
+std::string format_approach_bench_summary(const std::vector<ApproachBenchSample>& rows,
+                                          float budget_ms, const std::string& quality,
+                                          const std::string& dropped) {
+    float max_gpu = -1.f, min_gpu = -1.f, sum = 0.f;
+    int n = 0;
+    double max_nm = 0, min_nm = 0;
+    for (const auto& r : rows) {
+        if (r.gpu_ms < 0.f)
+            continue;
+        if (n == 0 || r.gpu_ms > max_gpu) {
+            max_gpu = r.gpu_ms;
+            max_nm = r.nm;
+        }
+        if (n == 0 || r.gpu_ms < min_gpu) {
+            min_gpu = r.gpu_ms;
+            min_nm = r.nm;
+        }
+        sum += r.gpu_ms;
+        ++n;
+    }
+    const char* result = "NO_GL";
+    const char* hz = "SKIP";
+    if (n > 0) {
+        result = (max_gpu <= budget_ms + 0.005f) ? "UNDER" : "OVER";
+        hz = (max_gpu <= 16.67f) ? "YES" : "NO";
+    }
+    std::ostringstream o;
+    o << std::fixed << std::setprecision(2);
+    o << "SUMMARY  s376 --bench quality=" << quality << " budget=" << budget_ms << "ms";
+    if (n > 0) {
+        o << " max=" << max_gpu << "ms@" << max_nm << "nm"
+          << " avg=" << (sum / static_cast<float>(n)) << "ms"
+          << " min=" << min_gpu << "ms@" << min_nm << "nm";
+    } else {
+        o << " max=n/a avg=n/a min=n/a";
+    }
+    o << " dropped=" << (dropped.empty() ? "none" : dropped) << " result=" << result
+      << " 60Hz=" << hz << "\n";
+    return o.str();
+}
+
 std::string format_gpu_pass_table(float measured_ms, bool shadows_on) {
     int n = 0;
     const auto* b = quality_gpu_budgets(n);

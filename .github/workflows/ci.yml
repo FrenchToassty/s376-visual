@@ -13,7 +13,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cmake g++ libopenscenegraph-dev libgl-dev libglew-dev libgdal-dev xvfb
+            cmake g++ libopenscenegraph-dev libgl-dev libglew-dev libgdal-dev xvfb shellcheck
       - name: scripts syntax
         run: |
           bash -n scripts/setup-mint.sh
@@ -21,12 +21,15 @@ jobs:
           bash -n scripts/fetch-textures.sh
           bash -n scripts/check-no-rsi.sh
           bash -n scripts/pack-windows.sh
+          bash -n scripts/hangar-review.sh
+          bash -n scripts/hangar-queue.sh
           ./scripts/check-no-rsi.sh
           ./scripts/setup-mint.sh --dry-run --skip-apt --no-desktop | head
           ./scripts/pack-windows.sh build /tmp/s376-win-layout
           test -s /tmp/s376-win-layout/CHANNEL-PCS.txt
           test -d /tmp/s376-win-layout/config
           test -d /tmp/s376-win-layout/data
+          ./tests/test_hangar_scripts.sh
       - name: configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
       - name: build
@@ -136,6 +139,8 @@ jobs:
             | tee /tmp/s376-bench.txt
           grep -q "gtx980ti" /tmp/s376-bench.txt
           grep -q "budget=" /tmp/s376-bench.txt
+          grep -q "SUMMARY  s376 --bench" /tmp/s376-bench.txt
+          grep -q "result=" /tmp/s376-bench.txt
 
   windows:
     runs-on: windows-latest

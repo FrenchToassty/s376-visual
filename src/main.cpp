@@ -57,7 +57,9 @@ void usage() {
            "  --gl-debug            OSG per-attribute GL error checks (off in Release)\n"
            "  --quality NAME        gtx980ti | rtx | custom\n"
            "  --bench               fly 04R (or --approach) and print per-pass GPU ms\n"
-           "                        (GL_TIME_ELAPSED). gtx980ti auto-drops extras if over budget\n"
+           "                        (GL_TIME_ELAPSED). Ends with a SUMMARY line Joey can paste.\n"
+           "                        gtx980ti auto-drops extras if over budget\n"
+           "  --offscreen           pbuffer first (no projector window). Shots still use the FBO\n"
            "  --reply-master NAME   only this --channel sends the type-200 HAT reply\n"
            "  --no-hat              never send HAT (overrides reply_master)\n"
            "  --screenshot PATH     write the first channel (PPM+PNG) after warmup and exit\n"
@@ -159,6 +161,7 @@ int main(int argc, char** argv) {
     int shot_rwy_cond = 0;
     bool have_shot_rwy = false;
     bool do_bench = false;
+    bool offscreen = false;
 
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -259,6 +262,8 @@ int main(int argc, char** argv) {
             do_doctor = true;
         else if (a == "--bench")
             do_bench = true;
+        else if (a == "--offscreen")
+            offscreen = true;
         else {
             std::cerr << "unknown option " << a << "\n";
             usage();
@@ -302,6 +307,8 @@ int main(int argc, char** argv) {
     }
     if (solar_astronomy)
         cfg.render.solar_astronomy = true;
+    if (offscreen)
+        cfg.render.offscreen = true;
     if (!reply_master_override.empty())
         cfg.host.reply_master = reply_master_override;
     if (no_hat)
@@ -623,6 +630,8 @@ int main(int argc, char** argv) {
                 last = s.gpu_ms;
         }
         std::cout << s376::format_gpu_pass_table(last, cfg.render.shadows);
+        std::cout << s376::format_approach_bench_summary(rows, cfg.render.gpu_budget_ms,
+                                                         cfg.render.quality, rend->autodrop_log());
         rend->request_stop();
         g_stop = true;
     }

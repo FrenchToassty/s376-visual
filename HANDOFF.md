@@ -28,47 +28,45 @@ from tests/CI. `scripts/check-no-rsi.sh` fails the build if
 
 ## Current state (2026-10-18, this increment)
 
-Mint hangar is offline (building internet). Work stayed on **PR #1**
-(`cursor/s376-visual-v1-6852`). Accuracy-first. **980 Ti is the
-target** (GL 3.3-class, 6 GB, one 1920×1200 channel at 60 Hz,
-budgeted **12.20 ms** shadows-off). Official geometry/lights
-unchanged. No RSI / imagery / Raster files in git.
+Mint hangar is offline (building internet) until later tonight.
+Work stayed on **PR #1** (`cursor/s376-visual-v1-6852`). Accuracy-first.
+**980 Ti is the target.** No RSI / imagery / Raster files in git.
+Do not add `.deb`, systemd units, or an `rtx-x99` profile.
 
-A 4-PC Linux Mint + 4060/5060 Ti upgrade is **not approved** — do
-not add `.deb`, systemd units, or an `rtx-x99` profile. Cheap
-insurance only: **channel count is the TOML `[[channels]]` list**,
-not a hardcoded 3. `wrap_channels` is unique headings left-to-right
-(default 4 PCs collapse FO-front duplicate → 3-frustum strip).
+1. **Real KJFK pack on this VM (not committed).**
+   `s376-cache fetch KJFK --out /tmp/kjfk-real` — lod0 1 m NYS + 3DEP
+   within ~6 km of 04R + approach, lod1/lod2 to 40 nm / 74 km,
+   OSM 12 km. Resume-safe. Never commit imagery.
+2. **`--bench` paste line.** Last stdout line is
+   `SUMMARY  s376 --bench quality=… budget=… max=…ms@…nm avg=… dropped=… result=UNDER|OVER|NO_GL 60Hz=YES|NO|SKIP`.
+3. **`--offscreen`.** Pbuffer first; parked fallback window at
+   −32000,−32000. Never `setUpViewOnSingleScreen` when offscreen.
+4. **`scripts/hangar-review.sh`.** Full 04R shot list (8/4/2.99/1/0.6/0.15/0
+   × tod 12/19/3 × front/wrap + 12k hdg 036 + wet 0.15) and `--bench`
+   into `~/Downloads/s376-review-<date>/`.
+5. **`scripts/hangar-queue.sh`.** Resumable unattended Mint queue.
+   usage: `scripts/hangar-queue.sh [--from NN] [--only NN] [--list] [--dry-run] [--root DIR] [--out DIR] [--kjfk DIR]`
+   Steps 01–10 write `~/Downloads/s376-queue/<NN>-<name>/` + `done`,
+   `STATUS.txt`, `SUMMARY.md`. Memory-capped via
+   `systemd-run --user --scope`. Waits 5 min if a game is up (never
+   kills). Stops US-next when free disk < 300 GB. No sudo; PNG frames
+   if ffmpeg is missing. CI: `tests/test_hangar_scripts.sh` + shellcheck.
+6. **Looks (real ortho).** Water shader no longer flood-fills from the
+   GSHHS `vWaterMask` knife — imagery chroma wins so marsh/bay stay
+   photographic. Building palettes spread `building=yes` roofs/facades.
 
-1. **Self-review on the public 40 nm subset.** Synth pack still has
-   no 1 m NYS ortho (endpoint is up; do not start a hangar fetch from
-   here). Horizon haze is a ramp, not a green knife. Grazing water
-   is navy, not a white slab. Land paint has Queens urban / Rockaway
-   sand / marsh classes. Night: no lattice; NYC glow is a Manhattan
-   ECEF term (front 04R barely sees it; Left wrap does).
-   After: `/opt/cursor/artifacts/kjfk_04r_2.99nm_review.png`,
-   `_0.6nm_review.png`, `_0.6nm_night_review.png`,
-   `_2.99nm_wrap_review.png`.
-2. **`--bench`.** Flies KJFK:04R (or `--approach`) and prints
-   per-sample `GL_TIME_ELAPSED` plus a budgeted pass table.
-   `gtx980ti` `auto_drop` turns off SSAO/bloom/FXAA/detail/filmic/
-   shadows if over `gpu_budget_ms`. Water / markings / buildings /
-   atmosphere stay on.
-3. **Plans only (no download).** `data/regions/kjfk-near.toml` is
-   the 0.3 m NYS/NYC 2024 pass (~3 km of each runway). KEWR and the
-   other Raster airports have region tomls. KRNO / SKRG / VNKT are
-   local `import-raster`. `s376-cache fetch ICAO --plan --out DIR`
-   writes `DIR/fetch.plan.toml`.
-4. **Windows 980 Ti backup.** CI `windows` job is MSVC core-only
-   (OSG/GDAL off) + `scripts/pack-windows.ps1` zip. Linux stages the
-   same layout with `scripts/pack-windows.sh`. Channel PCs: one
-   process per `[[channels]]` row, `--quality gtx980ti`, default
-   1920×1200 (per-channel `resolution`). See `CHANNEL-PCS.txt` in
-   the zip. Full GL build on Windows still needs OSG (vcpkg).
+**Joey, when Mint is back:**
+```
+cd ~/s376-visual && git pull && scripts/hangar-queue.sh
+```
 
 **980 Ti GPU:** haze / water / city-glow ALU absorbed. Total stays
 **12.20 ms** shadows-off. Joey runs `--bench` on the 5060 Ti, later
 the 980 Ti.
+
+**Previous increment (still on PR #1):** Hangar far-field / Windows
+zip / `--bench` table / region plans. Synth review frames were
+rejected (flat colors / sand triangle) — do not use them for looks.
 
 **Previous increment (still on PR #1):** Hangar far-field (empty
 sky / lod1/lod2 / globe / water mask). Joey: “looks like gaza.”

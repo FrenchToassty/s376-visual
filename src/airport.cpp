@@ -637,7 +637,8 @@ void building_palette(const Building& b, float& wr, float& wg, float& wb, float&
         rr = 0.40f;
         rg = 0.42f;
         rb = 0.45f;
-    } else if (has("residential") || has("house") || has("apartments") || has("detached")) {
+    } else if (has("residential") || has("house") || has("apartments") || has("detached") ||
+               has("terrace") || has("semidetached_house")) {
         wr = 0.58f;
         wg = 0.42f;
         wb = 0.36f;
@@ -651,8 +652,22 @@ void building_palette(const Building& b, float& wr, float& wg, float& wb, float&
         rr = 0.24f;
         rg = 0.26f;
         rb = 0.28f;
+    } else if (has("garage") || has("garages") || has("parking") || has("transportation")) {
+        wr = 0.50f;
+        wg = 0.51f;
+        wb = 0.53f;
+        rr = 0.30f;
+        rg = 0.30f;
+        rb = 0.31f;
+    } else if (has("roof") || has("grandstand") || has("stadium")) {
+        wr = 0.44f;
+        wg = 0.46f;
+        wb = 0.48f;
+        rr = 0.18f;
+        rg = 0.20f;
+        rb = 0.22f;
     } else if (has("terminal") || has("T1") || has("T4") || has("T5") || has("T7") || has("T8") ||
-               has("ITB") || has("TBIT") || has("main-term")) {
+               has("ITB") || has("TBIT") || has("main-term") || has("train_station")) {
         wr = 0.64f;
         wg = 0.62f;
         wb = 0.58f;
@@ -663,10 +678,15 @@ void building_palette(const Building& b, float& wr, float& wg, float& wb, float&
     float h = 0.f;
     for (unsigned char c : key)
         h = std::fmod(h * 31.f + static_cast<float>(c), 997.f);
-    const float j = (h / 997.f - 0.5f) * 0.06f;
-    wr = std::max(0.12f, wr + j);
-    wg = std::max(0.12f, wg + j * 0.6f);
-    wb = std::max(0.12f, wb + j * 0.4f);
+    // Wider jitter so a campus of `building=yes` is not one beige slab.
+    const float j = (h / 997.f - 0.5f) * 0.14f;
+    const float j2 = std::fmod(h * 7.f, 97.f) / 97.f - 0.5f;
+    wr = std::max(0.12f, std::min(0.86f, wr + j));
+    wg = std::max(0.12f, std::min(0.86f, wg + j * 0.6f + j2 * 0.04f));
+    wb = std::max(0.12f, std::min(0.86f, wb + j * 0.4f));
+    rr = std::max(0.10f, std::min(0.55f, rr + j * 0.5f));
+    rg = std::max(0.10f, std::min(0.55f, rg + j * 0.35f));
+    rb = std::max(0.10f, std::min(0.55f, rb + j * 0.25f));
 }
 
 Building jetbridge_building(const Jetbridge& j) {

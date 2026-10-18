@@ -59,6 +59,11 @@ struct ApproachBenchSample {
 // Text table for --bench (04R sample distances + budgeted pass list).
 std::string format_approach_bench(const std::vector<ApproachBenchSample>& rows, float budget_ms,
                                   const std::string& quality, const std::string& dropped);
+// One pasteable line. Example:
+// SUMMARY  s376 --bench quality=gtx980ti budget=12.20ms max=8.40ms@2.99nm avg=7.61ms dropped=none result=UNDER 60Hz=YES
+std::string format_approach_bench_summary(const std::vector<ApproachBenchSample>& rows,
+                                          float budget_ms, const std::string& quality,
+                                          const std::string& dropped);
 std::string format_gpu_pass_table(float measured_ms, bool shadows_on);
 
 } // namespace s376

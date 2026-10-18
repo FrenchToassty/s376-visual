@@ -233,6 +233,11 @@ add_test(NAME unit COMMAND s376-tests)
 set_tests_properties(unit PROPERTIES
     ENVIRONMENT "S376_ALLOW_SIM_LAN=;S376_ALLOW_LAN=;S376_LOG_DIR=${CMAKE_BINARY_DIR}/logs"
 )
+if(UNIX)
+    add_test(NAME hangar-scripts COMMAND bash "${CMAKE_SOURCE_DIR}/tests/test_hangar_scripts.sh")
+    set_tests_properties(hangar-scripts PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+endif()
 
 # Copy default config next to the binaries for out-of-tree runs.
 file(COPY ${CMAKE_SOURCE_DIR}/config DESTINATION ${CMAKE_BINARY_DIR})

@@ -118,6 +118,8 @@ void test_config() {
         CHECK(dumped.find("render.filmic=true") != std::string::npos);
         CHECK(dumped.find("render.solar_astronomy=false") != std::string::npos);
         CHECK(dumped.find("render.auto_drop=true") != std::string::npos);
+        CHECK(dumped.find("render.offscreen=false") != std::string::npos);
+        CHECK(!d.render.offscreen);
         int nb = 0;
         const auto* budgets = s376::quality_gpu_budgets(nb);
         CHECK(nb >= 8 && budgets != nullptr);

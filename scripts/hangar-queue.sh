@@ -1,0 +1,778 @@
+#!/usr/bin/env bash
+# Resumable unattended hangar job queue for Joey's Mint 22.3 (RTX 5060 Ti,
+# 16 GB RAM, repo ~/s376-visual, cache ~/s376-visual/cache/KJFK).
+#
+# Each step writes ~/Downloads/s376-queue/<NN>-<name>/ plus a `done`
+# marker. Rerun skips finished steps. STATUS.txt + SUMMARY.md stay current.
+#
+# Never touches network config. Never sends to UDP 3340/3341. Never
+# contacts 10.1.95.0/24 or 192.168.173.0/24. No sudo. Offscreen FBO /
+# pbuffer only — no projector windows. If a game is running, wait and
+# retry every 5 minutes; never kill anything.
+#
+# usage: scripts/hangar-queue.sh [--from NN] [--only NN] [--list] [--dry-run] [--root DIR] [--out DIR] [--kjfk DIR]
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+OUT="${S376_QUEUE_DIR:-$HOME/Downloads/s376-queue}"
+KJFK="${S376_CACHE:-$ROOT/cache/KJFK}"
+FROM=""
+ONLY=""
+DRY=0
+LIST=0
+FORCE=0
+JOBS="$(nproc)"
+WAIT_SEC="${S376_GPU_WAIT_SEC:-300}"
+
+# NN name mem
+STEPS=(
+    "01 build 6G"
+    "02 review-now 12G"
+    "03 bench 12G"
+    "04 video-day 12G"
+    "05 video-night 12G"
+    "06 fetch-kjfk-far 8G"
+    "07 fetch-kjfk-near 8G"
+    "08 review-after-fetch 12G"
+    "09 fetch-kewr 8G"
+    "10 fetch-us-next 8G"
+)
+
+usage() {
+    cat <<'EOF'
+usage: scripts/hangar-queue.sh [--from NN] [--only NN] [--list] [--dry-run] [--root DIR] [--out DIR] [--kjfk DIR]
+
+  --from NN   start at this step (still skip any later step that has `done`)
+  --only NN   run only this step (skip if `done` unless --force)
+  --list      print the step table and exit 0
+  --dry-run   print commands, write nothing, exit 0
+  --force     ignore `done` markers for selected steps
+  --root DIR  repo (default: parent of this script, Joey: ~/s376-visual)
+  --out DIR   queue dir (default: ~/Downloads/s376-queue)
+  --kjfk DIR  existing 1 m KJFK pack (default: $ROOT/cache/KJFK)
+
+Steps: 01 build, 02 review-now, 03 bench, 04 video-day, 05 video-night,
+06 fetch-kjfk-far, 07 fetch-kjfk-near, 08 review-after-fetch,
+09 fetch-kewr, 10 fetch-us-next.
+
+Heavy work is memory-capped with:
+  systemd-run --user --scope -p MemoryMax=… -p MemorySwapMax=0
+GPU steps wait if Steam / X-Plane / another fullscreen GL app is up.
+Fetch steps refuse to start when free disk is too low (300 GB floor
+for the US-next loop). ffmpeg is optional — PNG frames are kept.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --from)
+            FROM="${2:?}"
+            shift
+            ;;
+        --only)
+            ONLY="${2:?}"
+            shift
+            ;;
+        --list) LIST=1 ;;
+        --dry-run) DRY=1 ;;
+        --force) FORCE=1 ;;
+        --root)
+            ROOT="${2:?}"
+            shift
+            ;;
+        --out)
+            OUT="${2:?}"
+            shift
+            ;;
+        --kjfk)
+            KJFK="${2:?}"
+            shift
+            ;;
+        -j|--jobs)
+            JOBS="${2:?}"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "unknown option: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
+
+step_nn() { echo "$1" | awk '{print $1}'; }
+step_name() { echo "$1" | awk '{print $2}'; }
+step_mem() { echo "$1" | awk '{print $3}'; }
+
+step_dir() {
+    local nn="$1" name="$2"
+    echo "$OUT/${nn}-${name}"
+}
+
+normalize_nn() {
+    local n="$1"
+    n="${n#0}"
+    [[ -z "$n" ]] && n=0
+    printf '%02d' "$n"
+}
+
+if [[ "$LIST" -eq 1 ]]; then
+    echo "s376 hangar-queue"
+    echo "out=$OUT"
+    echo "root=$ROOT"
+    echo "kjfk=$KJFK"
+    for s in "${STEPS[@]}"; do
+        nn="$(step_nn "$s")"
+        name="$(step_name "$s")"
+        d="$(step_dir "$nn" "$name")"
+        mark="pending"
+        [[ -f "$d/done" ]] && mark="done"
+        printf '%s  %-20s  mem=%-4s  %s\n' "$nn" "$name" "$(step_mem "$s")" "$mark"
+    done
+    exit 0
+fi
+
+# Refuse operator mistakes that would talk to the sim / visual LAN.
+for a in "$ROOT" "$OUT" "$KJFK" "${FROM:-}" "${ONLY:-}"; do
+    case "$a" in
+        *10.1.95.*|*192.168.173.*|*:3340*|:3341*|*3340*|*3341*)
+            echo "refusing sim/visual LAN or UDP 3340/3341 path: $a" >&2
+            exit 2
+            ;;
+    esac
+done
+
+HAVE_SCOPE=0
+if [[ "$DRY" -eq 0 ]] && command -v systemd-run >/dev/null 2>&1; then
+    if systemd-run --user --scope --quiet --collect true >/dev/null 2>&1; then
+        HAVE_SCOPE=1
+    fi
+fi
+
+if [[ "$DRY" -eq 0 ]]; then
+    mkdir -p "$OUT"
+    exec 9>"$OUT/queue.lock"
+    if ! flock -n 9; then
+        echo "another hangar-queue holds $OUT/queue.lock" >&2
+        exit 1
+    fi
+fi
+
+PREVIEW="$ROOT/build-preview"
+VISUAL="$PREVIEW/s376-visual"
+CACHE_BIN="$PREVIEW/s376-cache"
+DOCTOR="$PREVIEW/s376-doctor"
+TESTS="$PREVIEW/s376-tests"
+REVIEW="$ROOT/scripts/hangar-review.sh"
+STATUS="$OUT/STATUS.txt"
+SUMMARY="$OUT/SUMMARY.md"
+CFG="$ROOT/config/s376-visual.toml"
+
+disk_avail_gb() {
+    local p="$1"
+    mkdir -p "$p" 2>/dev/null || true
+    df -BG --output=avail "$p" 2>/dev/null | tail -n 1 | tr -dc '0-9' || true
+}
+
+count_tiles() {
+    find "$1" -name elev.s376dem 2>/dev/null | wc -l | tr -d ' ' || true
+}
+
+dir_size() {
+    du -sh "$1" 2>/dev/null | awk '{print $1}' || true
+}
+
+log() {
+    local line
+    line="$(printf '%s %s' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*")"
+    echo "$line" >&2
+    if [[ "$DRY" -eq 0 ]]; then
+        mkdir -p "$OUT"
+        echo "$line" >>"$OUT/queue.log"
+    fi
+}
+
+write_status() {
+    local tmp="$STATUS.tmp"
+    {
+        echo "s376 hangar-queue"
+        echo "updated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "root: $ROOT"
+        echo "kjfk: $KJFK"
+        echo "out: $OUT"
+        echo "disk_free_gb: $(disk_avail_gb "$OUT")"
+        echo
+        if [[ -f "$OUT/current" ]]; then
+            echo "current: $(cat "$OUT/current")"
+        else
+            echo "current: idle"
+        fi
+        echo
+        printf '%-4s %-20s %-6s %s\n' "NN" "NAME" "STATE" "DETAIL"
+        for s in "${STEPS[@]}"; do
+            local nn name d state detail
+            nn="$(step_nn "$s")"
+            name="$(step_name "$s")"
+            d="$(step_dir "$nn" "$name")"
+            state="pending"
+            detail=""
+            if [[ -f "$d/done" ]]; then
+                state="PASS"
+                detail="$(tr '\n' ' ' <"$d/done" | head -c 160)"
+            elif [[ -f "$d/fail" ]]; then
+                state="FAIL"
+                detail="$(tr '\n' ' ' <"$d/fail" | head -c 160)"
+            elif [[ -f "$OUT/current" ]] && grep -q "^${nn} " "$OUT/current"; then
+                state="RUN"
+                detail="$(cat "$OUT/current")"
+            fi
+            printf '%-4s %-20s %-6s %s\n' "$nn" "$name" "$state" "$detail"
+        done
+    } >"$tmp"
+    mv "$tmp" "$STATUS"
+}
+
+init_summary() {
+    if [[ ! -f "$SUMMARY" ]]; then
+        cat >"$SUMMARY" <<EOF
+# s376 hangar queue
+
+Started: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+Repo: \`$ROOT\`
+KJFK cache: \`$KJFK\`
+Output: \`$OUT\`
+
+Grab frames from the **best frames** lists below. Imagery stays on this
+PC — never commit it.
+
+EOF
+    fi
+}
+
+append_summary() {
+    local title="$1"
+    shift
+    [[ "$DRY" -eq 1 ]] && return 0
+    {
+        echo "## $title"
+        echo
+        for line in "$@"; do
+            echo "- $line"
+        done
+        echo
+    } >>"$SUMMARY"
+}
+
+capped() {
+    local mem="$1"
+    shift
+    if [[ "$DRY" -eq 1 ]]; then
+        printf '+ systemd-run --user --scope -p MemoryMax=%s -p MemorySwapMax=0 --' "$mem"
+        printf ' %q' "$@"
+        printf '\n'
+        return 0
+    fi
+    if [[ "$HAVE_SCOPE" -eq 1 ]]; then
+        systemd-run --user --scope --quiet --collect \
+            -p "MemoryMax=$mem" -p MemorySwapMax=0 -- "$@"
+    else
+        "$@"
+    fi
+}
+
+# Steam / Proton (`reaper`, steamapps), X-Plane, or a fullscreen GL window
+# that is not s376-visual. Never kill. Retry every WAIT_SEC.
+gpu_busy() {
+    if pgrep -af -- 'steamapps' 2>/dev/null | grep -Ev 's376-visual|hangar-queue|hangar-review|grep' | grep -q .; then
+        return 0
+    fi
+    if pgrep -x reaper >/dev/null 2>&1; then
+        return 0
+    fi
+    if pgrep -if -- 'x-?plane|xplane[[:space:]]' >/dev/null 2>&1; then
+        return 0
+    fi
+    if [[ -n "${DISPLAY:-}" ]] && command -v xprop >/dev/null 2>&1; then
+        local id state cls
+        for id in $(xprop -root _NET_CLIENT_LIST 2>/dev/null | grep -o '0x[0-9a-fA-F]*'); do
+            state="$(xprop -id "$id" _NET_WM_STATE 2>/dev/null || true)"
+            echo "$state" | grep -q _NET_WM_STATE_FULLSCREEN || continue
+            cls="$(xprop -id "$id" WM_CLASS 2>/dev/null || true)"
+            echo "$cls" | grep -qi 's376' && continue
+            return 0
+        done
+    fi
+    return 1
+}
+
+wait_gpu() {
+    local reason
+    if [[ "$DRY" -eq 1 ]]; then
+        echo "+ wait_gpu (skip if steamapps/reaper/x-plane/fullscreen GL)"
+        return 0
+    fi
+    while gpu_busy; do
+        reason="game or fullscreen GL running — waiting ${WAIT_SEC}s (never killing)"
+        echo "waiting: $reason" >"$OUT/current"
+        write_status
+        log "$reason"
+        sleep "$WAIT_SEC"
+    done
+}
+
+need_disk() {
+    local min_gb="$1" dest="$2"
+    local have
+    have="$(disk_avail_gb "$dest")"
+    have="${have:-0}"
+    if [[ "$have" -lt "$min_gb" ]]; then
+        echo "need ${min_gb} GB free at $dest (have ${have} GB)" >&2
+        return 1
+    fi
+    return 0
+}
+
+ig() {
+    local mem="$1"
+    shift
+    wait_gpu
+    capped "$mem" "$VISUAL" --offscreen -c "$CFG" "$@"
+}
+
+shot() {
+    local mem="$1" dest="$2"
+    shift 2
+    [[ "$DRY" -eq 0 ]] && mkdir -p "$(dirname "$dest")"
+    ig "$mem" --screenshot-wait 3 --screenshot "$dest" "$@"
+}
+
+doctor_cache() {
+    local mem="$1" cache="$2" logf="$3"
+    if [[ "$DRY" -eq 1 ]]; then
+        echo "+ doctor --cache-dir $cache --no-bench"
+        return 0
+    fi
+    # Doctor fails are recorded; they do not fail a completed fetch (resume).
+    if ! capped "$mem" "$DOCTOR" -c "$CFG" --cache-dir "$cache" --no-bench | tee "$logf"; then
+        echo "doctor reported fails (see log)" | tee "$logf.fail"
+    fi
+    return 0
+}
+
+fetch_pack() {
+    local mem="$1" icao="$2" dest="$3" img="$4"
+    shift 4
+    if [[ "$DRY" -eq 0 ]]; then
+        need_disk 20 "$(dirname "$dest")" || return 1
+    fi
+    capped "$mem" "$CACHE_BIN" fetch "$icao" --out "$dest" --dem 3dep \
+        --imagery "$img" --max-export 2048 "$@"
+    capped 4G "$CACHE_BIN" osm "$icao" --out "$dest" --radius-km 12 || true
+}
+
+contact_sheet() {
+    local before="$1" after="$2" dest="$3"
+    if [[ "$DRY" -eq 1 ]]; then
+        echo "+ python3 contact-sheet $before $after -> $dest"
+        return 0
+    fi
+    if ! python3 -c 'from PIL import Image' >/dev/null 2>&1; then
+        echo "PIL missing; skip contact sheet (no ImageMagick)" >"$dest.skipped"
+        return 0
+    fi
+    python3 - "$before" "$after" "$dest" <<'PY'
+import os, sys
+from pathlib import Path
+from PIL import Image
+
+before, after, dest = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
+
+def pairs():
+    names = []
+    for p in sorted(before.glob("*.png")) + sorted(before.glob("*.ppm")):
+        other = after / p.name
+        if other.exists():
+            names.append((p, other))
+    # unique stems
+    seen = set()
+    out = []
+    for a, b in names:
+        if a.stem in seen:
+            continue
+        seen.add(a.stem)
+        out.append((a, b))
+    return out
+
+def load(p):
+    im = Image.open(p).convert("RGB")
+    im.thumbnail((960, 600))
+    return im
+
+rows = pairs()
+if not rows:
+    Path(str(dest) + ".skipped").write_text("no matching png/ppm pairs\n")
+    sys.exit(0)
+gap = 8
+label_h = 22
+cell_w, cell_h = 960, 600
+W = cell_w * 2 + gap * 3
+H = (cell_h + label_h + gap) * len(rows) + gap
+sheet = Image.new("RGB", (W, H), (18, 20, 24))
+y = gap
+for a, b in rows:
+    la, lb = load(a), load(b)
+    sheet.paste(la, (gap, y + label_h))
+    sheet.paste(lb, (gap * 2 + cell_w, y + label_h))
+    y += cell_h + label_h + gap
+dest.parent.mkdir(parents=True, exist_ok=True)
+sheet.save(dest)
+print(f"wrote {dest}  {len(rows)} pairs")
+PY
+}
+
+should_run() {
+    local nn="$1"
+    if [[ -n "$ONLY" && "$(normalize_nn "$ONLY")" != "$nn" ]]; then
+        return 1
+    fi
+    if [[ -n "$FROM" && "$nn" < "$(normalize_nn "$FROM")" ]]; then
+        return 1
+    fi
+    return 0
+}
+
+run_step() {
+    local nn="$1" name="$2" mem="$3"
+    local d
+    d="$(step_dir "$nn" "$name")"
+    if [[ "$FORCE" -eq 0 && -f "$d/done" ]]; then
+        log "skip $nn $name (done)"
+        return 0
+    fi
+    if ! should_run "$nn"; then
+        return 0
+    fi
+    if [[ "$DRY" -eq 1 ]]; then
+        log "DRY $nn $name"
+        set +e
+        "step_${name//-/_}" "$d" "$mem"
+        set -e
+        return 0
+    fi
+    mkdir -p "$d"
+    echo "$nn $name starting $(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$OUT/current"
+    write_status
+    log "START $nn $name"
+    local t0 t1 elapsed rc
+    t0="$(date +%s)"
+    rc=0
+    set +e
+    "step_${name//-/_}" "$d" "$mem"
+    rc=$?
+    set -e
+    t1="$(date +%s)"
+    elapsed="$((t1 - t0))"
+    if [[ "$rc" -eq 0 ]]; then
+        echo "PASS ${elapsed}s $(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$d/done"
+        rm -f "$d/fail"
+        log "PASS $nn $name ${elapsed}s"
+        write_status
+        return 0
+    fi
+    echo "FAIL rc=$rc ${elapsed}s $(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$d/fail"
+    log "FAIL $nn $name rc=$rc ${elapsed}s"
+    write_status
+    if [[ "$nn" == "01" ]]; then
+        echo "build failed — stopping queue" >&2
+        return "$rc"
+    fi
+    return 0
+}
+
+# --- steps ---
+
+step_build() {
+    local d="$1" mem="$2"
+    if [[ "$DRY" -eq 0 ]]; then
+        git -C "$ROOT" pull --ff-only >"$d/git-pull.log" 2>&1 || \
+            echo "git pull --ff-only failed (building existing tree)" | tee -a "$d/git-pull.log"
+    else
+        echo "+ git -C $ROOT pull --ff-only"
+    fi
+    capped "$mem" cmake -S "$ROOT" -B "$PREVIEW" -DCMAKE_BUILD_TYPE=Release
+    capped "$mem" cmake --build "$PREVIEW" -j "$JOBS"
+    if [[ "$DRY" -eq 1 ]]; then
+        echo "+ $TESTS"
+        append_summary "01 build" "result: DRY-RUN" "bin: \`$PREVIEW\`"
+        return 0
+    fi
+    set +e
+    capped 4G "$TESTS" | tee "$d/tests.log"
+    local rc=${PIPESTATUS[0]}
+    set -e
+    local counts
+    counts="$(grep -E '[0-9]+ passed, [0-9]+ failed' "$d/tests.log" | tail -n 1 || true)"
+    append_summary "01 build" \
+        "result: $([[ $rc -eq 0 ]] && echo PASS || echo FAIL)" \
+        "tests: ${counts:-unknown}" \
+        "binary: \`$VISUAL\`" \
+        "log: \`$d/tests.log\`"
+    return "$rc"
+}
+
+step_review_now() {
+    local d="$1" mem="$2"
+    wait_gpu
+    if [[ ! -x "$REVIEW" ]]; then
+        echo "missing $REVIEW" >&2
+        return 1
+    fi
+    capped "$mem" "$REVIEW" --cache "$KJFK" --out "$d/shots" --bin "$VISUAL" \
+        --quality gtx980ti --shots-only --wait 3
+    local n
+    n="$(find "$d/shots" \( -name '*.png' -o -name '*.ppm' \) 2>/dev/null | wc -l | tr -d ' ' || true)"
+    append_summary "02 review-now" \
+        "result: PASS" \
+        "shots: ${n} files in \`$d/shots\`" \
+        "best frames: \`$d/shots/kjfk_04r_2.99nm_tod12_front.png\`" \
+        "\`$d/shots/kjfk_04r_0.6nm_tod12_front.png\`" \
+        "\`$d/shots/kjfk_04r_0.15nm_tod12_front.png\`" \
+        "\`$d/shots/kjfk_04r_2.99nm_tod12_wrap.png\`" \
+        "\`$d/shots/kjfk_04r_0.6nm_tod3_front.png\`"
+}
+
+step_bench() {
+    local d="$1" mem="$2"
+    wait_gpu
+    for q in gtx980ti rtx; do
+        if [[ "$DRY" -eq 1 ]]; then
+            echo "+ $VISUAL --offscreen --bench --quality $q"
+            continue
+        fi
+        ig "$mem" --quality "$q" --bench --approach KJFK:04R --cache-dir "$KJFK" \
+            | tee "$d/bench-$q.txt"
+        grep -E '^SUMMARY  s376 --bench' "$d/bench-$q.txt" | tee -a "$d/SUMMARY-LINE.txt" || true
+    done
+    append_summary "03 bench" \
+        "result: PASS" \
+        "gtx980ti: \`$d/bench-gtx980ti.txt\`" \
+        "rtx: \`$d/bench-rtx.txt\`" \
+        "paste: \`$d/SUMMARY-LINE.txt\`"
+}
+
+record_approach() {
+    local d="$1" mem="$2" tod="$3" stem="$4"
+    wait_gpu
+    local front="$d/${stem}-front.mp4"
+    local wrap="$d/${stem}-wrap.mp4"
+    if command -v ffmpeg >/dev/null 2>&1; then
+        ig "$mem" --cache-dir "$KJFK" --quality gtx980ti --tod "$tod" \
+            --channel mid_left --approach KJFK:04R --start-agl 2000 --gs 3.0 \
+            --kts 140 --fps 30 --record "$front"
+        ig "$mem" --cache-dir "$KJFK" --quality gtx980ti --tod "$tod" \
+            --channel all --approach KJFK:04R --start-agl 2000 --gs 3.0 \
+            --kts 140 --fps 30 --record "$wrap"
+        append_summary "$stem" \
+            "result: PASS" \
+            "front: \`$front\`" \
+            "wrap: \`$wrap\`" \
+            "ffmpeg: yes"
+    else
+        ig "$mem" --cache-dir "$KJFK" --quality gtx980ti --tod "$tod" \
+            --channel mid_left --approach KJFK:04R --start-agl 2000 --gs 3.0 \
+            --kts 140 --fps 30 --record "$d/${stem}-front.png"
+        ig "$mem" --cache-dir "$KJFK" --quality gtx980ti --tod "$tod" \
+            --channel all --approach KJFK:04R --start-agl 2000 --gs 3.0 \
+            --kts 140 --fps 30 --record "$d/${stem}-wrap.png"
+        echo "ffmpeg missing — kept PNG frames" | tee "$d/NO-FFMPEG.txt"
+        append_summary "$stem" \
+            "result: PASS" \
+            "ffmpeg: missing — PNG frames kept under \`$d\`" \
+            "note: install ffmpeg later to mux; queue never uses sudo"
+    fi
+}
+
+step_video_day() {
+    record_approach "$1" "$2" 12 "video-day"
+}
+
+step_video_night() {
+    record_approach "$1" "$2" 3 "video-night"
+}
+
+step_fetch_kjfk_far() {
+    local d="$1" mem="$2"
+    if [[ "$DRY" -eq 0 ]]; then
+        need_disk 20 "$(dirname "$KJFK")" || return 1
+    fi
+    # Resume: completed lodN/tY_X tiles are skipped. Extends lod1/lod2 to 74 km.
+    fetch_pack "$mem" KJFK "$KJFK" nys \
+        --near-m 1 --near-dem-m 1 --near-km 8 --approach-nm 12 \
+        --mid-m 8 --mid-dem-m 8 --mid-km 40 \
+        --far-m 32 --far-dem-m 32 --radius-km 74
+    doctor_cache 4G "$KJFK" "$d/doctor.txt"
+    local tiles bytes
+    tiles="$(count_tiles "$KJFK")"
+    bytes="$(dir_size "$KJFK")"
+    append_summary "06 fetch-kjfk-far" \
+        "result: PASS" \
+        "cache: \`$KJFK\`" \
+        "tiles: ${tiles:-?}  size: ${bytes:-?}" \
+        "doctor: \`$d/doctor.txt\`" \
+        "disk_free_gb: $(disk_avail_gb "$KJFK")"
+}
+
+step_fetch_kjfk_near() {
+    local d="$1" mem="$2"
+    local dest="$ROOT/cache/KJFK-near"
+    if [[ "$DRY" -eq 0 ]]; then
+        need_disk 40 "$(dirname "$dest")" || return 1
+    fi
+    # 0.3 m NYS/NYC near-field from data/regions/kjfk-near.toml. Resume.
+    fetch_pack "$mem" KJFK "$dest" nys \
+        --near-m 0.3 --near-dem-m 1 --near-km 3 --approach-nm 3 \
+        --mid-m 1.2 --mid-dem-m 1 --mid-km 8 \
+        --far-m 4.8 --far-dem-m 8 --radius-km 8
+    doctor_cache 4G "$dest" "$d/doctor.txt"
+    append_summary "07 fetch-kjfk-near" \
+        "result: PASS" \
+        "cache: \`$dest\`" \
+        "plan: \`data/regions/kjfk-near.toml\`" \
+        "doctor: \`$d/doctor.txt\`" \
+        "size: $(dir_size "$dest")" \
+        "disk_free_gb: $(disk_avail_gb "$dest")"
+}
+
+step_review_after_fetch() {
+    local d="$1" mem="$2"
+    local before="$OUT/02-review-now/shots"
+    wait_gpu
+    capped "$mem" "$REVIEW" --cache "$KJFK" --out "$d/shots" --bin "$VISUAL" \
+        --quality gtx980ti --shots-only --wait 3
+    contact_sheet "$before" "$d/shots" "$d/contact-02-vs-08.png"
+    append_summary "08 review-after-fetch" \
+        "result: PASS" \
+        "shots: \`$d/shots\`" \
+        "contact sheet: \`$d/contact-02-vs-08.png\`" \
+        "best frames: \`$d/shots/kjfk_04r_2.99nm_tod12_front.png\`" \
+        "\`$d/shots/kjfk_04r_0.6nm_tod12_front.png\`" \
+        "\`$d/shots/kjfk_04r_0.15nm_tod12_front.png\`"
+}
+
+kewr_shots() {
+    local d="$1" mem="$2" cache="$3"
+    local rwy nm tod
+    for rwy in 04R 22L; do
+        for nm in 4 1 0; do
+            for tod in 12 19 3; do
+                shot "$mem" "$d/shots/kewr_${rwy}_${nm}nm_tod${tod}_front.ppm" \
+                    --cache-dir "$cache" --at "KEWR:${rwy}:${nm}" --tod "$tod" \
+                    --channel mid_left --quality gtx980ti
+            done
+        done
+    done
+}
+
+step_fetch_kewr() {
+    local d="$1" mem="$2"
+    local dest="$ROOT/cache/KEWR"
+    if [[ "$DRY" -eq 0 ]]; then
+        need_disk 40 "$(dirname "$dest")" || return 1
+    fi
+    # NJOGIS is not a live ImageServer — NAIP + 3DEP is the unattended pull.
+    fetch_pack "$mem" KEWR "$dest" naip \
+        --near-m 1 --near-dem-m 1 --near-km 8 --approach-nm 12 \
+        --mid-m 8 --mid-dem-m 8 --mid-km 40 \
+        --far-m 32 --far-dem-m 32 --radius-km 74
+    doctor_cache 4G "$dest" "$d/doctor.txt"
+    kewr_shots "$d" 12G "$dest"
+    append_summary "09 fetch-kewr" \
+        "result: PASS" \
+        "cache: \`$dest\`  size: $(dir_size "$dest")" \
+        "doctor: \`$d/doctor.txt\`" \
+        "shots: \`$d/shots\`" \
+        "best frames: \`$d/shots/kewr_04R_1nm_tod12_front.png\`" \
+        "\`$d/shots/kewr_22L_1nm_tod12_front.png\`"
+}
+
+us_rwy() {
+    case "$1" in
+        KLAS) echo 26L ;;
+        KSFO) echo 28L ;;
+        KLAX) echo 25L ;;
+        KBOS) echo 04R ;;
+        KSEA) echo 16L ;;
+        KIAD) echo 01R ;;
+        KMCO) echo 18R ;;
+        KMIA) echo 09 ;;
+        *) echo 04R ;;
+    esac
+}
+
+us_img() {
+    case "$1" in
+        KSEA) echo kingco ;;
+        KSFO) echo sanmateo ;;
+        *) echo naip ;;
+    esac
+}
+
+step_fetch_us_next() {
+    local d="$1" mem="$2"
+    local icao dest img rwy
+    for icao in KLAS KSFO KLAX KBOS KSEA KIAD KMCO KMIA; do
+        dest="$ROOT/cache/$icao"
+        if [[ "$DRY" -eq 0 ]]; then
+            if ! need_disk 300 "$(dirname "$dest")"; then
+                echo "stop US-next at $icao — free disk below 300 GB" | tee "$d/STOP-DISK.txt"
+                append_summary "10 fetch-us-next" \
+                    "stopped before $icao: free disk below 300 GB" \
+                    "log: \`$d/STOP-DISK.txt\`"
+                return 0
+            fi
+        fi
+        img="$(us_img "$icao")"
+        rwy="$(us_rwy "$icao")"
+        fetch_pack "$mem" "$icao" "$dest" "$img" \
+            --near-m 1 --near-dem-m 1 --near-km 8 --approach-nm 8 \
+            --mid-m 8 --mid-dem-m 8 --mid-km 40 \
+            --far-m 32 --far-dem-m 32 --radius-km 74
+        doctor_cache 4G "$dest" "$d/doctor-$icao.txt"
+        shot 12G "$d/shots/${icao}_${rwy}_4nm_tod12_front.ppm" \
+            --cache-dir "$dest" --at "${icao}:${rwy}:4" --tod 12 --channel mid_left
+        shot 12G "$d/shots/${icao}_${rwy}_1nm_tod12_front.ppm" \
+            --cache-dir "$dest" --at "${icao}:${rwy}:1" --tod 12 --channel mid_left
+        shot 12G "$d/shots/${icao}_${rwy}_0nm_tod12_front.ppm" \
+            --cache-dir "$dest" --at "${icao}:${rwy}:0" --tod 12 --channel mid_left
+        [[ "$DRY" -eq 0 ]] && echo "$icao PASS $(dir_size "$dest")" >>"$d/airports.txt"
+    done
+    append_summary "10 fetch-us-next" \
+        "result: PASS" \
+        "order: KLAS, KSFO, KLAX, KBOS, KSEA, KIAD, KMCO, KMIA" \
+        "log: \`$d/airports.txt\`" \
+        "shots: \`$d/shots\`" \
+        "disk_free_gb: $(disk_avail_gb "$ROOT/cache")"
+}
+
+# --- main ---
+
+if [[ "$DRY" -eq 0 ]]; then
+    init_summary
+    write_status
+fi
+
+for s in "${STEPS[@]}"; do
+    run_step "$(step_nn "$s")" "$(step_name "$s")" "$(step_mem "$s")"
+done
+
+if [[ "$DRY" -eq 0 ]]; then
+    rm -f "$OUT/current"
+    write_status
+    echo "idle $(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$OUT/queue.log"
+fi
+echo "hangar-queue finished  status=$STATUS  summary=$SUMMARY"
