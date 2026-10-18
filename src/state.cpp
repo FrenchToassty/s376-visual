@@ -32,17 +32,19 @@ void SharedState::apply(const xt4::Datagram& dg, xt4::Decoder& dec, const std::s
             s_.have_fog = true;
             break;
         case xt4::kTypeLowerCloud:
-            s_.clouds[0] = xt4::decode_cloud(p, fmt);
-            s_.have_cloud = true;
-            break;
         case xt4::kTypeUpperCloud:
-            s_.clouds[1] = xt4::decode_cloud(p, fmt);
+        case xt4::kTypeTopCloud: {
+            xt4::CloudLayer L = (p.type == xt4::kTypeTopCloud) ? xt4::decode_top_cloud(p)
+                                                              : xt4::decode_cloud(p, fmt);
+            int slot = (p.type == xt4::kTypeLowerCloud) ? 0
+                       : (p.type == xt4::kTypeUpperCloud) ? 1
+                                                          : 2;
+            if (L.region >= 0 && L.region < xt4::kMaxCloudLayers)
+                slot = L.region;
+            s_.clouds[static_cast<std::size_t>(slot)] = L;
             s_.have_cloud = true;
             break;
-        case xt4::kTypeTopCloud:
-            s_.clouds[2] = xt4::decode_top_cloud(p);
-            s_.have_cloud = true;
-            break;
+        }
         case xt4::kTypeStormSelect: {
             const auto sel = xt4::decode_storm(p);
             int slot = -1;

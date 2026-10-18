@@ -229,7 +229,21 @@ void HostReceiver::loop() {
                     state_.set_hat(hat, elev);
                 }
                 try {
-                    sock_.send_hat(peer, cfg_.reply_port, hat, elev, valid);
+                    std::string dest = peer;
+                    std::uint16_t port = cfg_.reply_port;
+                    if (!cfg_.reply_to.empty()) {
+                        safety::Endpoint ep;
+                        std::string err;
+                        std::string spec = cfg_.reply_to;
+                        if (spec.find(':') == std::string::npos)
+                            spec += ":" + std::to_string(cfg_.reply_port);
+                        if (safety::parse_host_port(spec, ep, err)) {
+                            dest = ep.host;
+                            if (ep.port)
+                                port = ep.port;
+                        }
+                    }
+                    sock_.send_hat(dest, port, hat, elev, valid);
                 } catch (const safety::UnsafeEndpoint& ex) {
                     log::limited(log::Warn, "visual", "hat-unsafe", "%s", ex.what());
                 }

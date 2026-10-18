@@ -492,13 +492,14 @@ std::optional<Datagram> Decoder::parse(const std::uint8_t* data, std::size_t n,
     WordOrder order = forced_order_;
     if (order == WordOrder::Auto)
         order = detect_word_order(data, n);
-    if (order == WordOrder::Auto) {
+    if (n == 0 || order == WordOrder::Auto) {
         ++stats_.bad_magic;
-        log::limited(log::Warn, "visual", "bad-magic",
-                     "xT4 datagram #%llu%s: %zu bytes, first %s; expected 3f 2d 01 ab (le) or "
-                     "2d 3f ab 01 (be)",
-                     static_cast<unsigned long long>(stats_.datagrams), origin ? origin : "", n,
-                     n ? log::hexdump(data, n, 8).c_str() : "(empty)");
+        // Silent drop. Count only; a rate-limited debug line keeps the
+        // running total (the original IG logged hundreds of these).
+        log::limited(log::Debug, "visual", "bad-magic",
+                     "dropped empty/bad-magic xT4 datagrams: %llu",
+                     static_cast<unsigned long long>(stats_.bad_magic));
+        (void)origin;
         return std::nullopt;
     }
     auto words = words_from_bytes(data, n, order);

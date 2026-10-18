@@ -239,4 +239,210 @@ float land_coverage(double lat, double lon) {
     return clampf(land, 0.f, 1.f);
 }
 
+void ecef_to_lla(const Ecef& p, double& lat_deg, double& lon_deg, double& alt_m) {
+    const double e2 = 1.0 - (kWgsB * kWgsB) / (kWgsA * kWgsA);
+    const double ep2 = (kWgsA * kWgsA - kWgsB * kWgsB) / (kWgsB * kWgsB);
+    const double pxy = std::sqrt(p.x * p.x + p.y * p.y);
+    lon_deg = rad2deg(std::atan2(p.y, p.x));
+    double th = std::atan2(p.z * kWgsA, pxy * kWgsB);
+    double lat = std::atan2(p.z + ep2 * kWgsB * std::pow(std::sin(th), 3.0),
+                           pxy - e2 * kWgsA * std::pow(std::cos(th), 3.0));
+    for (int i = 0; i < 4; ++i) {
+        const double sl = std::sin(lat);
+        const double n = kWgsA / std::sqrt(1.0 - e2 * sl * sl);
+        alt_m = pxy / std::max(1e-15, std::cos(lat)) - n;
+        lat = std::atan2(p.z, pxy * (1.0 - e2 * n / (n + alt_m)));
+    }
+    lat_deg = rad2deg(lat);
+    const double sl = std::sin(lat);
+    const double n = kWgsA / std::sqrt(1.0 - e2 * sl * sl);
+    alt_m = pxy / std::max(1e-15, std::cos(lat)) - n;
+}
+
+double wrap360(double deg) {
+    while (deg < 0.0)
+        deg += 360.0;
+    while (deg >= 360.0)
+        deg -= 360.0;
+    return deg;
+}
+
+double dms_to_deg(int d, int m, double s, bool west_or_south) {
+    double v = std::fabs(static_cast<double>(d)) + m / 60.0 + s / 3600.0;
+    if (d < 0 || west_or_south)
+        v = -v;
+    return v;
+}
+
+namespace {
+
+struct GeoidSample {
+    double lat, lon, n96, n08;
+};
+
+// Public NGA-style undulation samples (metres). Enough to interpolate
+// CONUS airports and a couple of overseas pads.
+const GeoidSample kGeoid[] = {
+    {40.64, -73.78, -32.05, -31.88}, // KJFK
+    {40.69, -74.17, -32.35, -32.18}, // KEWR
+    {40.78, -73.87, -31.90, -31.74}, // KLGA
+    {42.37, -71.01, -27.60, -27.48}, // KBOS
+    {47.45, -122.31, -22.85, -22.70}, // KSEA
+    {37.62, -122.38, -32.40, -32.20}, // KSFO
+    {33.94, -118.41, -35.10, -34.90}, // KLAX
+    {36.08, -115.15, -21.40, -21.20}, // KLAS
+    {51.47, -0.45, 45.40, 45.55},     // EGLL
+    {50.04, 8.56, 47.80, 47.95},      // EDDF
+    {0.0, 0.0, 17.20, 17.40},
+    {90.0, 0.0, 13.60, 14.90},
+};
+
+double interp_geoid(double lat, double lon, bool egm08) {
+    double wsum = 0, nsum = 0;
+    for (const auto& s : kGeoid) {
+        const double dlat = (lat - s.lat) * 111.32;
+        const double dlon = (lon - s.lon) * 111.32 * std::max(0.2, std::cos(deg2rad(lat)));
+        const double d2 = dlat * dlat + dlon * dlon;
+        const double w = 1.0 / (d2 + 0.25);
+        nsum += w * (egm08 ? s.n08 : s.n96);
+        wsum += w;
+    }
+    return nsum / std::max(wsum, 1e-12);
+}
+
+} // namespace
+
+double geoid_undulation_m(double lat_deg, double lon_deg, GeoidModel model) {
+    return interp_geoid(lat_deg, lon_deg, model == GeoidModel::Egm2008);
+}
+
+double orthometric_to_ellipsoid_m(double orthometric_m, double lat_deg, double lon_deg,
+                                  GeoidModel model) {
+    return orthometric_m + geoid_undulation_m(lat_deg, lon_deg, model);
+}
+
+double ellipsoid_to_orthometric_m(double ellipsoid_m, double lat_deg, double lon_deg,
+                                  GeoidModel model) {
+    return ellipsoid_m - geoid_undulation_m(lat_deg, lon_deg, model);
+}
+
+double inverse_wgs84(double lat1, double lon1, double lat2, double lon2, double* heading_deg) {
+    // Vincenty inverse on WGS84.
+    const double f = (kWgsA - kWgsB) / kWgsA;
+    const double L = deg2rad(lon2 - lon1);
+    const double u1 = std::atan((1.0 - f) * std::tan(deg2rad(lat1)));
+    const double u2 = std::atan((1.0 - f) * std::tan(deg2rad(lat2)));
+    const double su1 = std::sin(u1), cu1 = std::cos(u1);
+    const double su2 = std::sin(u2), cu2 = std::cos(u2);
+    double lam = L, lam_prev = 0, sin_s = 0, cos_s = 0, sig = 0, sin_a = 0, cos2a = 0,
+           cos2sm = 0;
+    for (int i = 0; i < 80; ++i) {
+        const double sl = std::sin(lam), cl = std::cos(lam);
+        sin_s = std::sqrt((cu2 * sl) * (cu2 * sl) +
+                          (cu1 * su2 - su1 * cu2 * cl) * (cu1 * su2 - su1 * cu2 * cl));
+        if (sin_s < 1e-14) {
+            if (heading_deg)
+                *heading_deg = 0;
+            return 0;
+        }
+        cos_s = su1 * su2 + cu1 * cu2 * cl;
+        sig = std::atan2(sin_s, cos_s);
+        sin_a = cu1 * cu2 * sl / sin_s;
+        cos2a = 1.0 - sin_a * sin_a;
+        cos2sm = (cos2a > 1e-14) ? (cos_s - 2.0 * su1 * su2 / cos2a) : 0.0;
+        const double c = f / 16.0 * cos2a * (2.0 + f * (4.0 - 3.0 * cos2a));
+        lam_prev = lam;
+        lam = L + (1.0 - c) * f * sin_a *
+                      (sig + c * sin_s * (cos2sm + c * cos_s * (-1.0 + 2.0 * cos2sm * cos2sm)));
+        if (std::fabs(lam - lam_prev) < 1e-12)
+            break;
+    }
+    const double u2s = cos2a * (kWgsA * kWgsA - kWgsB * kWgsB) / (kWgsB * kWgsB);
+    const double a = 1.0 + u2s / 16384.0 * (4096.0 + u2s * (-768.0 + u2s * (320.0 - 175.0 * u2s)));
+    const double b = u2s / 1024.0 * (256.0 + u2s * (-128.0 + u2s * (74.0 - 47.0 * u2s)));
+    const double dsig =
+        b * sin_s *
+        (cos2sm +
+         b / 4.0 *
+             (cos_s * (-1.0 + 2.0 * cos2sm * cos2sm) -
+              b / 6.0 * cos2sm * (-3.0 + 4.0 * sin_s * sin_s) * (-3.0 + 4.0 * cos2sm * cos2sm)));
+    const double dist = kWgsB * a * (sig - dsig);
+    if (heading_deg) {
+        const double sl = std::sin(lam), cl = std::cos(lam);
+        *heading_deg = wrap360(rad2deg(std::atan2(cu2 * sl, cu1 * su2 - su1 * cu2 * cl)));
+    }
+    return dist;
+}
+
+double ground_distance_m(double lat1, double lon1, double lat2, double lon2) {
+    return inverse_wgs84(lat1, lon1, lat2, lon2, nullptr);
+}
+
+Utm wgs84_to_utm(double lat_deg, double lon_deg) {
+    Utm u;
+    u.zone = static_cast<int>(std::floor((lon_deg + 180.0) / 6.0)) + 1;
+    u.north = lat_deg >= 0;
+    const double lat = deg2rad(lat_deg);
+    const double lon0 = deg2rad((u.zone - 1) * 6 - 180 + 3);
+    const double e2 = 1.0 - (kWgsB * kWgsB) / (kWgsA * kWgsA);
+    const double ep2 = e2 / (1.0 - e2);
+    const double sl = std::sin(lat), cl = std::cos(lat), tl = std::tan(lat);
+    const double n = kWgsA / std::sqrt(1.0 - e2 * sl * sl);
+    const double t = tl * tl;
+    const double c = ep2 * cl * cl;
+    const double A = cl * (deg2rad(lon_deg) - lon0);
+    const double m =
+        kWgsA *
+        ((1.0 - e2 / 4.0 - 3.0 * e2 * e2 / 64.0 - 5.0 * e2 * e2 * e2 / 256.0) * lat -
+         (3.0 * e2 / 8.0 + 3.0 * e2 * e2 / 32.0 + 45.0 * e2 * e2 * e2 / 1024.0) * std::sin(2 * lat) +
+         (15.0 * e2 * e2 / 256.0 + 45.0 * e2 * e2 * e2 / 1024.0) * std::sin(4 * lat) -
+         (35.0 * e2 * e2 * e2 / 3072.0) * std::sin(6 * lat));
+    const double k0 = 0.9996;
+    u.e = k0 * n *
+              (A + (1 - t + c) * A * A * A / 6.0 +
+               (5 - 18 * t + t * t + 72 * c - 58 * ep2) * A * A * A * A * A / 120.0) +
+          500000.0;
+    u.n = k0 * (m + n * tl *
+                        (A * A / 2.0 + (5 - t + 9 * c + 4 * c * c) * A * A * A * A / 24.0 +
+                         (61 - 58 * t + t * t + 600 * c - 330 * ep2) * A * A * A * A * A * A / 720.0));
+    if (!u.north)
+        u.n += 10000000.0;
+    return u;
+}
+
+void utm_to_wgs84(const Utm& u, double& lat_deg, double& lon_deg) {
+    const double k0 = 0.9996;
+    const double e2 = 1.0 - (kWgsB * kWgsB) / (kWgsA * kWgsA);
+    const double ep2 = e2 / (1.0 - e2);
+    const double e1 = (1.0 - std::sqrt(1.0 - e2)) / (1.0 + std::sqrt(1.0 - e2));
+    double n = u.n;
+    if (!u.north)
+        n -= 10000000.0;
+    const double m = n / k0;
+    const double mu =
+        m / (kWgsA * (1.0 - e2 / 4.0 - 3.0 * e2 * e2 / 64.0 - 5.0 * e2 * e2 * e2 / 256.0));
+    const double j1 = 3.0 * e1 / 2.0 - 27.0 * e1 * e1 * e1 / 32.0;
+    const double j2 = 21.0 * e1 * e1 / 16.0 - 55.0 * e1 * e1 * e1 * e1 / 32.0;
+    const double j3 = 151.0 * e1 * e1 * e1 / 96.0;
+    const double j4 = 1097.0 * e1 * e1 * e1 * e1 / 512.0;
+    const double fp = mu + j1 * std::sin(2 * mu) + j2 * std::sin(4 * mu) + j3 * std::sin(6 * mu) +
+                      j4 * std::sin(8 * mu);
+    const double sl = std::sin(fp), cl = std::cos(fp);
+    const double t = std::tan(fp);
+    const double c = ep2 * cl * cl;
+    const double r = kWgsA * (1.0 - e2) / std::pow(1.0 - e2 * sl * sl, 1.5);
+    const double nn = kWgsA / std::sqrt(1.0 - e2 * sl * sl);
+    const double d = (u.e - 500000.0) / (nn * k0);
+    lat_deg = rad2deg(
+        fp - (nn * t / r) *
+                 (d * d / 2.0 - (5 + 3 * t * t + 10 * c - 4 * c * c - 9 * ep2) * d * d * d * d / 24.0 +
+                  (61 + 90 * t * t + 298 * c + 45 * t * t * t * t - 252 * ep2 - 3 * c * c) *
+                      d * d * d * d * d * d / 720.0));
+    const double lon0 = (u.zone - 1) * 6 - 180 + 3;
+    lon_deg = lon0 + rad2deg((d - (1 + 2 * t * t + c) * d * d * d / 6.0 +
+                              (5 - 2 * c + 28 * t * t - 3 * c * c + 8 * ep2 + 24 * t * t * t * t) *
+                                  d * d * d * d * d / 120.0) /
+                             cl);
+}
+
 } // namespace s376::geo

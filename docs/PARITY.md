@@ -1,11 +1,11 @@
 # RSI Raster XT4 parity checklist
 
-The new IG must **look and behave like the original Raster XT4** on this
-737-300: same host packet fields honored, same visual features, same
-HAT/query replies. Allowed differences are lighter hardware, a sharper
-image (MSAA, anisotropic filtering, crisp light points), and cleaner
-code. Do **not** invent scenery, weather, or lighting the host does not
-send.
+The new IG must **beat Raster XT4** on this 737-300. Host packet fields,
+visual features, and HAT/query replies stay compatible. **Accuracy is
+the top rule** ([ACCURACY.md](ACCURACY.md)): FAA both-end runways,
+charted ALS/PAPI, datum/geoid/UTM. Allowed extras are lighter hardware,
+a sharper image, and cleaner code — never a wrong threshold to save a
+millisecond. The 980 Ti 60 Hz budget is the only other hard constraint.
 
 This table is the source of truth for gaps. Status:
 
@@ -53,7 +53,7 @@ numbers in committed airport TOML are **ours**, not RSI's.
 | In-cloud fog | Thick vis inside 125/126/127 | **ok** | EXP2 × 2.4 when eye MSL is between ceiling and top |
 | 131 display 0/1/2 | Channel off / on / standby | **gap** | Decoded, windows always on |
 | Channel geometry | 3 Raster frusta on 4 projector PCs | **ok** | far_left=left +35.515, mid_left=front 0, mid_right=front 0 (duplicate), far_right=right −35.25, 50×32.5. Optional FO `eye_right_m`. No off-axis / NLIM / edge blend |
-| Airport lights | Edge, CL, ALS, PAPI, taxi | **partial** | Edge/CL/ALS/threshold on KSEA KSFO KLAS KLAX KJFK KBOS. PAPI/taxi **gap** |
+| Airport lights | Edge, CL, ALS, PAPI, taxi | **partial** | KJFK/KEWR from FAA both ends: ALSF-2 / MALSR / RLLS / NONE, PAPI side+angle, TDZ, REIL, EMAS, taxi edge/CL/stop bars. Other fields still OurAirports + charted ALS |
 | Terrain / imagery | CERTS + NX tiles | **n/a** | Rebuilt from GLO-30/3DEP + NAIP/S2. Different pixels, same role |
 | Airport meshes | NX airport DB | **n/a** | Rebuilt from OurAirports + OSM. No RSI geometry |
 

@@ -1,0 +1,93 @@
+# Original Raster layout: three channel PCs plus one Host IO PC.
+# Host IO does the operator display and host I/O only — it does not
+# draw a collimated channel. Each channel is 50 × 32.5 deg at 60 Hz.
+# Positive heading is CCW / left. Headings stay configurable: Host IO
+# listed Left +35.515 / Right −35.25, but the warp grids look closer
+# to 37 / 35.5. Flip the Left channel vertically (the original did).
+#
+# Map this process to a channel with --channel front|left|right|host_io.
+# Do not put simulator-LAN addresses in bind or reply_to. The original
+# channel PCs sat at .102 (Front) / .101 (Left) / .103 (Right) on that
+# LAN — record those in a private local.toml if you need them. Tests
+# and this tree never contact that network. Reply port is 2301; leave
+# reply_to empty to answer the sender.
+
+[host]
+bind = "0.0.0.0:2300"
+reply_port = 2301
+reply_to = ""
+word_order = "auto"
+float_format = "auto"
+hat_responder = true
+reply_master = "host_io"
+allow_sim_lan = false
+allow_lan = false
+
+[render]
+engine = "auto"
+earth_file = "data/earth/s376.earth"
+frame_rate = 60
+window_title = "s376-visual"
+vsync = true
+msaa = 4
+aniso = 16
+quality = "gtx980ti"
+sync_to_host = true
+
+[log]
+verbose = false
+debug = false
+dir = "logs"
+
+[[channels]]
+name = "front"
+role = "channel"
+raster_ch = 0
+heading_offset_deg = 0.0
+hfov_deg = 50.0
+vfov_deg = 32.5
+flip_vertical = false
+monitor = 0
+width = 1920
+height = 1080
+enabled = true
+
+[[channels]]
+name = "left"
+role = "channel"
+raster_ch = 1
+heading_offset_deg = 35.515
+hfov_deg = 50.0
+vfov_deg = 32.5
+flip_vertical = true
+monitor = 1
+width = 1920
+height = 1080
+enabled = true
+
+[[channels]]
+name = "right"
+role = "channel"
+raster_ch = 2
+heading_offset_deg = -35.25
+hfov_deg = 50.0
+vfov_deg = 32.5
+flip_vertical = false
+monitor = 2
+width = 1920
+height = 1080
+enabled = true
+
+[[channels]]
+name = "host_io"
+role = "host_io"
+raster_ch = -1
+heading_offset_deg = 0.0
+pitch_offset_deg = -18.0
+hfov_deg = 60.0
+vfov_deg = 40.0
+flip_vertical = false
+monitor = 3
+width = 1920
+height = 1080
+enabled = true

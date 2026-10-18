@@ -1,6 +1,8 @@
 #include "s376/fetch.hpp"
+#include "s376/accuracy.hpp"
 #include "s376/airport.hpp"
 #include "s376/dxt.hpp"
+#include "s376/faa.hpp"
 #include "s376/geo.hpp"
 #include "s376/log.hpp"
 #include "s376/safety.hpp"
@@ -218,7 +220,8 @@ AirportRef lookup_airport_ref(const std::string& icao) {
         {"KSFO", "San Francisco International", 37.6188, -122.3754, 13, true},
         {"KLAS", "Harry Reid / McCarran", 36.0801, -115.1523, 2181, true},
         {"KLAX", "Los Angeles International", 33.9425, -118.4081, 128, true},
-        {"KJFK", "John F Kennedy International", 40.6399, -73.7787, 13, true},
+        {"KJFK", "John F Kennedy International", 40.639928, -73.778692, 13, true},
+        {"KEWR", "Newark Liberty International", 40.6925, -74.168667, 18, true},
         {"KBOS", "Boston Logan International", 42.3656, -71.0096, 20, true},
         {"EGLL", "London Heathrow", 51.4700, -0.4543, 83, false},
         {"EDDF", "Frankfurt Main", 50.0379, 8.5622, 364, false},
@@ -639,8 +642,7 @@ std::uint64_t fetch_and_pack(const FetchRequest& req, FetchPlan* plan_out) {
                                          std::to_string(dt.iy) + "_" + std::to_string(dt.ix);
                 write_lod_dir(tdir, tile_dem, tile_img, lod.bc7, req.mips);
                 ++packed_tiles;
-                if (dems.empty())
-                    dems.push_back(tile_dem);
+                dems.push_back(tile_dem);
                 if (imagery.rgb.empty())
                     imagery = tile_img;
             }
@@ -696,41 +698,35 @@ std::uint64_t fetch_and_pack(const FetchRequest& req, FetchPlan* plan_out) {
     CacheRegion region;
     region.name = apt.icao;
     if (!dems.empty()) {
-        region.dem = dems.front();
-        for (std::size_t i = 1; i < dems.size(); ++i) {
-            // Prefer the first (3DEP or first GLO-30). Extra tiles are used if the
-            // primary misses a sample when we resample.
-            (void)dems[i];
-        }
-        // If we have several GLO-30 tiles, resample from a merged sampler.
-        if (dems.size() > 1) {
-            const GeoBox box = box_from_radius(apt.lat, apt.lon, req.radius_km);
-            DemGrid merged;
-            merged.w = 256;
-            merged.h = 256;
-            merged.west = box.west;
-            merged.south = box.south;
-            merged.east = box.east;
-            merged.north = box.north;
-            merged.z_m.assign(256 * 256, 0.f);
-            for (int y = 0; y < 256; ++y) {
-                const double la = merged.north - (merged.north - merged.south) * y / 255.0;
-                for (int x = 0; x < 256; ++x) {
-                    const double lo = merged.west + (merged.east - merged.west) * x / 255.0;
-                    double z = 0;
-                    bool ok = false;
-                    for (const auto& t : dems) {
-                        if (t.sample_m(la, lo, z)) {
-                            ok = true;
-                            break;
-                        }
+        // Always resample onto an ARP-centered box. Never pack_lods from
+        // dems.front() — tile_raster iy=0 is the SW tile, which shifted the
+        // KJFK region.toml ~20 km SW of the field.
+        const GeoBox box = box_from_radius(apt.lat, apt.lon, req.radius_km);
+        DemGrid merged;
+        merged.w = 256;
+        merged.h = 256;
+        merged.west = box.west;
+        merged.south = box.south;
+        merged.east = box.east;
+        merged.north = box.north;
+        merged.z_m.assign(256 * 256, 0.f);
+        for (int y = 0; y < 256; ++y) {
+            const double la = merged.north - (merged.north - merged.south) * y / 255.0;
+            for (int x = 0; x < 256; ++x) {
+                const double lo = merged.west + (merged.east - merged.west) * x / 255.0;
+                double z = 0;
+                bool ok = false;
+                for (const auto& t : dems) {
+                    if (t.sample_m(la, lo, z)) {
+                        ok = true;
+                        break;
                     }
-                    merged.z_m[static_cast<std::size_t>(y * 256 + x)] =
-                        ok ? static_cast<float>(z) : 0.f;
                 }
+                merged.z_m[static_cast<std::size_t>(y * 256 + x)] =
+                    ok ? static_cast<float>(z) : 0.f;
             }
-            region.dem = std::move(merged);
         }
+        region.dem = std::move(merged);
     } else {
         S376_LOG_WARN("cache", "no DEM downloaded; packing synth pad for %s", apt.icao.c_str());
         region.dem = DemGrid::synth_ksea();
@@ -752,6 +748,63 @@ std::uint64_t fetch_and_pack(const FetchRequest& req, FetchPlan* plan_out) {
                   static_cast<unsigned long long>(packed), packed_tiles, plan.dem_kind.c_str(),
                   plan.img_kind.c_str());
     (void)bytes;
+
+    try {
+        const Airport layout = airport_by_icao(apt.icao);
+        AccReport cov;
+        cov.icao = apt.icao;
+        const auto tiles = scan_cache_tiles(out);
+        bool ok = false;
+        if (!tiles.empty()) {
+            ok = highest_res_covers_tiles(tiles, layout, &cov);
+        } else if (!plan.lods.empty()) {
+            ok = highest_res_covers_airport(lod_coverage(apt, req, plan.lods.front()), layout, &cov);
+        }
+        {
+            std::ofstream covf(out + "/coverage.toml");
+            const GeoBox lod0 =
+                plan.lods.empty() ? box_from_radius(apt.lat, apt.lon, req.near_radius_km)
+                                  : lod_coverage(apt, req, plan.lods.front());
+            covf << "icao = \"" << apt.icao << "\"\n";
+            covf << "arp_lat = " << apt.lat << "\n";
+            covf << "arp_lon = " << apt.lon << "\n";
+            covf << "lod0_west = " << lod0.west << "\n";
+            covf << "lod0_south = " << lod0.south << "\n";
+            covf << "lod0_east = " << lod0.east << "\n";
+            covf << "lod0_north = " << lod0.north << "\n";
+            covf << "covers_faa = " << (ok ? "true" : "false") << "\n";
+            covf << "lod0_tiles = " << tiles.size() << "\n";
+        }
+        if (!ok) {
+            S376_LOG_WARN("cache", "%s", format_acc_report(cov).c_str());
+            throw std::runtime_error(
+                apt.icao + " lod0 does not cover ARP and every runway end (see coverage.toml). "
+                           "Re-fetch; do not keep a SW-shifted pack.");
+        }
+        if (const FaaAirportRef* faa = faa_airport(apt.icao)) {
+            DemGrid root;
+            try {
+                root = DemGrid::load(out + "/elev.s376dem");
+            } catch (...) {
+            }
+            if (!root.empty()) {
+                for (const auto& e : faa->ends) {
+                    double z = 0;
+                    if (root.sample_m(e.lat, e.lon, z) &&
+                        std::fabs(z - e.elev_ft * geo::kFtToM) > 15.0) {
+                        S376_LOG_WARN("cache",
+                                      "%s %s DEM %.1f m vs FAA %.1f m (root is coarse; lod0 tiles "
+                                      "must pass the 1 m suite)",
+                                      apt.icao.c_str(), e.ident.c_str(), z, e.elev_ft * geo::kFtToM);
+                    }
+                }
+            }
+        }
+    } catch (const std::runtime_error& ex) {
+        if (std::string(ex.what()).find("no built-in layout") != std::string::npos)
+            return packed;
+        throw;
+    }
     return packed;
 }
 

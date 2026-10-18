@@ -8,14 +8,33 @@
 
 namespace s376 {
 
-// Our own packet-112 switch numbers (not RSI's). Documented in
-// data/airports/ksea.toml so they can be lined up with the host later.
-constexpr int kSwRunwayEdge = 1;
-constexpr int kSwCenterline = 2;
-constexpr int kSwApproach = 3;
-constexpr int kSwThreshold = 4;
+// Our own packet-112 switch numbers (not a vendor list). Runway 1
+// defaults: see data/lights/switches.toml (base 0 + offsets 1..8).
+constexpr int kSwApproach = 1;
+constexpr int kSwStrobe = 2;
+constexpr int kSwRunwayEdge = 3;
+constexpr int kSwCenterline = 4;
+constexpr int kSwVasi = 5;
+constexpr int kSwThreshold = 6; // touchdown zone
+constexpr int kSwTaxiEdge = 41;
+constexpr int kSwStopBar = 56;
+constexpr int kSwTaxiCenterline = 60;
 
-enum class LightKind { Edge, Centerline, Approach, Threshold };
+enum class LightKind {
+    Edge,
+    Centerline,
+    Approach,
+    Threshold,
+    Strobe,
+    Vasi,
+    TaxiEdge,
+    StopBar,
+    TaxiCenterline,
+    Flasher,
+    Reil,
+    Rwsl,
+    End
+};
 
 struct LightPoint {
     double lat = 0;
@@ -26,6 +45,14 @@ struct LightPoint {
     float b = 1;
     int switch_num = kSwRunwayEdge;
     LightKind kind = LightKind::Edge;
+    int runway_k = 0; // 1..7, 0 = taxi / airport-wide
+    int seq = -1;     // sequenced-flasher index, −1 = none
+};
+
+struct DataSource {
+    std::string name;
+    std::string effective; // NASR / AIP 28-day cycle
+    std::string retrieved;
 };
 
 struct Runway {
@@ -37,11 +64,30 @@ struct Runway {
     double he_lat = 0;
     double he_lon = 0;
     double he_elev_m = 0;
-    double heading_deg = 0; // LE true heading
+    double heading_deg = 0;    // LE true heading (from both ends)
+    double heading_he_deg = 0; // HE true heading
     double length_m = 0;
     double width_m = 0;
     std::string approach_le = "MALSR";
     std::string approach_he = "MALSR";
+    double le_displaced_ft = 0;
+    double he_displaced_ft = 0;
+    std::string papi_le = "P4L";
+    std::string papi_he = "P4L";
+    double papi_deg_le = 3.0;
+    double papi_deg_he = 3.0;
+    int papi_count_le = 1;
+    int papi_count_he = 1;
+    bool reil_le = false;
+    bool reil_he = false;
+    bool tdz_le = false;
+    bool tdz_he = false;
+    bool emas_le = false;
+    bool emas_he = false;
+    double emas_le_len_ft = 0;
+    double emas_he_len_ft = 0;
+    double emas_wid_ft = 0;
+    DataSource source;
 };
 
 struct Taxiway {
@@ -68,10 +114,14 @@ struct Airport {
     double arp_lat = 0;
     double arp_lon = 0;
     double elev_m = 0;
+    DataSource source;
     int sw_edge = kSwRunwayEdge;
     int sw_centerline = kSwCenterline;
     int sw_approach = kSwApproach;
     int sw_threshold = kSwThreshold;
+    int sw_taxi_edge = kSwTaxiEdge;
+    int sw_stop_bar = kSwStopBar;
+    int sw_taxi_centerline = kSwTaxiCenterline;
     std::vector<Runway> runways;
     std::vector<Taxiway> taxiways;
     std::vector<Apron> aprons;
@@ -123,8 +173,10 @@ Airport ksfo_public();
 Airport klas_public();
 Airport klax_public();
 Airport kjfk_public();
+Airport kewr_public();
 Airport kbos_public();
 Airport airport_by_icao(const std::string& icao);
+Airport airport_from_faa(const std::string& icao); // KJFK / KEWR from FAA both ends
 std::vector<Airport> all_public_airports();
 
 // `KJFK`, `KJFK:04R`, or `KJFK:04R:3` (nm before the threshold on a 3° path).

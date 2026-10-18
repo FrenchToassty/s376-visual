@@ -249,9 +249,11 @@ the hangar NVIDIA box runs the compatibility profile that apt OSG uses.
 - `s376-cache` offline tile packer (synth, fetch, or GDAL GeoTIFF)
 - `s376-cache osm ICAO` Overpass taxi/apron pull (ODbL, stays in `cache/`)
 
-KSEA, KSFO, KLAS, KLAX, KJFK, and KBOS runways (OurAirports) plus FAA
-AC 150/5340-1 painted markings and edge / centreline / approach light
-points are in the scene; intensity follows packet-112 steps 0–5.
+KSEA, KSFO, KLAS, KLAX, KJFK, KEWR, and KBOS are in the scene. KJFK and
+KEWR use FAA both-end coordinates (NASR / AIP, source + cycle in the
+airport files); the accuracy suite fails CI if an end is > 3 m off or
+ALS/PAPI is wrong. See [docs/ACCURACY.md](docs/ACCURACY.md). Markings
+follow FAA AC 150/5340-1; intensity follows packet-112 steps 0–5.
 Taxi/apron/building graphs start schematic; `s376-cache osm ICAO` pulls
 Overpass `aeroway=*` and `building=*`. Quality presets: `gtx980ti`
 (default, 60 Hz × 1 on 6 GB Maxwell) and `rtx`.

@@ -6,6 +6,53 @@ account may stop mid-run — treat this file as the source of truth.
 **PR:** https://github.com/joeylawell/s376-visual/pull/1
 **Branch:** `cursor/s376-visual-v1-6852`
 
+**Top rule:** beat Raster in every way; **accuracy first**. Never trade
+a FAA number for looks or speed. 980 Ti 60 Hz is the only other hard
+constraint. See `docs/ACCURACY.md`.
+
+## Milestone: FAA accuracy (KJFK/KEWR, cache centering) (2026-10-18)
+
+Owner directive: airport data from FAA NASR / AIP AD 2 + NFDC,
+cross-checked OurAirports; source + effective date on every value;
+CI accuracy suite; datum/geoid/UTM; Raster-difference list.
+
+- **KJFK / KEWR** rebuilt from **both FAA ends** (`src/faa.cpp`,
+  `data/faa/{kjfk,kewr}.toml`). Vincenty heading+length. 13L is 200 ft.
+  Displaced: 22R **3424**, 13R 2044, 31L 3264, 13L 907, 31R 1027, 4L 460.
+  ALS: 04R/22L/13L ALSF-2+SFL, 31R MALSR, 13R RLLS, 04L/22R/31L NONE.
+  PAPI 3.00° all eight JFK ends (13R two P4L; 31R P4R). EMAS DER 4R
+  393×226 and DER 22L 405×226. KEWR NFDC displaced 2540.6 / 1440.9
+  (owner 2543/1423 documented).
+- **Accuracy suite** (`tests/test_accuracy.cpp`): end 3 m, heading
+  0.1° (geodesic of the two FAA ends), threshold 3 m, ALS type, PAPI
+  side/angle, imagery geotransform 1 m, DEM vs FAA elev 1 m. Doctor
+  `faa-kjfk` / `faa-kewr` / `faa-coverage`.
+- **Geodesy:** EGM96/EGM2008 undulation, orthometric↔ellipsoid, UTM
+  round-trip, Vincenty inverse. Tested in `test_geo`.
+- **Cache centering:** `fetch_and_pack` no longer packs from
+  `dems.front()` (SW tile, iy=0). Root DEM is ARP-centered.
+  Fetch **throws** if ARP or any runway end is outside lod0.
+- **Re-fetch** (hangar KJFK pack was ~20 km SW; no lod0 north of 40.614):
+
+```bash
+rm -rf cache/KJFK
+./build/s376-cache fetch KJFK --out cache/KJFK --dem 3dep --imagery nys \
+  --near-m 1 --near-dem-m 2 --near-km 5 --approach-nm 10 --radius-km 35 \
+  --max-export 4000
+./build/s376-cache fetch KEWR --out cache/KEWR --dem 3dep --imagery nys \
+  --near-m 1 --near-dem-m 2 --near-km 5 --approach-nm 10 --radius-km 35 \
+  --max-export 4000
+./build/s376-doctor --cache-dir cache/KJFK --no-bench
+# expect [pass] faa-kjfk, [pass] faa-coverage (ARP + every end in lod0)
+```
+
+NY shared outer box is `data/regions/ny.toml` (~40.40–40.98 N,
+74.45–73.45 W). High-res stays per airport. Pager should load KEWR
+only when nearby (not wired yet).
+
+This agent: **14143** unit tests passed; `s376-doctor --no-bench`
+`[pass] faa-kjfk` (63) and `[pass] faa-kewr` (48).
+
 ## Milestone: hangar 72df5f5 follow-up — tiles, FBO, BC1, sky (2026-10-18)
 
 OOM is fixed on Mint / RTX 5060 Ti (rss peak 36 MiB, 4 GB cap, no

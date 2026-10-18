@@ -85,6 +85,7 @@ GeoBox union_boxes(const std::vector<GeoBox>& boxes);
 std::vector<GeoBox> coverage_boxes(const AirportRef& apt, const FetchRequest& req);
 std::vector<LodSpec> default_lods(double radius_km); // synth / offline
 std::vector<LodSpec> fetch_lods(const FetchRequest& req);
+GeoBox lod_coverage(const AirportRef& apt, const FetchRequest& req, const LodSpec& lod);
 std::vector<RasterTile> tile_raster(const GeoBox& box, double m_per_px, int max_px);
 FetchEstimate estimate_fetch(const FetchRequest& req);
 AirportRef lookup_airport_ref(const std::string& icao); // throws if unknown

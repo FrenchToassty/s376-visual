@@ -46,6 +46,9 @@ void test_hat();
 void test_fetch();
 void test_diagnostics();
 void test_image();
+void test_display();
+void test_lights();
+void test_accuracy();
 
 int main() {
     test_vaxfloat();
@@ -61,6 +64,9 @@ int main() {
     test_fetch();
     test_diagnostics();
     test_image();
+    test_display();
+    test_lights();
+    test_accuracy();
     std::cout << g_passes << " passed, " << g_fails << " failed\n";
     return g_fails ? 1 : 0;
 }

@@ -27,6 +27,13 @@ struct ChannelConfig {
     bool enabled = true;
     int window_x = -1; // -1 = auto (monitor or tiled)
     int window_y = -1;
+    // Original Raster: Front=0, Left=1, Right=2. −1 = not a channel PC.
+    int raster_ch = -1;
+    bool flip_vertical = false; // Left channel was flipped
+    // "channel" draws a collimated view. "host_io" is operator + host I/O.
+    std::string role = "channel";
+    std::string correction_file = "data/display/correction.toml";
+    std::string pattern; // none | grid5 | white70 | black
 };
 
 struct WindowPlacement {
@@ -51,6 +58,9 @@ struct HostConfig {
     std::string reply_master = "mid_left";
     bool allow_sim_lan = false;
     bool allow_lan = false;
+    // Empty = reply to the sender. Host:port (or host, using reply_port).
+    // Never default a simulator-LAN address.
+    std::string reply_to;
 };
 
 struct RenderConfig {

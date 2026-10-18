@@ -1,5 +1,7 @@
 #include "s376/airport.hpp"
+#include "s376/accuracy.hpp"
 #include "s376/diagnostics.hpp"
+#include "s376/faa.hpp"
 #include "s376/fetch.hpp"
 #include "s376/terrain.hpp"
 #include "s376/geo.hpp"
@@ -10,6 +12,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -371,6 +374,24 @@ DoctorReport run_doctor(const AppConfig& cfg, const std::string& config_path, bo
         add(r, {"sim-lan-env", CheckStatus::Pass, "S376_ALLOW_SIM_LAN unset", ""});
     }
 
+    for (const auto* faa : faa_all()) {
+        try {
+            const Airport a = airport_by_icao(faa->icao);
+            const AccReport acc = check_airport_vs_faa(a, *faa);
+            std::string name = "faa-" + lower_icao(faa->icao);
+            if (acc.ok()) {
+                add(r, {name, CheckStatus::Pass,
+                        std::to_string(acc.checks) + " checks vs FAA " + faa->effective, ""});
+            } else {
+                add(r, {name, CheckStatus::Fail, format_acc_report(acc),
+                        "rebuild from FAA both ends; see docs/ACCURACY.md"});
+            }
+        } catch (const std::exception& ex) {
+            add(r, {"faa-" + lower_icao(faa->icao), CheckStatus::Fail, ex.what(),
+                    "add airport_from_faa for this ICAO"});
+        }
+    }
+
     const auto caches = scan_airport_caches("cache", cfg.render.cache_dir);
     if (caches.empty()) {
         add(r, {"cache-size", CheckStatus::Skip, "no airport cache dirs",
@@ -450,6 +471,89 @@ DoctorReport run_doctor(const AppConfig& cfg, const std::string& config_path, bo
                 }
             }
             add(r, {"cache-tiles", CheckStatus::Pass, td.str(), ""});
+            {
+                std::string id;
+                auto folder = std::filesystem::path(cfg.render.cache_dir).filename().string();
+                for (char c : folder)
+                    id.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
+                try {
+                    const Airport a = airport_by_icao(id);
+                    AccReport cov;
+                    cov.icao = id;
+                    bool any_lod0 = false;
+                    for (const auto& t : tiles) {
+                        if (t.lod == 0)
+                            any_lod0 = true;
+                    }
+                    if (!any_lod0) {
+                        add(r, {"faa-coverage", CheckStatus::Skip, "no lod0 tiles in " + cfg.render.cache_dir,
+                                "s376-cache fetch " + id + " — ARP and every end must sit in lod0"});
+                    } else if (highest_res_covers_tiles(tiles, a, &cov)) {
+                        add(r, {"faa-coverage", CheckStatus::Pass,
+                                id + " ARP + " + std::to_string(a.runways.size() * 2) +
+                                    " ends inside lod0",
+                                ""});
+                    } else {
+                        add(r, {"faa-coverage", CheckStatus::Fail, format_acc_report(cov),
+                                "delete the SW-shifted pack and re-fetch; see HANDOFF.md"});
+                    }
+                    if (any_lod0) {
+                        GeoBox lod0;
+                        bool any = false;
+                        for (const auto& t : tiles) {
+                            if (t.lod != 0)
+                                continue;
+                            if (!any) {
+                                lod0 = {t.west, t.south, t.east, t.north};
+                                any = true;
+                            } else {
+                                lod0.west = std::min(lod0.west, t.west);
+                                lod0.south = std::min(lod0.south, t.south);
+                                lod0.east = std::max(lod0.east, t.east);
+                                lod0.north = std::max(lod0.north, t.north);
+                            }
+                        }
+                        AccReport img;
+                        img.icao = id;
+                        if (any && imagery_aligned_to_runways(lod0, 4000, 4000, a, kAccImageryM, &img))
+                            add(r, {"imagery-align", CheckStatus::Pass,
+                                    id + " north-up geotransform < 1 m", ""});
+                        else if (any)
+                            add(r, {"imagery-align", CheckStatus::Fail, format_acc_report(img),
+                                    "north-up export; do not warp imagery off runway geometry"});
+                    }
+                    try {
+                        auto dem = DemGrid::load(cfg.render.cache_dir + "/elev.s376dem");
+                        if (const FaaAirportRef* faa = faa_airport(id)) {
+                            int n = 0, bad = 0;
+                            std::ostringstream ed;
+                            for (const auto& e : faa->ends) {
+                                double z = 0;
+                                if (!dem.sample_m(e.lat, e.lon, z))
+                                    continue;
+                                ++n;
+                                const double faa_m = e.elev_ft * geo::kFtToM;
+                                if (std::fabs(z - faa_m) > kAccElevM) {
+                                    ++bad;
+                                    ed << e.ident << " " << z << " m vs FAA " << faa_m << " m; ";
+                                }
+                            }
+                            if (n == 0)
+                                add(r, {"faa-elev", CheckStatus::Skip, "root DEM does not cover ends",
+                                        "re-fetch so lod0 tiles include every FAA end"});
+                            else if (bad)
+                                add(r, {"faa-elev", CheckStatus::Fail, ed.str(),
+                                        "1 m vs FAA orthometric; check geoid / 3DEP tile alignment"});
+                            else
+                                add(r, {"faa-elev", CheckStatus::Pass,
+                                        std::to_string(n) + " runway ends within 1 m of FAA", ""});
+                        }
+                    } catch (...) {
+                    }
+                } catch (const std::exception&) {
+                    add(r, {"faa-coverage", CheckStatus::Skip, "cache dir is not a known ICAO", ""});
+                }
+            }
             const auto json = cfg.render.cache_dir + "/osm.json";
             const auto bin = cfg.render.cache_dir + "/osm.bin";
             if (std::filesystem::exists(json) && !std::filesystem::exists(bin)) {

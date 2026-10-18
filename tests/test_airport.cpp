@@ -1,6 +1,7 @@
 #include "s376/airport.hpp"
 #include "s376/fetch.hpp"
 #include "s376/geo.hpp"
+#include "s376/lights.hpp"
 
 #include <cmath>
 #include <exception>
@@ -45,26 +46,26 @@ void check_runway_length(const s376::Runway& rw) {
 
 void check_lights(const s376::Airport& a, int min_edge, int min_cl) {
     CHECK(!a.lights.empty());
-    int n_edge = 0, n_cl = 0, n_app = 0, n_th = 0;
+    int n_edge = 0, n_cl = 0, n_app = 0, n_end = 0;
     for (const auto& L : a.lights) {
         if (L.kind == s376::LightKind::Edge) {
             ++n_edge;
-            CHECK(L.switch_num == s376::kSwRunwayEdge);
+            CHECK(s376::lights::is_runway_switch(L.switch_num, s376::lights::kOffEdge));
         } else if (L.kind == s376::LightKind::Centerline) {
             ++n_cl;
-            CHECK(L.switch_num == s376::kSwCenterline);
+            CHECK(s376::lights::is_runway_switch(L.switch_num, s376::lights::kOffCenterline));
         } else if (L.kind == s376::LightKind::Approach) {
             ++n_app;
-            CHECK(L.switch_num == s376::kSwApproach);
-        } else if (L.kind == s376::LightKind::Threshold) {
-            ++n_th;
-            CHECK(L.switch_num == s376::kSwThreshold);
+            CHECK(s376::lights::is_runway_switch(L.switch_num, s376::lights::kOffApproachA) ||
+                  s376::lights::is_runway_switch(L.switch_num, s376::lights::kOffApproachB));
+        } else if (L.kind == s376::LightKind::End || L.kind == s376::LightKind::Threshold) {
+            ++n_end;
         }
     }
     CHECK(n_edge >= min_edge);
     CHECK(n_cl >= min_cl);
     CHECK(n_app > 50);
-    CHECK(n_th >= 16);
+    CHECK(n_end >= 8);
 }
 
 void check_mesh(const s376::Airport& a) {
@@ -163,15 +164,48 @@ void test_airport() {
     CHECK(jfk.icao == "KJFK");
     CHECK(jfk.runways.size() == 4);
     CHECK(jfk.runways[0].ident_le == "04L" && jfk.runways[0].ident_he == "22R");
-    CHECK(jfk.runways[0].approach_le == "ALSF-2");
-    CHECK(jfk.runways[0].approach_he == "ALSF-2");
+    CHECK(jfk.runways[0].approach_le == "NONE");
+    CHECK(jfk.runways[0].approach_he == "NONE");
+    CHECK(jfk.runways[1].approach_le == "ALSF-2");
+    CHECK(jfk.runways[1].approach_he == "ALSF-2");
+    CHECK(jfk.runways[2].ident_le == "13L" && jfk.runways[2].ident_he == "31R");
+    CHECK(jfk.runways[2].approach_le == "ALSF-2");
+    CHECK(jfk.runways[2].approach_he == "MALSR");
+    CHECK_NEAR(jfk.runways[2].width_m, 200.0 * s376::geo::kFtToM, 0.2);
     CHECK(jfk.runways[3].ident_le == "13R");
-    CHECK_NEAR(jfk.arp_lat, 40.6399, 1e-4);
-    CHECK_NEAR(jfk.runways[3].length_m, 14511.0 * s376::geo::kFtToM, 1.0);
+    CHECK(jfk.runways[3].approach_le == "RLLS");
+    CHECK(jfk.runways[3].approach_he == "NONE");
+    CHECK_NEAR(jfk.runways[0].he_displaced_ft, 3424.0, 0.5);
+    CHECK_NEAR(jfk.runways[3].le_displaced_ft, 2044.0, 0.5);
+    CHECK_NEAR(jfk.runways[3].he_displaced_ft, 3264.0, 0.5);
+    CHECK(jfk.runways[1].emas_le && jfk.runways[1].emas_he);
+    CHECK(jfk.runways[2].papi_he == "P4R");
+    CHECK(jfk.runways[3].papi_count_le == 2);
+    CHECK_NEAR(jfk.arp_lat, 40.639928, 1e-5);
+    CHECK_NEAR(jfk.runways[3].length_m, 14511.0 * s376::geo::kFtToM, 8.0);
+    CHECK(!jfk.source.name.empty());
+    CHECK(jfk.source.effective == "2026-10-02");
     check_runway_length(jfk.runways[0]);
     check_runway_length(jfk.runways[3]);
     check_lights(jfk, 200, 400);
     check_mesh(jfk);
+
+    auto ewr = s376::kewr_public();
+    CHECK(ewr.icao == "KEWR");
+    CHECK(ewr.runways.size() == 3);
+    CHECK(ewr.runways[0].ident_le == "04L" && ewr.runways[0].ident_he == "22R");
+    CHECK(ewr.runways[0].approach_le == "MALSR" && ewr.runways[0].approach_he == "MALSR");
+    CHECK(ewr.runways[1].approach_le == "ALSF-2" && ewr.runways[1].approach_he == "ALSF-2");
+    CHECK(ewr.runways[2].ident_le == "11" && ewr.runways[2].ident_he == "29");
+    CHECK(ewr.runways[2].reil_le && ewr.runways[2].reil_he);
+    CHECK(ewr.runways[2].emas_le && ewr.runways[2].emas_he);
+    CHECK_NEAR(ewr.runways[0].le_displaced_ft, 2540.6, 0.2);
+    CHECK_NEAR(ewr.runways[0].he_displaced_ft, 1440.9, 0.2);
+    CHECK_NEAR(ewr.runways[1].papi_deg_le, 2.95, 0.01);
+    CHECK(s376::airport_by_icao("kewr").icao == "KEWR");
+    check_runway_length(ewr.runways[0]);
+    check_lights(ewr, 150, 300);
+    check_mesh(ewr);
 
     bool threw = false;
     try {
@@ -196,9 +230,10 @@ void test_airport() {
     CHECK(s376::airport_by_icao("kbos").icao == "KBOS");
 
     const auto all = s376::all_public_airports();
-    CHECK(all.size() == 6);
+    CHECK(all.size() == 7);
     CHECK(all[0].icao == "KSEA" && all[1].icao == "KSFO" && all[2].icao == "KLAS");
-    CHECK(all[3].icao == "KLAX" && all[4].icao == "KJFK" && all[5].icao == "KBOS");
+    CHECK(all[3].icao == "KLAX" && all[4].icao == "KJFK" && all[5].icao == "KEWR");
+    CHECK(all[6].icao == "KBOS");
 
     {
         auto p0 = s376::parse_shot_at("KJFK:04R");

@@ -34,6 +34,11 @@ set(S376_CORE_SRC
     src/airport.cpp
     src/fetch.cpp
     src/image.cpp
+    src/display.cpp
+    src/lights.cpp
+    src/tod.cpp
+    src/faa.cpp
+    src/accuracy.cpp
 )
 
 if(S376_WITH_GDAL)
@@ -133,6 +138,9 @@ add_executable(s376-tests
     tests/test_fetch.cpp
     tests/test_diagnostics.cpp
     tests/test_image.cpp
+    tests/test_display.cpp
+    tests/test_lights.cpp
+    tests/test_accuracy.cpp
 )
 target_link_libraries(s376-tests PRIVATE s376_core)
 

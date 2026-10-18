@@ -153,15 +153,19 @@ AppConfig default_config() {
     ChannelConfig fl, ml, mr, fr;
     fl.name = "far_left"; // Raster left
     fl.heading_offset_deg = 35.515;
+    fl.raster_ch = 1;
     fl.monitor = 0;
     ml.name = "mid_left"; // Raster front (captain)
     ml.heading_offset_deg = 0;
+    ml.raster_ch = 0;
     ml.monitor = 1;
     mr.name = "mid_right"; // Raster front (FO duplicate)
     mr.heading_offset_deg = 0;
+    mr.raster_ch = 0;
     mr.monitor = 2;
     fr.name = "far_right"; // Raster right
     fr.heading_offset_deg = -35.25;
+    fr.raster_ch = 2;
     fr.monitor = 3;
     c.channels = {fl, ml, mr, fr};
     return c;
@@ -184,6 +188,8 @@ static void fill_host(HostConfig& h, const std::unordered_map<std::string, std::
         parse_bool(kv.at("host.allow_sim_lan"), h.allow_sim_lan);
     if (kv.count("host.allow_lan"))
         parse_bool(kv.at("host.allow_lan"), h.allow_lan);
+    if (kv.count("host.reply_to"))
+        h.reply_to = kv.at("host.reply_to");
 }
 
 static void fill_render(RenderConfig& r, const std::unordered_map<std::string, std::string>& kv) {
@@ -267,6 +273,15 @@ static ChannelConfig fill_channel(const std::unordered_map<std::string, std::str
         parse_bool(kv.at("fullscreen"), c.fullscreen);
     if (kv.count("enabled"))
         parse_bool(kv.at("enabled"), c.enabled);
+    inum("raster_ch", c.raster_ch);
+    if (kv.count("flip_vertical"))
+        parse_bool(kv.at("flip_vertical"), c.flip_vertical);
+    if (kv.count("role"))
+        c.role = kv.at("role");
+    if (kv.count("correction_file"))
+        c.correction_file = kv.at("correction_file");
+    if (kv.count("pattern"))
+        c.pattern = kv.at("pattern");
     return c;
 }
 
@@ -318,6 +333,7 @@ std::string dump_config(const AppConfig& cfg, const std::vector<std::string>& se
     o << "host.hat_responder=" << (cfg.host.hat_responder ? "true" : "false") << "\n";
     o << "host.reply_master=" << cfg.host.reply_master << "\n";
     o << "host.allow_sim_lan=" << (cfg.host.allow_sim_lan ? "true" : "false") << "\n";
+    o << "host.reply_to=" << cfg.host.reply_to << "\n";
     o << "render.engine=" << cfg.render.engine << "\n";
     o << "render.earth_file=" << cfg.render.earth_file << "\n";
     o << "render.cache_dir=" << cfg.render.cache_dir << "\n";
@@ -359,6 +375,12 @@ std::string dump_config(const AppConfig& cfg, const std::vector<std::string>& se
         }
         o << "channel " << ch.name << " hdg=" << ch.heading_offset_deg << " fov=" << ch.hfov_deg
           << "x" << ch.vfov_deg << " " << ch.width << "x" << ch.height;
+        if (ch.raster_ch >= 0)
+            o << " raster_ch=" << ch.raster_ch;
+        if (ch.flip_vertical)
+            o << " flip";
+        if (ch.role != "channel")
+            o << " role=" << ch.role;
         if (ch.eye_right_m != 0.0 || ch.eye_fwd_m != 0.0 || ch.eye_up_m != 0.0)
             o << " eye=" << ch.eye_fwd_m << "," << ch.eye_right_m << "," << ch.eye_up_m;
         o << (ch.enabled ? "" : " disabled") << "\n";

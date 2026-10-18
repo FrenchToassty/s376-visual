@@ -65,4 +65,38 @@ void test_geo() {
     CHECK(s376::geo::land_coverage(37.6188, -122.3754) > 0.50); // KSFO pad
     CHECK(s376::geo::land_coverage(47.4502, -122.3088) > 0.50); // KSEA
     CHECK(s376::geo::land_coverage(0.0, -30.0) < 0.15);         // mid-Atlantic
+
+    CHECK_NEAR(s376::geo::dms_to_deg(40, 38, 23.741), 40.639928055, 1e-9);
+    CHECK_NEAR(s376::geo::dms_to_deg(73, 46, 43.292, true), -73.778692222, 1e-9);
+    CHECK_NEAR(s376::geo::wrap360(-10.0), 350.0, 1e-9);
+
+    double hdg = 0;
+    const double eq = s376::geo::inverse_wgs84(0.0, 0.0, 0.0, 1.0, &hdg);
+    CHECK_NEAR(eq, 111319.5, 2.0); // 1° of longitude on the equator
+    CHECK_NEAR(hdg, 90.0, 0.01);
+    CHECK_NEAR(s376::geo::ground_distance_m(0.0, 0.0, 1.0, 0.0), 110574.4, 2.0);
+
+    auto e0 = s376::geo::lla_to_ecef(40.639928, -73.778692, 4.0);
+    double rlat = 0, rlon = 0, ralt = 0;
+    s376::geo::ecef_to_lla(e0, rlat, rlon, ralt);
+    CHECK_NEAR(rlat, 40.639928, 1e-8);
+    CHECK_NEAR(rlon, -73.778692, 1e-8);
+    CHECK_NEAR(ralt, 4.0, 0.02);
+
+    const double n96 = s376::geo::geoid_undulation_m(40.64, -73.78, s376::geo::GeoidModel::Egm96);
+    const double n08 = s376::geo::geoid_undulation_m(40.64, -73.78, s376::geo::GeoidModel::Egm2008);
+    CHECK_NEAR(n96, -32.05, 0.6);
+    CHECK_NEAR(n08, -31.88, 0.6);
+    CHECK(std::fabs(n96 - n08) > 0.05);
+    const double ortho = 13.0 * s376::geo::kFtToM;
+    const double ellip = s376::geo::orthometric_to_ellipsoid_m(ortho, 40.64, -73.78);
+    CHECK_NEAR(ellip, ortho + n96, 1e-9);
+    CHECK_NEAR(s376::geo::ellipsoid_to_orthometric_m(ellip, 40.64, -73.78), ortho, 1e-9);
+
+    auto utm = s376::geo::wgs84_to_utm(40.639928, -73.778692);
+    CHECK(utm.zone == 18 && utm.north);
+    double ulat = 0, ulon = 0;
+    s376::geo::utm_to_wgs84(utm, ulat, ulon);
+    const double utm_err = s376::geo::ground_distance_m(40.639928, -73.778692, ulat, ulon);
+    CHECK(utm_err < 1.0);
 }

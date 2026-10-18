@@ -25,7 +25,34 @@ struct Enu {
 };
 
 Ecef lla_to_ecef(double lat_deg, double lon_deg, double alt_m);
+void ecef_to_lla(const Ecef& p, double& lat_deg, double& lon_deg, double& alt_m);
 void ecef_to_enu_axes(double lat_deg, double lon_deg, Ecef& east, Ecef& north, Ecef& up);
+
+enum class GeoidModel { Egm96, Egm2008 };
+
+// Geoid undulation N (metres): ellipsoid height = orthometric + N.
+// Coarse public-sample interpolation (NGA EGM96/EGM2008 published points).
+double geoid_undulation_m(double lat_deg, double lon_deg, GeoidModel model = GeoidModel::Egm96);
+double orthometric_to_ellipsoid_m(double orthometric_m, double lat_deg, double lon_deg,
+                                  GeoidModel model = GeoidModel::Egm96);
+double ellipsoid_to_orthometric_m(double ellipsoid_m, double lat_deg, double lon_deg,
+                                  GeoidModel model = GeoidModel::Egm96);
+
+// Vincenty inverse on WGS84. Returns distance metres; heading LE→HE clockwise from north.
+double inverse_wgs84(double lat1, double lon1, double lat2, double lon2, double* heading_deg = nullptr);
+double ground_distance_m(double lat1, double lon1, double lat2, double lon2);
+
+struct Utm {
+    int zone = 0;
+    bool north = true;
+    double e = 0;
+    double n = 0;
+};
+Utm wgs84_to_utm(double lat_deg, double lon_deg);
+void utm_to_wgs84(const Utm& u, double& lat_deg, double& lon_deg);
+
+double wrap360(double deg);
+double dms_to_deg(int d, int m, double s, bool west_or_south = false);
 
 // Body axes: x forward, y right, z down. Heading clockwise from north.
 void body_to_enu(double heading_deg, double pitch_deg, double roll_deg, Enu& fwd, Enu& right,

@@ -35,7 +35,8 @@ constexpr int kStormCsn0 = 28; // type-100 CSN 28, 29, 30 position active cells
 constexpr int kMaxDefinedStorms = 30;
 constexpr int kMaxActiveStorms = 3;
 constexpr int kMaxLightSwitches = 256;
-constexpr float kMaxVisibilityFt = 600000.f;
+constexpr int kMaxCloudLayers = 8;
+constexpr float kMaxVisibilityFt = 528000.f;
 
 enum class WordOrder { Auto, Le, Be };
 enum class FloatFmt { Auto, Vax, Ieee };

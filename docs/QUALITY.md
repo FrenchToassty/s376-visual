@@ -1,10 +1,11 @@
 # Quality tiers and GPU/CPU budgets
 
-s376-visual is built to look sharper than Raster XT4 without changing
-host behavior. The default box is an **i7-5930K + GTX 980 Ti 6 GB**
-(Maxwell, NVIDIA 580, OpenGL 3.3 compatibility) and **16 GB RAM**. The
-hangar RTX 5060 Ti is the `rtx` preset. One projector PC draws one
-channel at 1920×1080 / 60 Hz.
+s376-visual must beat Raster XT4 in every way. **Accuracy is first**
+(see [ACCURACY.md](ACCURACY.md)): never trade a FAA number, lighting
+system, or geodetic conversion for looks or frame time. The only other
+hard constraint is the default box — an **i7-5930K + GTX 980 Ti 6 GB**
+(Maxwell, NVIDIA 580, OpenGL 3.3 compatibility) and **16 GB RAM** at
+60 Hz per channel. The hangar RTX 5060 Ti is the `rtx` preset.
 
 ## Presets
 

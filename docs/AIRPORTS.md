@@ -14,7 +14,8 @@ must never be committed.
 | KSFO | San Francisco Intl | 1 |
 | KSEA | Seattle-Tacoma | 1 |
 | KLAX | Los Angeles Intl | 1 |
-| KJFK | New York Kennedy | 2 |
+| KJFK | New York Kennedy | 1 — FAA both ends + accuracy suite |
+| KEWR | Newark Liberty | 1 — FAA both ends + accuracy suite |
 | KBOS | Boston Logan | 2 |
 | KIAD | Washington Dulles | 2 |
 | KMCO | Orlando Intl (+ KORL) | 2 |
@@ -74,21 +75,24 @@ scales colour and alpha by `step / 5`. Switch numbers are ours:
 | 3 | Approach (ALSF-2 / MALSR bars) |
 | 4 | Threshold / end |
 
-`s376::ksea_public()`, `ksfo_public()`, `klas_public()`, `klax_public()`,
-`kjfk_public()`, and `kbos_public()` build the six shipped US fields from
-OurAirports runway ends plus FAA-charted ALS (ALSF-2 on KSEA 16L, KSFO 28R,
-KLAS 26R/26L, KLAX 24s/25s, KJFK 04L/22R/13L/13R/31L, KBOS 04R/15R; MALSR
-elsewhere). Edge / centreline / approach / threshold points use the spacing
-rules above. Painted markings follow FAA AC 150/5340-1 (threshold bars,
-5×7 designators, aiming points, TDZ, centerline, edges, hold-short).
-Taxi and apron polygons start as schematic offsets from those runways;
-`s376-cache osm ICAO` replaces them with an Overpass
-`aeroway=taxiway|apron` plus `building=*` pull (ODbL). The renderer
-extrudes OSM footprints (height / building:levels) and loads
-`cache/<icao>/osm.json` when it is present.
+`kjfk_public()` / `kewr_public()` are built from **both FAA ends**
+(`airport_from_faa`, `data/faa/{kjfk,kewr}.toml`). ALS/PAPI/TDZ/EMAS
+match AIP AD 2.14. The accuracy suite fails CI if an end, heading,
+threshold, ALS type, or PAPI side/angle drifts. Other shipped fields
+(`ksea` / `ksfo` / `klas` / `klax` / `kbos`) still use OurAirports
+ends plus FAA-charted ALS (ALSF-2 on KSEA 16L, KSFO 28R, KLAS 26R/26L,
+KLAX 24s/25s, KBOS 04R/15R; MALSR elsewhere). See
+[ACCURACY.md](ACCURACY.md) for Raster differences (22R displaced
+**3424 ft**, 13L **200 ft**, 04L/22R ALS **NONE**, 13R **RLLS**).
 
-`data/airports/{ksea,ksfo,klas,klax,kjfk,kbos}.toml` documents the same
-public numbers. Do not paste RSI `.nx3` coordinates into them.
+Edge / centreline / approach / threshold points use the spacing rules
+above. Painted markings follow FAA AC 150/5340-1. Taxi and apron
+polygons start as schematic offsets; `s376-cache osm ICAO` replaces
+them with Overpass `aeroway=*` + `building=*` (ODbL). Runtime loads
+`cache/<icao>/osm.bin` only.
+
+`data/airports/{ksea,ksfo,klas,klax,kjfk,kewr,kbos}.toml` documents the
+same public numbers. Do not paste RSI `.nx3` coordinates into them.
 
 Side-by-side vs Joey's Raster 4R photo (reference only, never commit):
 
