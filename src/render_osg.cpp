@@ -40,6 +40,7 @@
 #include <osgGA/GUIEventAdapter>
 #include <osgGA/GUIEventHandler>
 #include <osgText/Text>
+#include <osgUtil/CullVisitor>
 #include <osgUtil/SceneView>
 #include <osgViewer/CompositeViewer>
 #include <osgViewer/Renderer>
@@ -1610,36 +1611,10 @@ void apply_view_camera(osg::Camera* cam, const ChannelConfig& ch, const HostStat
         epos + osg::Vec3d(v.forward.x, v.forward.y, v.forward.z) * 100.0;
     const osg::Vec3d upv(v.up.x, v.up.y, v.up.z);
     cam->setComputeNearFarMode(osg::CullSettings::DO_NOT_COMPUTE_NEAR_FAR);
-    const double n = std::max(0.5, v.near_m);
-    const double rh = n * std::tan(geo::deg2rad(std::max(1.0, v.hfov_deg)) * 0.5);
-    const double rv = n * std::tan(geo::deg2rad(std::max(1.0, v.vfov_deg)) * 0.5);
-    cam->setProjectionMatrixAsFrustum(-rh, rh, -rv, rv, n, v.far_m);
+    cam->setProjectionMatrixAsPerspective(v.vfov_deg, v.aspect, v.near_m, v.far_m);
     cam->setViewMatrixAsLookAt(epos, center, upv);
     // flip_vertical is a projector framebuffer mirror, never a camera
     // orientation and never applied to FBO / wrap-strip shots.
-    auto* ss = cam->getOrCreateStateSet();
-    const osg::Vec3 f(static_cast<float>(v.forward.x), static_cast<float>(v.forward.y),
-                      static_cast<float>(v.forward.z));
-    osg::Vec3 rgt = f ^ upv;
-    if (rgt.length2() > 1e-12f)
-        rgt.normalize();
-    else
-        rgt = osg::Vec3(1.f, 0.f, 0.f);
-    const unsigned ov = osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE;
-    ss->addUniform(new osg::Uniform("uFwd", f), ov);
-    ss->addUniform(new osg::Uniform("uRight", rgt), ov);
-    ss->addUniform(new osg::Uniform("uCamUp", osg::Vec3(static_cast<float>(upv.x()),
-                                                       static_cast<float>(upv.y()),
-                                                       static_cast<float>(upv.z()))),
-                   ov);
-    ss->addUniform(new osg::Uniform("uTanHalfH",
-                                   static_cast<float>(std::tan(
-                                       geo::deg2rad(std::max(1.0, ch.hfov_deg) * 0.5)))),
-                   ov);
-    ss->addUniform(new osg::Uniform("uTanHalfV",
-                                   static_cast<float>(std::tan(
-                                       geo::deg2rad(std::max(1.0, ch.vfov_deg) * 0.5)))),
-                   ov);
 }
 
 // Final projector-output Y mirror. Used only on a single live channel
@@ -2102,6 +2077,47 @@ class OsgRenderer final : public Renderer {
             }
         }
         attach_env_uniforms(root->getOrCreateStateSet(), env_u_);
+        if (sky_xf_) {
+            struct SkyViewCallback : public osg::NodeCallback {
+                ShaderEnv* env = nullptr;
+                void operator()(osg::Node* node, osg::NodeVisitor* nv) override {
+                    if (env && nv && nv->getVisitorType() == osg::NodeVisitor::CULL_VISITOR) {
+                        if (auto* cv = dynamic_cast<osgUtil::CullVisitor*>(nv)) {
+                            if (osg::Camera* cam = cv->getCurrentCamera()) {
+                                osg::Vec3d eye, ctr, up;
+                                cam->getViewMatrixAsLookAt(eye, ctr, up);
+                                osg::Vec3d fd = ctr - eye;
+                                if (fd.length2() > 1e-12)
+                                    fd.normalize();
+                                if (up.length2() > 1e-12)
+                                    up.normalize();
+                                const osg::Vec3 f(static_cast<float>(fd.x()),
+                                                  static_cast<float>(fd.y()),
+                                                  static_cast<float>(fd.z()));
+                                const osg::Vec3 u(static_cast<float>(up.x()),
+                                                  static_cast<float>(up.y()),
+                                                  static_cast<float>(up.z()));
+                                osg::Vec3 r = f ^ u;
+                                if (r.length2() > 1e-12f)
+                                    r.normalize();
+                                else
+                                    r = osg::Vec3(1.f, 0.f, 0.f);
+                                if (env->fwd)
+                                    env->fwd->set(f);
+                                if (env->cam_up)
+                                    env->cam_up->set(u);
+                                if (env->right)
+                                    env->right->set(r);
+                            }
+                        }
+                    }
+                    traverse(node, nv);
+                }
+            };
+            auto* cb = new SkyViewCallback;
+            cb->env = &env_u_;
+            sky_xf_->setCullCallback(cb);
+        }
         if (env_u_.exposure)
             env_u_.exposure->set(cfg.render.hdr ? std::max(0.2f, cfg.render.exposure) : 1.f);
         if (env_u_.detail)
@@ -2158,6 +2174,7 @@ class OsgRenderer final : public Renderer {
                 cam->setClearColor(osg::Vec4(0.35f, 0.50f, 0.72f, 1));
                 cam->setNearFarRatio(0.0001);
                 cam->setComputeNearFarMode(osg::CullSettings::DO_NOT_COMPUTE_NEAR_FAR);
+                cam->setViewport(0, 0, std::max(8, ch.width), std::max(8, ch.height));
                 if (channels_.size() == 1 && ch.flip_vertical)
                     cam->setPostDrawCallback(new OutputMirrorCallback);
                 if (auto* vp = cam->getViewport()) {
@@ -2338,29 +2355,32 @@ class OsgRenderer final : public Renderer {
         const std::size_t vi = i < views_.size() ? i : 0;
         if (auto* cam = views_[vi]->getCamera()) {
             const osg::Viewport* vp = cam->getViewport();
-            const bool size_ok = vp && static_cast<int>(vp->width()) == w &&
-                                 static_cast<int>(vp->height()) == h;
-            if (size_ok) {
+            const int rw = vp ? static_cast<int>(vp->width()) : 0;
+            const int rh = vp ? static_cast<int>(vp->height()) : 0;
+            if (rw >= 8 && rh >= 8) {
                 if (auto* gc = cam->getGraphicsContext()) {
                     gc->makeCurrent();
                     osg::ref_ptr<osg::Image> grab = new osg::Image;
-                    grab->allocateImage(w, h, 1, GL_RGBA, GL_UNSIGNED_BYTE);
+                    grab->allocateImage(rw, rh, 1, GL_RGBA, GL_UNSIGNED_BYTE);
                     grab->setPacking(1);
                     glPixelStorei(GL_PACK_ALIGNMENT, 1);
                     glReadBuffer(GL_BACK);
-                    grab->readPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE);
+                    grab->readPixels(0, 0, rw, rh, GL_RGBA, GL_UNSIGNED_BYTE);
                     win = rgb_from_fbo(*grab);
                 }
             }
         }
         const int fs = score(fbo), ws = score(win);
         S376_LOG_INFO("render",
-                      "readback %s  FBO score=%d px0=%d,%d,%d  window score=%d px0=%d,%d,%d",
+                      "readback %s  FBO score=%d px0=%d,%d,%d  window score=%d px0=%d,%d,%d  win=%dx%d",
                       ch.name.c_str(), fs, fbo.rgb.size() >= 3 ? fbo.rgb[0] : -1,
                       fbo.rgb.size() >= 3 ? fbo.rgb[1] : -1, fbo.rgb.size() >= 3 ? fbo.rgb[2] : -1,
                       ws, win.rgb.size() >= 3 ? win.rgb[0] : -1,
-                      win.rgb.size() >= 3 ? win.rgb[1] : -1, win.rgb.size() >= 3 ? win.rgb[2] : -1);
-        if (ws >= fs && ws >= 2 && win.w == w && win.h == h)
+                      win.rgb.size() >= 3 ? win.rgb[1] : -1, win.rgb.size() >= 3 ? win.rgb[2] : -1,
+                      win.w, win.h);
+        // llvmpipe FBO often misses the ECEF terrain (sky-only). Prefer the
+        // window whenever it has more than a solid clear.
+        if (ws >= 2 && win.w >= 8 && win.h >= 8)
             im = std::move(win);
         else if (fs >= 2 && fbo.w == w && fbo.h == h)
             im = std::move(fbo);
@@ -2843,6 +2863,8 @@ class OsgRenderer final : public Renderer {
                 if (env_u_.tan_half_v)
                     env_u_.tan_half_v->set(static_cast<float>(
                         std::tan(geo::deg2rad(std::max(1.0, ch.vfov_deg) * 0.5))));
+                if (env_u_.cam_up)
+                    env_u_.cam_up->set(upv);
             }
         }
         const float dayf = static_cast<float>(std::max(0.0, std::sin(geo::deg2rad(el))));
