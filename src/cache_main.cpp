@@ -4,6 +4,7 @@
 #include "s376/fetch.hpp"
 #include "s376/imagery.hpp"
 #include "s376/log.hpp"
+#include "s376/region.hpp"
 #include "s376/safety.hpp"
 #include "s376/terrain.hpp"
 #include "s376/version.hpp"
@@ -36,6 +37,7 @@ void usage() {
            "  s376-cache osm ICAO [--out DIR] [--radius-km N] [--dry-run]\n"
            "  s376-cache bake-osm DIR   stream-parse DIR/osm.json → DIR/osm.bin\n"
            "  s376-cache geojson ICAO [--out DIR]\n"
+           "  s376-cache region ICAO [--out FILE]   print / write data/regions plan (--plan only)\n"
            "  s376-cache info DIR\n"
            "\n"
            "fetch downloads Copernicus GLO-30 (or USGS 3DEP) plus NYS / NAIP / S2\n"
@@ -176,8 +178,8 @@ int main(int argc, char** argv) {
         else if (a[0] != '-' && icao.empty() &&
                    (cmd == "fetch" || cmd == "osm" || cmd == "bake-osm" || cmd == "geojson" ||
                     cmd == "info" || cmd == "from-geotiff" || cmd == "pack-lods" ||
-                    cmd == "import-raster")) {
-            if (cmd == "fetch" || cmd == "osm" || cmd == "geojson")
+                    cmd == "import-raster" || cmd == "region")) {
+            if (cmd == "fetch" || cmd == "osm" || cmd == "geojson" || cmd == "region")
                 icao = a;
             else if (cmd == "import-raster")
                 from_dir = a;
@@ -223,6 +225,12 @@ int main(int argc, char** argv) {
             const auto apt = s376::lookup_airport_ref(icao);
             if (plan_only || dry) {
                 std::cout << s376::format_fetch_plan(plan, apt, req);
+                if (plan_only && !out.empty()) {
+                    std::filesystem::create_directories(out);
+                    const std::string plan_path = out + "/fetch.plan.toml";
+                    if (s376::write_fetch_plan_toml(plan_path, plan, req))
+                        std::cout << "wrote " << plan_path << "  (no download)\n";
+                }
                 if (!plan_only) {
                     int n = 0;
                     for (const auto& u : plan.urls) {
@@ -460,6 +468,30 @@ int main(int argc, char** argv) {
             double z = 0;
             if (r.dem.sample_ft(47.4479, -122.3103, z))
                 std::cout << "sample KSEA ARP " << z << " ft MSL\n";
+            s376::log::shutdown();
+            return 0;
+        }
+        if (cmd == "region") {
+            if (icao.empty()) {
+                std::cerr << "region needs an ICAO (or KJFK-near)\n";
+                s376::log::shutdown();
+                return 2;
+            }
+            s376::RegionPlan p;
+            if (icao == "KJFK-near" || icao == "kjfk-near")
+                p = s376::kjfk_nearfield_03m_plan();
+            else
+                p = s376::region_plan_for_icao(icao);
+            const std::string dest =
+                (out == "cache/ksea") ? s376::region_plan_path(p.name == "KJFK-near" ? "kjfk-near" : p.icao)
+                                      : out;
+            if (!s376::write_region_plan(dest, p)) {
+                std::cerr << "cannot write " << dest << "\n";
+                s376::log::shutdown();
+                return 1;
+            }
+            std::cout << s376::format_region_plan(p);
+            std::cout << "wrote " << dest << "  (--plan only, no download)\n";
             s376::log::shutdown();
             return 0;
         }

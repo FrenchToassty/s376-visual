@@ -49,6 +49,7 @@ set(S376_CORE_SRC
     src/missiles.cpp
     src/control.cpp
     src/wizard.cpp
+    src/region.cpp
 )
 
 if(S376_WITH_GDAL)
@@ -223,6 +224,7 @@ add_executable(s376-tests
     tests/test_landmarks.cpp
     tests/test_missiles.cpp
     tests/test_wizard.cpp
+    tests/test_region.cpp
 )
 target_link_libraries(s376-tests PRIVATE s376_core)
 
@@ -235,3 +237,8 @@ set_tests_properties(unit PROPERTIES
 # Copy default config next to the binaries for out-of-tree runs.
 file(COPY ${CMAKE_SOURCE_DIR}/config DESTINATION ${CMAKE_BINARY_DIR})
 file(COPY ${CMAKE_SOURCE_DIR}/data DESTINATION ${CMAKE_BINARY_DIR})
+
+install(TARGETS s376-visual s376-cache s376-doctor s376-synth s376-raster-parity
+        RUNTIME DESTINATION bin)
+install(DIRECTORY config DESTINATION share/s376-visual)
+install(DIRECTORY data DESTINATION share/s376-visual)

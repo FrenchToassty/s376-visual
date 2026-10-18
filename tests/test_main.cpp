@@ -57,6 +57,7 @@ void test_traffic();
 void test_landmarks();
 void test_missiles();
 void test_wizard();
+void test_region();
 
 int main() {
     test_vaxfloat();
@@ -83,6 +84,7 @@ int main() {
     test_landmarks();
     test_missiles();
     test_wizard();
+    test_region();
     std::cout << g_passes << " passed, " << g_fails << " failed\n";
     return g_fails ? 1 : 0;
 }
