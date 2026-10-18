@@ -44,6 +44,7 @@ set(S376_CORE_SRC
     src/repo_guard.cpp
     src/traffic.cpp
     src/landmarks.cpp
+    src/missiles.cpp
     src/control.cpp
     src/wizard.cpp
 )
@@ -216,6 +217,7 @@ add_executable(s376-tests
     tests/test_repo_guard.cpp
     tests/test_traffic.cpp
     tests/test_landmarks.cpp
+    tests/test_missiles.cpp
     tests/test_wizard.cpp
 )
 target_link_libraries(s376-tests PRIVATE s376_core)

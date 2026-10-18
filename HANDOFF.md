@@ -27,8 +27,11 @@ from tests/CI. `scripts/check-no-rsi.sh` fails the build if
 
 ## Current state (2026-10-18, this increment)
 
-**s376-wizard** (Raster Wizard replacement) plus the session-only
-**Classic NYC skyline** egg and **disk-unlimited fetch tiers**.
+**Hidden visual-only missiles** added to the same developer easter
+egg as Classic (version×7 on the build number; session-only until
+host channel reset or **Refresh channels**). Off by default. See
+below. Prior increments still apply: `s376-wizard`, Classic NYC
+skyline, disk-unlimited fetch.
 
 `s376-wizard` is a Dear ImGui + GLFW console on the Host IO /
 operator PC. It talks to the channel IGs over a local UDP control
@@ -36,10 +39,10 @@ channel (`S376C1`, default `127.0.0.1:2376`) — **not** xT4, **not**
 2300/2301, never the sim LAN from tests. Tabs: Channels (fps, GPU
 temp/VRAM, RAM, host-packet age, errors, **Refresh channels**),
 Display (heading/FOV/flip/warp/blend/gamma/patterns, saved to
-config), Info (`git describe` + date; version×7 unlocks Classic),
-Logs (live tail). Refresh sends `op=refresh` → `refresh_channels()`
-(clears Classic) then closes and reopens each IG process. See
-`docs/WIZARD.md`.
+config), Info (`git describe` + date; version×7 unlocks Classic
+and Missiles), Logs (live tail). Refresh sends `op=refresh` →
+`refresh_channels()` (clears Classic **and** missiles) then closes
+and reopens each IG process. See `docs/WIZARD.md`.
 
 **Classic NYC skyline easter egg** (hidden, session-only) plus
 **disk-unlimited fetch tiers**.
@@ -65,6 +68,40 @@ Collision / HAT uses the **visible** geometry (Classic BVH only
 while Classic is on *and* the eye is in the NYC box). Host crash is
 host-side — see type-200 fields below.
 
+### Missiles (hidden, visual only)
+
+Same unlock and session lifetime as Classic. After unlock, turn
+**Missiles On** on the IG HUD (second line under Era) or the wizard
+Info tab. Still off until that explicit On. `refresh_channels()`
+clears it.
+
+**Trigger — existing host field, not a new xT4 type.** Config
+`[egg]` (`config/s376-visual.toml`):
+
+| `egg.ptt_source` | Host input | Default |
+|---|---|---|
+| `switch` (default) | Type **112** light-step, switch **255** (unused by airport lights 1–4). Rising edge: step goes from 0 to >0 | `ptt_switch=255` |
+| `landing_bit` | Unused bit of type **109** `landing_mask` (lobes are bits 0–6) | `ptt_landing_bit=7` |
+| `key` | Desk/demo keyboard | `ptt_key=m` |
+
+Each press fires one missile from own-ship along the boresight
+(heading + pitch). Cheap GPU points: body, smoke trail, fireball,
+smoke plume, temporary scorch. Cap 4 live. **No host damage, no
+flight-model effect, no new packet.** Type-200 HAT is unchanged.
+
+**HARD SAFETY (Classic active only).** When the Classic skyline is
+the *active* draw (session Classic **and** eye in the NYC box),
+missiles are fully disabled inside **10 statute miles** of the WTC
+site **40.7115 N, 74.0134 W** (16 093.44 m). Inside that disk: no
+firing (neutral toast `Missiles unavailable in this area`). Any
+in-flight missile whose next step would enter the disk is
+**removed silently** before entering — no impact, no explosion, no
+scorch. Trajectory is never allowed to reach the zone. No impact
+FX may render on or near the classic towers. **Modern / Current
+skyline: no restriction.**
+
+`src/missiles.cpp`, `tests/test_missiles.cpp`.
+
 **Disk-unlimited fetch tiers.** Owner: disk size is not a constraint;
 the dataset may exceed Raster's 857 GB if quality improves (new SSDs
 in the visual PCs). Quality and accuracy win over storage. **Runtime
@@ -86,7 +123,9 @@ native). Pager still caps resident 2 GiB / 5 GiB. See
 Road traffic (`3e99c97`), accuracy core (`702adb3`), and the scenery
 checklist / raster-parity guard (`700659c`) are landed.
 
-This increment: **20513** unit tests passed, 0 failed. Doctor
+This increment: **20593** unit tests passed, 0 failed (missiles
+keep-out: Classic in-zone blocked; JFK→Manhattan culled at the 10 sm
+boundary; far-away fire ok; Current skyline unrestricted). Doctor
 `faa-kjfk` / `faa-kewr` unchanged. Hangar re-fetch is still priority
 1 — now at **native NYS**, no `--near-m 1`.
 
@@ -852,7 +891,10 @@ are unit-tested.
   `osm` POSTs Overpass QL (`-g`, percent-encoded GET fallback).
 - `s376-wizard`: operator console (ImGui + GLFW). Local `S376C1`
   control on loopback. Channels / Display / Info / Logs. Refresh
-  channels closes and reopens IGs and clears Classic. `docs/WIZARD.md`.
+  channels closes and reopens IGs and clears Classic + missiles.
+  `docs/WIZARD.md`.
+- Hidden missiles egg: PTT on type 112 switch 255 (or type 109 bit 7,
+  or desk M). Visual only. Classic-active 10 sm WTC keep-out.
 - Airport rebuild plan: `docs/AIRPORTS.md`. Terrain sources: `docs/SOURCES.md`.
 - Safety: `10.1.95.0/24` and `192.168.173.0/24` refused unless
   `host.allow_sim_lan` / `S376_ALLOW_SIM_LAN=1`. Tests never set that.

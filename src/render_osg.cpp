@@ -3,6 +3,7 @@
 #include "s376/dxt.hpp"
 #include "s376/geo.hpp"
 #include "s376/landmarks.hpp"
+#include "s376/missiles.hpp"
 #include "s376/traffic.hpp"
 #include "s376/image.hpp"
 #include "s376/log.hpp"
@@ -69,6 +70,7 @@
 #endif
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -1082,6 +1084,26 @@ float storm_radius_m(const xt4::StormCell& cell) {
     return 2778.f * k; // 1.5 nm stand-in; XT4 sized cells from the IG catalog
 }
 
+void update_missile_fx(PrecipGpu& g) {
+    if (!g.verts || g.verts->empty())
+        return;
+    const auto& fx = missile_world().fx;
+    const unsigned n = g.verts->size();
+    for (unsigned i = 0; i < n; ++i) {
+        if (i < fx.size()) {
+            const auto& f = fx[i];
+            const geo::Ecef e = geo::lla_to_ecef(f.lat, f.lon, f.alt_m);
+            (*g.verts)[i] = osg::Vec3(static_cast<float>(e.x), static_cast<float>(e.y),
+                                      static_cast<float>(e.z));
+            (*g.colors)[i] = osg::Vec4(f.r, f.g, f.b, std::max(0.f, f.a * std::min(1.f, f.life)));
+        } else {
+            (*g.colors)[i] = osg::Vec4(0, 0, 0, 0);
+        }
+    }
+    g.verts->dirty();
+    g.colors->dirty();
+}
+
 void update_precip(PrecipGpu& g, const HostState& host, float dt) {
     if (!g.verts || g.verts->empty())
         return;
@@ -1625,7 +1647,7 @@ osg::ref_ptr<osg::Camera> make_shot_fbo(int w, int h, const osg::Vec4& clear,
 }
 
 osg::Camera* make_instructor_hud(int w, int h, osgText::Text*& version, osgText::Text*& toast,
-                                 osgText::Text*& era) {
+                                 osgText::Text*& era, osgText::Text*& missiles) {
     auto* cam = new osg::Camera;
     cam->setProjectionMatrix(osg::Matrix::ortho2D(0, w, 0, h));
     cam->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
@@ -1647,10 +1669,12 @@ osg::Camera* make_instructor_hud(int w, int h, osgText::Text*& version, osgText:
     };
     version = mk(12.f, 14.f, 16.f);
     version->setText(std::string("s376-visual ") + s376::version());
-    toast = mk(12.f, 80.f, 18.f);
+    toast = mk(12.f, 112.f, 18.f);
     toast->setText("");
     era = mk(12.f, 46.f, 16.f);
     era->setText("");
+    missiles = mk(12.f, 78.f, 16.f);
+    missiles->setText("");
     cam->addChild(geode);
     return cam;
 }
@@ -1791,6 +1815,13 @@ class OsgRenderer final : public Renderer {
                 geode->addDrawable(precip_gpu_.geom);
                 root->addChild(geode);
             }
+            missile_gpu_ = make_precip_gpu();
+            if (missile_gpu_.geom) {
+                attach_points(missile_gpu_.geom->getOrCreateStateSet(), 6.5f);
+                auto* geode = new osg::Geode;
+                geode->addDrawable(missile_gpu_.geom);
+                root->addChild(geode);
+            }
             cloud_gpu_ = make_mesh_gpu(12);
             storm_gpu_ = make_mesh_gpu(13);
             if (cloud_gpu_.geom) {
@@ -1881,20 +1912,33 @@ class OsgRenderer final : public Renderer {
             viewer_->addView(view);
             views_.push_back(view);
             {
-                osgText::Text *ver = nullptr, *toast = nullptr, *era = nullptr;
+                osgText::Text *ver = nullptr, *toast = nullptr, *era = nullptr,
+                              *missiles = nullptr;
                 osg::ref_ptr<osg::Camera> hud =
-                    make_instructor_hud(place.w, place.h, ver, toast, era);
+                    make_instructor_hud(place.w, place.h, ver, toast, era, missiles);
                 if (auto* cam = view->getCamera())
                     cam->addChild(hud);
                 hud_version_ = ver;
                 hud_toast_ = toast;
                 hud_era_ = era;
+                hud_missiles_ = missiles;
                 struct HudHandler : public osgGA::GUIEventHandler {
                     OsgRenderer* ig = nullptr;
                     explicit HudHandler(OsgRenderer* p) : ig(p) {}
                     bool handle(const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter&) override {
                         if (!ig)
                             return false;
+                        if (ea.getEventType() == osgGA::GUIEventAdapter::KEYDOWN ||
+                            ea.getEventType() == osgGA::GUIEventAdapter::KEYUP) {
+                            const int want = ig->cfg_.egg.ptt_key.empty()
+                                                 ? 'm'
+                                                 : static_cast<int>(
+                                                       std::tolower(static_cast<unsigned char>(
+                                                           ig->cfg_.egg.ptt_key[0])));
+                            if (ea.getKey() == want || ea.getKey() == std::toupper(want))
+                                ig->ptt_key_down_ =
+                                    ea.getEventType() == osgGA::GUIEventAdapter::KEYDOWN;
+                        }
                         if (ea.getEventType() != osgGA::GUIEventAdapter::PUSH)
                             return false;
                         if (ea.getButton() != osgGA::GUIEventAdapter::LEFT_MOUSE_BUTTON)
@@ -1960,12 +2004,14 @@ class OsgRenderer final : public Renderer {
         const float dt = 1.f / 60.f;
         cloud_drift_m_ += 8.f * dt;
         update_precip(precip_gpu_, host, dt);
+        update_missile_fx(missile_gpu_);
         update_clouds(cloud_gpu_, host, cloud_drift_m_);
         update_storms(storm_gpu_, host, storm_flash_);
         update_traffic(traffic_gpu_, host, dt);
         viewer_->frame();
     }
 
+    bool ptt_key_down() const override { return ptt_key_down_; }
     bool done() const override { return viewer_ && viewer_->done(); }
     void request_stop() override {
         if (viewer_)
@@ -2402,8 +2448,16 @@ class OsgRenderer final : public Renderer {
                 hud_era_->setText("");
             }
         }
-        if (hud_toast_)
-            hud_toast_->setText(unlock_.toast);
+        if (hud_missiles_) {
+            if (session_era_unlocked())
+                hud_missiles_->setText(session_missiles() ? "Missiles: On" : "Missiles: Off");
+            else
+                hud_missiles_->setText("");
+        }
+        if (hud_toast_) {
+            const std::string& mt = missile_world().toast;
+            hud_toast_->setText(mt.empty() ? unlock_.toast : mt);
+        }
     }
 
     AppConfig cfg_;
@@ -2414,6 +2468,8 @@ class OsgRenderer final : public Renderer {
     ShaderEnv env_u_;
     LightGpu lights_gpu_;
     PrecipGpu precip_gpu_;
+    PrecipGpu missile_gpu_;
+    bool ptt_key_down_ = false;
     MeshGpu cloud_gpu_;
     MeshGpu storm_gpu_;
     TrafficGpu traffic_gpu_;
@@ -2448,6 +2504,7 @@ class OsgRenderer final : public Renderer {
     osg::ref_ptr<osgText::Text> hud_version_;
     osg::ref_ptr<osgText::Text> hud_toast_;
     osg::ref_ptr<osgText::Text> hud_era_;
+    osg::ref_ptr<osgText::Text> hud_missiles_;
     EraUnlock unlock_;
     SkylineEra drawn_era_ = SkylineEra::Current;
     std::vector<Airport> scene_apts_;
@@ -2473,6 +2530,16 @@ bool OsgRenderer::on_hud_click(float x, float y) {
     if (hit == InstructorHit::EraClassic) {
         set_session_era(SkylineEra::Classic, true);
         rebuild_skyline();
+        return true;
+    }
+    if (hit == InstructorHit::MissilesOff) {
+        set_session_missiles(false);
+        refresh_hud();
+        return true;
+    }
+    if (hit == InstructorHit::MissilesOn) {
+        set_session_missiles(true);
+        refresh_hud();
         return true;
     }
     return false;

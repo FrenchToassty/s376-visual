@@ -41,14 +41,17 @@ set that flag.
 
 - **Channels** — status per IG (fps, GPU °C, VRAM, RAM, last host
   packet age, errors). **Refresh channels** sends `op=refresh` (calls
-  `refresh_channels()`, which clears the Classic NYC skyline egg),
-  then SIGTERM / wait / relaunch.
+  `refresh_channels()`, which clears the Classic NYC skyline egg and
+  missiles), then SIGTERM / wait / relaunch.
 - **Display** — heading, FOV, flip, 7×5 warp, edge blend, gamma,
   test pattern. **Apply** is live; **Save** writes the correction
   TOML and patches the IG config `[[channels]]` block.
 - **Info** — build number (`git describe` + date), GPU/driver,
   airport packs. Click the build line **7 times within 15 s** to
-  unlock Classic (same Android-style toasts as the IG HUD).
+  unlock Classic and Missiles (same Android-style toasts as the IG
+  HUD). After unlock: Current / Classic radios and Missiles Off / On.
+  Missiles stay off until On. PTT mapping is `[egg]` in the IG
+  config (default type 112 switch 255).
 - **Logs** — live tail from each IG (`op=logs`) or `logs/s376-visual.log`.
 
 ## Run

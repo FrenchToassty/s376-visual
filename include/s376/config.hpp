@@ -103,11 +103,24 @@ struct LogConfig {
     std::string dir;
 };
 
+// Hidden developer egg. Ignored until version×7 unlock. PTT is a rising
+// edge on an *existing* host field — never a new xT4 type.
+struct EggConfig {
+    // switch = type 112 (default switch 255, unused by airport lights 1–4)
+    // landing_bit = unused bit of type 109 landing_mask (default bit 7)
+    // key = desk/demo keyboard (default M)
+    std::string ptt_source = "switch";
+    int ptt_switch = 255;
+    int ptt_landing_bit = 7;
+    std::string ptt_key = "m";
+};
+
 struct AppConfig {
     HostConfig host;
     RenderConfig render;
     LogConfig log;
     ControlConfig control;
+    EggConfig egg;
     std::vector<ChannelConfig> channels;
 };
 

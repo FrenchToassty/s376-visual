@@ -71,6 +71,9 @@ void test_landmarks() {
     CHECK(s376::instructor_hit(20, 50, false) == s376::InstructorHit::None);
     CHECK(s376::instructor_hit(20, 50, true) == s376::InstructorHit::EraCurrent);
     CHECK(s376::instructor_hit(200, 50, true) == s376::InstructorHit::EraClassic);
+    CHECK(s376::instructor_hit(20, 80, false) == s376::InstructorHit::None);
+    CHECK(s376::instructor_hit(20, 80, true) == s376::InstructorHit::MissilesOff);
+    CHECK(s376::instructor_hit(200, 80, true) == s376::InstructorHit::MissilesOn);
 
     CHECK(s376::in_nyc_geofence(40.71, -74.01));
     CHECK(s376::in_nyc_geofence(40.64, -73.78)); // JFK

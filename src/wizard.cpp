@@ -398,6 +398,7 @@ ControlStatus poll_target(const WizardTarget& t, const WizardConfig& cfg, int ti
     s.airports = r.get("airports");
     s.era = r.get("era");
     s.era_unlocked = r.get("era_unlocked") == "1";
+    s.missiles = r.get("missiles") == "1";
     s.log_file = r.get("log_file");
     try {
         s.errors = std::stoi(r.get("errors", "0"));

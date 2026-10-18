@@ -50,6 +50,10 @@ void test_config() {
     CHECK(d.host.reply_port == 2301);
     CHECK(d.control.bind == "127.0.0.1:2376");
     CHECK(d.control.enabled);
+    CHECK(d.egg.ptt_source == "switch");
+    CHECK(d.egg.ptt_switch == 255);
+    CHECK(d.egg.ptt_landing_bit == 7);
+    CHECK(d.egg.ptt_key == "m");
     CHECK(d.host.reply_master == "mid_left");
     CHECK(!d.render.gl_debug);
     CHECK(d.render.quality == "gtx980ti");
@@ -116,7 +120,24 @@ void test_config() {
     CHECK(c.channels.size() == 2);
     CHECK(c.channels[0].width == 800);
     CHECK(!c.channels[1].enabled);
+    CHECK(c.egg.ptt_source == "switch");
     std::remove(path);
+
+    {
+        const char* epath = "s376-test-egg.toml";
+        {
+            std::ofstream o(epath);
+            o << "[host]\nbind = \"127.0.0.1:2300\"\n"
+                 "[egg]\nptt_source = \"landing_bit\"\nptt_landing_bit = 7\n"
+                 "ptt_key = \"p\"\n";
+        }
+        auto e = s376::load_config(epath);
+        CHECK(e.egg.ptt_source == "landing_bit");
+        CHECK(e.egg.ptt_landing_bit == 7);
+        CHECK(e.egg.ptt_key == "p");
+        CHECK(e.egg.ptt_switch == 255);
+        std::remove(epath);
+    }
 
     {
         const char* qpath = "s376-test-quality.toml";

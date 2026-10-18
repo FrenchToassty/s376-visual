@@ -4,6 +4,7 @@
 #include "s376/build_info.hpp"
 #include "s376/diagnostics.hpp"
 #include "s376/landmarks.hpp"
+#include "s376/missiles.hpp"
 #include "s376/log.hpp"
 #include "s376/safety.hpp"
 #include "s376/terrain.hpp"
@@ -259,6 +260,7 @@ void ControlHub::fill_status(ControlMsg& r) const {
     r.set("airports", loaded_airport_list(cfg_.render.cache_dir));
     r.set("era", skyline_era_name(session_era()));
     r.set("era_unlocked", session_era_unlocked() ? 1 : 0);
+    r.set("missiles", session_missiles() ? 1 : 0);
     r.set("log_file", log::session_file() ? log::session_file() : "");
     const double t = now_s();
     r.set("host_age_ms", have_host_ ? (t - last_host_s_) * 1000.0 : -1.0);
@@ -407,6 +409,12 @@ ControlMsg ControlHub::handle(const ControlMsg& req) {
         r.set("era_unlocked", 1);
         return r;
     }
+    if (req.op == "set_missiles") {
+        set_session_missiles(req.get("on") == "1" || req.get("on") == "true");
+        r.set("ok", "1");
+        r.set("missiles", session_missiles() ? 1 : 0);
+        return r;
+    }
     if (req.op == "set_era") {
         try {
             const auto e = parse_skyline_era(req.get("era", "current"));
@@ -474,6 +482,7 @@ ControlStatus ControlHub::snapshot() const {
     s.airports = m.get("airports");
     s.era = m.get("era");
     s.era_unlocked = m.get("era_unlocked") == "1";
+    s.missiles = m.get("missiles") == "1";
     s.log_file = m.get("log_file");
     s.errors = errors_;
     s.last_error = last_error_;

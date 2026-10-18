@@ -58,6 +58,17 @@ sync_to_host = true       # draw only when a new type-100 eyepoint arrives
 bind = "127.0.0.1:2376"
 enabled = true
 
+# Hidden developer egg (off until version×7 unlock + explicit Missiles On).
+# PTT is a rising edge on an *existing* host field — never a new xT4 type.
+#   switch      = type 112 switch (default 255; airport lights use 1–4)
+#   landing_bit = unused bit of type 109 landing_mask (default 7; lobes are 0–6)
+#   key         = desk/demo keyboard (default m)
+[egg]
+ptt_source = "switch"
+ptt_switch = 255
+# ptt_landing_bit = 7
+# ptt_key = "m"
+
 [log]
 verbose = false
 debug = false

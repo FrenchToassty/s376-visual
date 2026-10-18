@@ -1,6 +1,7 @@
 #include "s376/landmarks.hpp"
 
 #include "s376/geo.hpp"
+#include "s376/missiles.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -476,6 +477,10 @@ InstructorHit instructor_hit(float x, float y, bool unlocked) {
         return InstructorHit::EraCurrent;
     if (x >= 138.f && x <= 400.f && y >= 42.f && y <= 70.f)
         return InstructorHit::EraClassic;
+    if (x >= 8.f && x <= 130.f && y >= 74.f && y <= 102.f)
+        return InstructorHit::MissilesOff;
+    if (x >= 138.f && x <= 400.f && y >= 74.f && y <= 102.f)
+        return InstructorHit::MissilesOn;
     return InstructorHit::None;
 }
 
@@ -846,10 +851,13 @@ void set_session_era(SkylineEra era, bool unlocked) {
 }
 
 void refresh_channels() {
-    std::lock_guard<std::mutex> g(sess().mu);
-    sess().era = SkylineEra::Current;
-    sess().unlocked = false;
-    fill_solids(sess().bvh, SkylineEra::Current, sess().apts);
+    {
+        std::lock_guard<std::mutex> g(sess().mu);
+        sess().era = SkylineEra::Current;
+        sess().unlocked = false;
+        fill_solids(sess().bvh, SkylineEra::Current, sess().apts);
+    }
+    reset_missiles();
 }
 
 const SolidBvh& session_solids() {

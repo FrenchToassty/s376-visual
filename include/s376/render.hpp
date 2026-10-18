@@ -40,6 +40,8 @@ class Renderer {
     virtual void end() = 0;
     virtual std::string name() const = 0;
     virtual std::size_t view_count() const { return 0; }
+    // Desk/demo PTT when egg.ptt_source = "key".
+    virtual bool ptt_key_down() const { return false; }
 };
 
 class NullRenderer : public Renderer {

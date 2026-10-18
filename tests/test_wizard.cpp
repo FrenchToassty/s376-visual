@@ -1,6 +1,7 @@
 #include "s376/control.hpp"
 #include "s376/display.hpp"
 #include "s376/landmarks.hpp"
+#include "s376/missiles.hpp"
 #include "s376/safety.hpp"
 #include "s376/wizard.hpp"
 
@@ -140,6 +141,7 @@ void test_wizard() {
     CHECK(status.get("ch.0.name") == "mid_left");
     CHECK(status.get("era") == "current");
     CHECK(status.get("era_unlocked") == "0");
+    CHECK(status.get("missiles") == "0");
 
     s376::ControlMsg set;
     set.op = "set";
@@ -217,6 +219,13 @@ void test_wizard() {
     era.set("era", "classic");
     CHECK(s376::control_hub().handle(era).ok());
     CHECK(s376::session_era() == s376::SkylineEra::Classic);
+    s376::ControlMsg sm;
+    sm.op = "set_missiles";
+    sm.set("on", "1");
+    auto smr = s376::control_hub().handle(sm);
+    CHECK(smr.ok());
+    CHECK(smr.get("missiles") == "1");
+    CHECK(s376::session_missiles());
 
     s376::ControlMsg ref;
     ref.op = "refresh";
@@ -226,6 +235,7 @@ void test_wizard() {
     CHECK(s376::control_hub().restart_requested());
     CHECK(s376::session_era() == s376::SkylineEra::Current);
     CHECK(!s376::session_era_unlocked());
+    CHECK(!s376::session_missiles());
 
     s376::ControlServer srv;
     srv.start("127.0.0.1:0", false, false);

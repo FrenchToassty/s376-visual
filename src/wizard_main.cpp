@@ -410,6 +410,34 @@ void draw_ui(UiState& ui) {
                     }
                     ui.last.era = "classic";
                 }
+                ImGui::TextUnformatted("Missiles (visual only)");
+                if (ImGui::RadioButton("Missiles Off", !ui.last.missiles)) {
+                    s376::ControlMsg m;
+                    m.op = "set_missiles";
+                    m.set("on", "0");
+                    for (const auto& t : ui.cfg.targets) {
+                        try {
+                            (void)s376::control_request(t.control, m, 300, ui.cfg.allow_sim_lan,
+                                                        ui.cfg.allow_lan);
+                        } catch (...) {
+                        }
+                    }
+                    ui.last.missiles = false;
+                }
+                ImGui::SameLine();
+                if (ImGui::RadioButton("Missiles On", ui.last.missiles)) {
+                    s376::ControlMsg m;
+                    m.op = "set_missiles";
+                    m.set("on", "1");
+                    for (const auto& t : ui.cfg.targets) {
+                        try {
+                            (void)s376::control_request(t.control, m, 300, ui.cfg.allow_sim_lan,
+                                                        ui.cfg.allow_lan);
+                        } catch (...) {
+                        }
+                    }
+                    ui.last.missiles = true;
+                }
             }
             ImGui::Separator();
             ImGui::Text("GPU: %s", ui.last.gpu.empty() ? "—" : ui.last.gpu.c_str());

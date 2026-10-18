@@ -96,6 +96,7 @@ type, PAPI side). Tracked in code (`s376::scenery_parity_items`) and
 | 15 m night lights | layer | **partial** | Spacing recorded 15 m; GPU subsample 60 m |
 | Full KEWR | yes | **partial** | FAA both ends + scenery stand-ins |
 | Classic NYC skyline (easter egg) | n/a | **ok** | Hidden version×7 unlock. Stylized pre-2001 Lower Manhattan (accuracy not required). Draws only in the NYC geofence; stays on for the session; clears on channel reset / refresh_channels |
+| Missiles (easter egg) | n/a | **ok** | Same unlock / session. Off until Missiles On. PTT = type 112 switch 255 (or type 109 bit 7 / desk key). Visual only — no host damage. Classic-active: 10 sm keep-out around 40.7115 N, 74.0134 W |
 | Operator console | Raster Wizard | **ok** | `s376-wizard` (ImGui + GLFW). Local control channel, not xT4. Channels / Display / Info / Logs. Refresh channels resets session state |
 
 Local compare (never commits Raster data):

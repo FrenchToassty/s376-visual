@@ -53,6 +53,7 @@ void test_parity();
 void test_repo_guard();
 void test_traffic();
 void test_landmarks();
+void test_missiles();
 void test_wizard();
 
 int main() {
@@ -76,6 +77,7 @@ int main() {
     test_repo_guard();
     test_traffic();
     test_landmarks();
+    test_missiles();
     test_wizard();
     std::cout << g_passes << " passed, " << g_fails << " failed\n";
     return g_fails ? 1 : 0;

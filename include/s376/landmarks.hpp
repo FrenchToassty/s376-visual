@@ -47,7 +47,7 @@ struct Landmark {
 };
 
 // Instructor / settings overlay hit-test (window px, origin bottom-left).
-enum class InstructorHit { None, Version, EraCurrent, EraClassic };
+enum class InstructorHit { None, Version, EraCurrent, EraClassic, MissilesOff, MissilesOn };
 
 struct EraUnlock {
     static constexpr int kNeed = 7;

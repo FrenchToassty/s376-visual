@@ -17,6 +17,13 @@ egg — coming back to NYC shows Classic again. It clears only when
 the channels reset (host close/reopen, or **Refresh channels** in
 `s376-wizard`). Everywhere else, accuracy-first still holds.
 
+The same unlock also gates a hidden **visual-only missiles** mode
+(off until explicitly turned on). That mode does not change HAT,
+collision, or the flight model. When Classic is the active draw,
+missiles are fully disabled within 10 statute miles of 40.7115 N,
+74.0134 W — no firing, no trajectory into the disk, no impact FX
+on or near the classic towers. Current skyline: no restriction.
+
 CI (`s376-tests` → `test_accuracy`) fails if any of these slip:
 
 | Check | Limit |

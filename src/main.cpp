@@ -4,6 +4,7 @@
 #include "s376/diagnostics.hpp"
 #include "s376/host.hpp"
 #include "s376/landmarks.hpp"
+#include "s376/missiles.hpp"
 #include "s376/image.hpp"
 #include "s376/log.hpp"
 #include "s376/render.hpp"
@@ -394,7 +395,9 @@ int main(int argc, char** argv) {
     s376::SharedState state;
     s376::HostReceiver rx(state, cfg.host);
     auto dem = s376::load_or_synth_dem(cfg.render.cache_dir);
-    rx.set_heights(std::make_shared<s376::DemHeightSource>(dem));
+    auto heights = std::make_shared<s376::DemHeightSource>(dem);
+    rx.set_heights(heights);
+    s376::PttWatch ptt;
     S376_LOG_INFO("ig", "HAT DEM %dx%d  %.3f,%.3f .. %.3f,%.3f", dem->w, dem->h, dem->west,
                   dem->south, dem->east, dem->north);
     std::thread synth_th;
@@ -444,6 +447,7 @@ int main(int argc, char** argv) {
     }
 
     const auto t0 = std::chrono::steady_clock::now();
+    auto t_fx = t0;
     const double period = 1.0 / std::max(cfg.render.frame_rate, 1.0);
     std::uint64_t frames = 0;
     std::uint64_t last_eyepoints = 0;
@@ -463,8 +467,18 @@ int main(int argc, char** argv) {
         s376::HostState host = state.load();
         if (have_shot)
             host = shot_host;
-        else if (cfg.render.sync_to_host && host.have_eyepoint &&
-                 host.eyepoints == last_eyepoints) {
+        if (host.have_eyepoint && ptt.edge(host, cfg.egg, rend->ptt_key_down())) {
+            (void)s376::try_fire_missile(host.eye.lat_deg, host.eye.lon_deg, host.eye.alt_ft,
+                                         host.eye.true_heading_deg(), host.eye.pitch_deg);
+        }
+        {
+            const auto now = std::chrono::steady_clock::now();
+            const double dt = std::chrono::duration<double>(now - t_fx).count();
+            t_fx = now;
+            s376::step_missiles(heights.get(), dt);
+        }
+        if (!have_shot && cfg.render.sync_to_host && host.have_eyepoint &&
+            host.eyepoints == last_eyepoints) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
             continue;
         }

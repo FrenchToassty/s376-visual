@@ -157,6 +157,9 @@ Type 127 body is words 0–1 only.
 
 Airport light groups (runway edge, centreline, approach, PAPI, taxi)
 are mapped to switch numbers in the airport data, not in this packet.
+The hidden missiles egg (off by default) can treat **switch 255** as
+the cockpit PTT rising edge (`egg.ptt_source = "switch"`). That is a
+config remapping of this existing packet, not a new type.
 
 ## Ownship lights (type 109)
 
@@ -166,6 +169,10 @@ are mapped to switch numbers in the airport data, not in this packet.
 | 1 | i16 | Strobe on/off |
 | 2 | i16 | Landing-light lobe mask (7 bits: L outboard, L turnoff, L inboard, centre, R inboard, R turnoff, R outboard) |
 | 3 | i16 | Bright mask, same bits |
+
+Bit 7 of the landing mask is unused by the seven lobes. The hidden
+missiles egg can map that bit as PTT (`egg.ptt_source = "landing_bit"`,
+`egg.ptt_landing_bit = 7`). Again, not a new packet.
 
 ## Query (type 113) and HAT reply (type 200)
 

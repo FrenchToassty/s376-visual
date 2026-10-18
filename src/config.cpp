@@ -305,6 +305,14 @@ AppConfig load_config(const std::string& path) {
         cfg.control.bind = t.kv.at("control.bind");
     if (t.kv.count("control.enabled"))
         parse_bool(t.kv.at("control.enabled"), cfg.control.enabled);
+    if (t.kv.count("egg.ptt_source"))
+        cfg.egg.ptt_source = t.kv.at("egg.ptt_source");
+    if (t.kv.count("egg.ptt_switch"))
+        cfg.egg.ptt_switch = std::stoi(t.kv.at("egg.ptt_switch"));
+    if (t.kv.count("egg.ptt_landing_bit"))
+        cfg.egg.ptt_landing_bit = std::stoi(t.kv.at("egg.ptt_landing_bit"));
+    if (t.kv.count("egg.ptt_key"))
+        cfg.egg.ptt_key = t.kv.at("egg.ptt_key");
     if (!t.tables.empty()) {
         cfg.channels.clear();
         for (const auto& tab : t.tables)
@@ -340,6 +348,10 @@ std::string dump_config(const AppConfig& cfg, const std::vector<std::string>& se
     o << "host.reply_to=" << cfg.host.reply_to << "\n";
     o << "control.bind=" << cfg.control.bind << "\n";
     o << "control.enabled=" << (cfg.control.enabled ? "true" : "false") << "\n";
+    o << "egg.ptt_source=" << cfg.egg.ptt_source << "\n";
+    o << "egg.ptt_switch=" << cfg.egg.ptt_switch << "\n";
+    o << "egg.ptt_landing_bit=" << cfg.egg.ptt_landing_bit << "\n";
+    o << "egg.ptt_key=" << cfg.egg.ptt_key << "\n";
     o << "render.engine=" << cfg.render.engine << "\n";
     o << "render.earth_file=" << cfg.render.earth_file << "\n";
     o << "render.cache_dir=" << cfg.render.cache_dir << "\n";

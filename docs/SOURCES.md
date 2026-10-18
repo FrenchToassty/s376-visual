@@ -53,6 +53,7 @@ camera path rides the streamed mesh.
 | OurAirports runways.csv | public domain | airport TOML / `airport.hpp` |
 | OpenStreetMap aeroway=* / building=* / highway=motorway\|trunk\|primary\|secondary | [ODbL](https://www.openstreetmap.org/copyright) | OSM taxi/apron/building/road ways; attribute OSM |
 | Classic NYC skyline (easter egg) | stylized stand-ins | Art-directed pre-2001 Lower Manhattan (not surveyed). Public WTC-era silhouette only. Session-only, NYC geofence |
+| Missiles keep-out (Classic only) | 40.7115 N, 74.0134 W | Public WTC site; 10 statute mile disk. Visual-only egg; no surveyed claim |
 | Poly Haven 1K PBR (asphalt, concrete, grass, dirt) | [CC0 1.0](https://polyhaven.com/license) | `scripts/fetch-textures.sh` → `cache/textures/` (gitignored) |
 | ambientCG (optional extra maps) | [CC0 1.0](https://docs.ambientcg.com/license/) | same cache dir |
 | [stb_image_write](https://github.com/nothings/stb) v1.16 | public domain / MIT | `third_party/stb_image_write.h` — PNG from `--screenshot` / `--self-test-shot` |

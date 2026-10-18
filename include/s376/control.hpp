@@ -60,6 +60,7 @@ struct ControlStatus {
     std::string airports;
     std::string era;
     bool era_unlocked = false;
+    bool missiles = false;
     std::string toast;
     std::string log_file;
     int errors = 0;
