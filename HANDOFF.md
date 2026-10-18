@@ -27,14 +27,16 @@ from tests/CI. `scripts/check-no-rsi.sh` fails the build if
 
 ## Current state (2026-10-18, this increment)
 
-**Every building is solid to the host** (HAT/HOT + segment collision)
-in both skyline eras. `solids.bin` (`S376SLD1`) is a packed
-footprint+height grid, always resident, independent of the 8 k mesh
-bake, 800/2500 draw LOD, and terrain paging. Height = OSM `height`,
-else `building:levels` × 3.5 m, else 12 m, on DEM ground. Classic
-WTC towers are solid only while Classic is the active draw; One WTC
-is solid in Current. Tests: 10 k centroid HAT sample, WTC era
-probes, bake-beyond-cap.
+**Airport structures are exact-solid** (same box as the mesh):
+KJFK T1/T4/T5/T7/T8 + hangar + cargo + ATCT + jetbridges; KEWR
+A/B/C + hangar + tower + jetbridges. OSM houses stay on the cheap
+`solids.bin` grid and drop first if the 256 MiB cap is hit.
+
+KJFK+KEWR collision memory (measured): **19 airport volumes, 2304 B
+schematic**. Houses ≈ 72 B each. Full-set estimate (548 k KJFK +
+80 k KEWR) ≈ **43 MiB**. Height = OSM `height`, else levels × 3.5 m,
+else 12 m, on DEM. Tests: each named terminal / tower / hangar
+HAT+segment, 10 k house sample, WTC era.
 
 **Official geometry + lights for every shipped airport; imagery
 correction layer; `docs/IMAGERY_SOURCES.md`.** Geometry and lights

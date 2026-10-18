@@ -52,6 +52,16 @@ constexpr int kMeshBuildingsFar = 2500;
 // OSM `height`, else `building:levels` × this, else the default. Metres AGL.
 constexpr float kOsmLevelHeightM = 3.5f;
 constexpr float kDefaultBuildingHeightM = 12.f; // ~4 storeys when OSM is silent
+// Mesh sit: buildings rest this far above DEM/ARP so they clear pavement.
+constexpr float kBuildingSitM = 0.5f;
+// Jetbridge deck matches `build_airport_mesh` (strip at ARP + 5 m, half-width 2.2).
+constexpr float kJetbridgeHalfWm = 2.2f;
+constexpr float kJetbridgeDeckM = 5.5f;
+// Always-resident collision budget. Over this, drop OSM houses first —
+// never airport structures (terminals, hangars, tower, jetbridges).
+constexpr std::size_t kMaxSolidBytes = 256ull * 1024ull * 1024ull;
+
+enum class BuildingKind : std::uint8_t { Osm = 0, Airport = 1, Landmark = 2 };
 
 struct LightPoint {
     double lat = 0;
@@ -132,6 +142,7 @@ struct Building {
     std::string name;
     std::vector<std::pair<double, double>> ring;
     float height_m = 12;
+    BuildingKind kind = BuildingKind::Osm;
 };
 
 struct AirportSign {
@@ -168,6 +179,12 @@ struct Jetbridge {
     double hdg_deg = 0;
     double length_m = 28;
 };
+
+// Schematic terminals / hangars / ATCT / cargo — not OSM houses.
+bool is_airport_structure(const Building& b);
+// Same footprint as the jetbridge mesh strip (length × 4.4 m).
+Building jetbridge_building(const Jetbridge& j);
+void building_centroid(const Building& b, double& lat, double& lon);
 
 struct DockingGuide {
     std::string stand;

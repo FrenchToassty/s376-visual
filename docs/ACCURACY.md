@@ -155,24 +155,26 @@ pager should load KEWR only when nearby.
 
 ## Buildings (HAT / collision)
 
-Every OSM footprint in the Overpass dump, every schematic airport
-box, and the visible-era NYC landmarks is solid to the host. Collision
-is an always-resident grid of footprints + AGL heights
-(`cache/<ICAO>/solids.bin` → `SolidBvh`). It does **not** follow the
-mesh bake cap (8 k), the draw LOD (nearest 800 full / 2500 far), or
-terrain tile paging.
+**Airport structures are the must-have.** Terminals, hangars,
+concourses, the ATCT, jetbridges, cargo / parking-garage boxes, and
+other named field buildings use the **same oriented box** as the
+rendered mesh (length × width × height, heading, DEM + 0.5 m sit).
+Jetbridges use the same 4.4 m × length prism as the mesh, roof at
+5.5 m AGL. Approach lights are GPU points only — no stanchion mesh,
+so no extra collision volume.
+
+Small OSM houses stay solid on the cheap footprint+height grid
+(`solids.bin`) while that stays in the tens of MiB (~72 B/house;
+KJFK 548 k + KEWR 80 k ≈ **43 MiB**; schematic airport set is
+2.3 KiB). If the 256 MiB resident cap is hit, **houses drop first**.
+Airport structures are never trimmed.
+
+Collision is session-resident: it does **not** follow the mesh bake
+cap (8 k), the draw LOD (nearest 800 / 2500), or terrain paging.
 
 Height AGL: OSM `height` (metres), else `building:levels` × 3.5 m,
-else **12 m** (~4 storeys). Prisms sit on DEM ground at the footprint
-centroid (`HostReceiver::set_heights` / `session_apply_ground`).
-Host type-200 HAT/HOT uses that roof MSL.
-
-Drawn mesh uses the same footprints and heights (no 80 m clip).
-Buildings the 980 Ti does not extrude are still solid. Era landmarks
-match the draw: Classic WTC towers only while Classic is the active
-skyline; One WTC only in Current. OSM under a catalog landmark is
-dropped from both the mesh and the solids so nothing is solid-but-
-invisible or visible-but-not-solid at the site.
+else **12 m**. Prisms sit on DEM ground. Host type-200 HAT/HOT uses
+that roof MSL. Era landmarks match the draw (Classic WTC vs One WTC).
 
 ## 980 Ti
 

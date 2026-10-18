@@ -524,15 +524,22 @@ void SolidBvh::add_building(const Building& b, double ground_m) {
     }
     v.height_m = std::max(2.f, b.height_m);
     v.z0_m = static_cast<float>(ground_m);
+    v.kind = static_cast<std::uint8_t>(b.kind);
     recs_.push_back(v);
+}
+
+void SolidBvh::add_jetbridge(const Jetbridge& j, double ground_m) {
+    add_building(jetbridge_building(j), ground_m);
 }
 
 void SolidBvh::add_landmark(const Landmark& lm, double ground_m) {
     Building body = box_of(lm.name, lm.lat, lm.lon, lm.hdg_deg, lm.length_m, lm.width_m, lm.height_m);
+    body.kind = BuildingKind::Landmark;
     add_building(body, ground_m);
     if (lm.tip_m > lm.height_m + 8.f) {
         Building tip = box_of("tip", lm.lat, lm.lon, lm.hdg_deg, std::max(4.0, lm.length_m * 0.08),
                               std::max(4.0, lm.width_m * 0.08), lm.tip_m);
+        tip.kind = BuildingKind::Landmark;
         add_building(tip, ground_m);
     }
 }
@@ -626,16 +633,62 @@ void SolidBvh::apply_ground(const HeightSource* dem, double fallback_m) {
         clat /= std::max(1, static_cast<int>(r.nvert));
         clon /= std::max(1, static_cast<int>(r.nvert));
         double gft = 0;
+        const float sit =
+            (r.kind == static_cast<std::uint8_t>(BuildingKind::Airport) &&
+             std::fabs(r.height_m - kJetbridgeDeckM) > 0.25f)
+                ? kBuildingSitM
+                : 0.f;
         if (dem && dem->sample_ft(clat, clon, gft))
-            r.z0_m = static_cast<float>(gft * geo::kFtToM);
+            r.z0_m = static_cast<float>(gft * geo::kFtToM) + sit;
         else if (!dem)
-            r.z0_m = static_cast<float>(fallback_m);
+            r.z0_m = static_cast<float>(fallback_m) + sit;
     }
 }
 
 std::size_t SolidBvh::bytes() const {
     return recs_.size() * sizeof(Rec) + verts_.size() * sizeof(float) +
            cell_ids_.size() * sizeof(std::uint32_t) + cell_off_.size() * sizeof(std::uint32_t);
+}
+
+void SolidBvh::trim_osm_to_budget(std::size_t max_bytes) {
+    if (bytes() <= max_bytes)
+        return;
+    std::vector<Rec> keep;
+    std::vector<float> verts;
+    keep.reserve(recs_.size());
+    auto pack = [&](const Rec& r) {
+        Rec n = r;
+        n.vert0 = static_cast<std::uint32_t>(verts.size());
+        for (int i = 0; i < r.nvert; ++i) {
+            verts.push_back(verts_[r.vert0 + static_cast<std::uint32_t>(i) * 2]);
+            verts.push_back(verts_[r.vert0 + static_cast<std::uint32_t>(i) * 2 + 1]);
+        }
+        keep.push_back(n);
+    };
+    for (const auto& r : recs_) {
+        if (r.kind != static_cast<std::uint8_t>(BuildingKind::Osm))
+            pack(r);
+    }
+    recs_.swap(keep);
+    verts_.swap(verts);
+    cell_off_.clear();
+    cell_ids_.clear();
+    gx_ = gy_ = 0;
+}
+
+SolidMem solids_mem(const SolidBvh& bvh) {
+    SolidMem m;
+    m.volumes = bvh.recs_.size();
+    m.bytes = bvh.bytes();
+    for (const auto& r : bvh.recs_) {
+        if (r.kind == static_cast<std::uint8_t>(BuildingKind::Airport))
+            ++m.airport_volumes;
+        else if (r.kind == static_cast<std::uint8_t>(BuildingKind::Landmark))
+            ++m.landmark_volumes;
+        else
+            ++m.osm_volumes;
+    }
+    return m;
 }
 
 bool SolidBvh::roof_msl(double lat, double lon, double* z_m) const {
@@ -814,18 +867,18 @@ int read_solids_bin(SolidBvh& bvh, const std::string& path) {
 void fill_solids(SolidBvh& bvh, SkylineEra era, const std::vector<Airport>& apts,
                  double default_ground_m, const HeightSource* dem) {
     bvh.clear();
+    // Airport structures first — never subject to the OSM house trim.
     for (const auto& a : apts) {
         const double g = a.elev_m != 0.0 ? a.elev_m : default_ground_m;
-        int from_bin = 0;
-        if (!a.solids_path.empty())
-            from_bin = read_solids_bin(bvh, a.solids_path);
         for (const auto& b : a.buildings) {
-            if (from_bin > 0 && b.name == "osm")
+            if (!is_airport_structure(b))
                 continue;
             if (hidden_building(b))
                 continue;
-            bvh.add_building(b, g);
+            bvh.add_building(b, g + kBuildingSitM);
         }
+        for (const auto& j : a.jetbridges)
+            bvh.add_jetbridge(j, g);
     }
     int n = 0;
     const Landmark* all = nyc_landmarks(&n);
@@ -840,6 +893,19 @@ void fill_solids(SolidBvh& bvh, SkylineEra era, const std::vector<Airport>& apts
         }
         bvh.add_landmark(all[i], g);
     }
+    for (const auto& a : apts) {
+        if (!a.solids_path.empty())
+            read_solids_bin(bvh, a.solids_path);
+        else {
+            const double g = a.elev_m != 0.0 ? a.elev_m : default_ground_m;
+            for (const auto& b : a.buildings) {
+                if (is_airport_structure(b) || hidden_building(b))
+                    continue;
+                bvh.add_building(b, g);
+            }
+        }
+    }
+    bvh.trim_osm_to_budget(kMaxSolidBytes);
     if (dem)
         bvh.apply_ground(dem, default_ground_m);
     bvh.build();

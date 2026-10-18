@@ -86,7 +86,7 @@ type, PAPI side, length). Tracked in code (`s376::scenery_parity_items`,
 | Docking guidance | yes | **partial** | Stand-in bars |
 | Parked aircraft | static | **partial** | Gate stand-ins. Host CSN still a **gap** |
 | Tower + beacon | yes | **partial** | ATCT box + rotating-beacon point |
-| ~30 k buildings | yes | **partial** | Mesh nearest 800 full / 2500 far (980 Ti). HAT/collision is every OSM + schematic + era landmark via `solids.bin` |
+| ~30 k buildings | yes | **partial** | Mesh nearest 800/2500. Airport structures: exact mesh boxes in HAT. OSM houses: `solids.bin` (drop first if 256 MiB) |
 | Trees | yes | **partial** | Rings off the pavement |
 | 12 moving-model routes | yes | **partial** | Paths stored; host CSN movers **gap** |
 | Marshallers | yes | **partial** | Gate poses; host CSN ignored |

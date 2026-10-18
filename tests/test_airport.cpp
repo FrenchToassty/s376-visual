@@ -75,6 +75,50 @@ void check_mesh(const s376::Airport& a) {
     CHECK(mesh.verts.size() % 3 == 0);
 }
 
+const s376::Building* find_bldg(const s376::Airport& a, const char* name) {
+    for (const auto& b : a.buildings) {
+        if (b.name == name)
+            return &b;
+    }
+    return nullptr;
+}
+
+void check_named_solid(const s376::SolidBvh& bvh, const s376::Airport& a, const char* name) {
+    const s376::Building* b = find_bldg(a, name);
+    CHECK(b != nullptr);
+    if (!b)
+        return;
+    CHECK(s376::is_airport_structure(*b));
+    double lat = 0, lon = 0;
+    s376::building_centroid(*b, lat, lon);
+    const double ground = a.elev_m;
+    const double want = ground + s376::kBuildingSitM + static_cast<double>(b->height_m);
+    double roof = 0;
+    CHECK(bvh.roof_msl(lat, lon, &roof));
+    CHECK_NEAR(roof, want, 1.5);
+    const auto hit = bvh.segment(lat, lon, ground + 1.0, lat, lon, ground + b->height_m * 0.5);
+    CHECK(hit.hit);
+    const double roof_ft = roof * s376::geo::kMToFt;
+    const auto hs = s376::sample_hat_solids(nullptr, &bvh, lat, lon, roof_ft + 80.0);
+    CHECK(hs.building);
+    CHECK_NEAR(hs.hat_ft, 80.0, 8.0);
+}
+
+void check_jetbridge_solid(const s376::SolidBvh& bvh, const s376::Airport& a) {
+    CHECK(!a.jetbridges.empty());
+    for (const auto& j : a.jetbridges) {
+        const s376::Building jb = s376::jetbridge_building(j);
+        double lat = 0, lon = 0;
+        s376::building_centroid(jb, lat, lon);
+        double roof = 0;
+        CHECK(bvh.roof_msl(lat, lon, &roof));
+        // May sit under a terminal; host takes the highest roof.
+        CHECK(roof + 0.1 >= a.elev_m + s376::kJetbridgeDeckM);
+        const auto hit = bvh.segment(lat, lon, a.elev_m + 1.0, lat, lon, a.elev_m + 4.0);
+        CHECK(hit.hit);
+    }
+}
+
 } // namespace
 
 void test_airport() {
@@ -208,6 +252,12 @@ void test_airport() {
     check_lights(jfk, 200, 400);
     check_mesh(jfk);
 
+    s376::SolidBvh jfk_solids;
+    s376::fill_solids(jfk_solids, s376::SkylineEra::Current, {jfk});
+    for (const char* name : {"T1", "T4", "T5", "T7", "T8", "hangar", "cargo", "ATCT"})
+        check_named_solid(jfk_solids, jfk, name);
+    check_jetbridge_solid(jfk_solids, jfk);
+
     auto ewr = s376::kewr_public();
     CHECK(ewr.icao == "KEWR");
     CHECK(ewr.runways.size() == 3);
@@ -224,6 +274,42 @@ void test_airport() {
     check_runway_length(ewr.runways[0]);
     check_lights(ewr, 150, 300);
     check_mesh(ewr);
+
+    s376::SolidBvh ewr_solids;
+    s376::fill_solids(ewr_solids, s376::SkylineEra::Current, {ewr});
+    for (const char* name : {"A", "B", "C", "tower", "hangar"})
+        check_named_solid(ewr_solids, ewr, name);
+    check_jetbridge_solid(ewr_solids, ewr);
+
+    {
+        s376::SolidBvh both;
+        s376::fill_solids(both, s376::SkylineEra::Current, {jfk, ewr});
+        const auto mem = s376::solids_mem(both);
+        CHECK(mem.airport_volumes >= 15);
+        CHECK(mem.bytes < 2ull * 1024ull * 1024ull);
+        CHECK(mem.bytes <= s376::kMaxSolidBytes);
+        // Schematic KJFK+KEWR (no osm.bin in CI). Houses would add tens of
+        // MiB via solids.bin and are trimmed first if the 256 MiB cap hits.
+        s376::SolidBvh houses;
+        for (int i = 0; i < 1000; ++i) {
+            s376::Building h;
+            h.name = "osm";
+            h.height_m = 12.f;
+            const double lat = 40.60 + (i / 40) * 0.002;
+            const double lon = -73.80 + (i % 40) * 0.002;
+            h.ring = {{lat, lon}, {lat, lon + 0.00008}, {lat + 0.00008, lon + 0.00008},
+                      {lat + 0.00008, lon}};
+            houses.add_building(h, 4.0);
+        }
+        houses.build();
+        const double per = static_cast<double>(houses.bytes()) / 1000.0;
+        const std::size_t est_jfk = static_cast<std::size_t>(per * 548000.0) + mem.bytes;
+        const std::size_t est_ewr = static_cast<std::size_t>(per * 80000.0);
+        CHECK(est_jfk + est_ewr < s376::kMaxSolidBytes);
+        std::cerr << "KJFK+KEWR collision  airport=" << mem.airport_volumes
+                  << "  schematic=" << mem.bytes << " B  house≈" << static_cast<int>(per)
+                  << " B  full-est KJFK548k+KEWR80k=" << (est_jfk + est_ewr) / 1024 << " KiB\n";
+    }
 
     bool threw = false;
     try {

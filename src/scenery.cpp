@@ -181,6 +181,7 @@ void add_tower_building(Airport& a) {
     Building b;
     b.name = "ATCT";
     b.height_m = a.tower_h_m;
+    b.kind = BuildingKind::Airport;
     ring_box(b.ring, a.tower_lat, a.tower_lon, 0.0, 28.0, 28.0);
     a.buildings.push_back(std::move(b));
 }

@@ -545,11 +545,48 @@ Building box_building(const char* name, double lat, double lon, double hdg, doub
     Building b;
     b.name = name;
     b.height_m = height_m;
+    b.kind = BuildingKind::Airport;
     ring_box(b.ring, lat, lon, hdg, len_m, wid_m);
     return b;
 }
 
 } // namespace
+
+bool is_airport_structure(const Building& b) {
+    if (b.kind == BuildingKind::Airport)
+        return true;
+    if (b.name.empty() || b.name == "osm")
+        return false;
+    return true;
+}
+
+void building_centroid(const Building& b, double& lat, double& lon) {
+    lat = lon = 0;
+    if (b.ring.empty())
+        return;
+    for (const auto& p : b.ring) {
+        lat += p.first;
+        lon += p.second;
+    }
+    lat /= static_cast<double>(b.ring.size());
+    lon /= static_cast<double>(b.ring.size());
+}
+
+Building jetbridge_building(const Jetbridge& j) {
+    Building b;
+    b.name = j.gate.empty() ? "jetbridge" : j.gate;
+    b.height_m = kJetbridgeDeckM;
+    b.kind = BuildingKind::Airport;
+    double nlat = 0, nlon = 0;
+    offset_m(j.lat, j.lon, j.hdg_deg, j.length_m, nlat, nlon);
+    double l0lat, l0lon, r0lat, r0lon, l1lat, l1lon, r1lat, r1lon;
+    offset_m(j.lat, j.lon, j.hdg_deg - 90.0, kJetbridgeHalfWm, l0lat, l0lon);
+    offset_m(j.lat, j.lon, j.hdg_deg + 90.0, kJetbridgeHalfWm, r0lat, r0lon);
+    offset_m(nlat, nlon, j.hdg_deg - 90.0, kJetbridgeHalfWm, l1lat, l1lon);
+    offset_m(nlat, nlon, j.hdg_deg + 90.0, kJetbridgeHalfWm, r1lat, r1lon);
+    b.ring = {{l0lat, l0lon}, {r0lat, r0lon}, {r1lat, r1lon}, {l1lat, l1lon}};
+    return b;
+}
 
 void offset_m(double lat, double lon, double heading_deg, double dist_m, double& olat,
               double& olon) {
@@ -683,6 +720,7 @@ Airport kewr_public() {
     a.buildings.push_back(box_building("B", 40.6920, -74.1775, 26.0, 280, 70, 20.f));
     a.buildings.push_back(box_building("C", 40.6955, -74.1680, 95.0, 300, 75, 20.f));
     a.buildings.push_back(box_building("tower", 40.6928, -74.1688, 26.0, 40, 40, 55.f));
+    a.buildings.push_back(box_building("hangar", 40.6985, -74.1785, 26.0, 160, 60, 16.f));
     a.tower_lat = 40.6928;
     a.tower_lon = -74.1688;
     a.tower_h_m = 55.f;
@@ -1568,7 +1606,7 @@ AirportMesh build_airport_mesh(const Airport& a, bool buildings, bool markings) 
         clat /= static_cast<double>(b.ring.size());
         clon /= static_cast<double>(b.ring.size());
         const float h = std::max(2.f, b.height_m);
-        const double z0 = session_ground_m(clat, clon, a.elev_m) + 0.5;
+        const double z0 = session_ground_m(clat, clon, a.elev_m) + kBuildingSitM;
         const double z1 = z0 + static_cast<double>(h);
         geo::Ecef e, n, u;
         geo::ecef_to_enu_axes(clat, clon, e, n, u);
@@ -1601,10 +1639,30 @@ AirportMesh build_airport_mesh(const Airport& a, bool buildings, bool markings) 
                    0.72f, 0.73f, 0.76f, 3.f);
     }
     for (const auto& j : a.jetbridges) {
-        double nlat, nlon;
-        offset_m(j.lat, j.lon, j.hdg_deg, j.length_m, nlat, nlon);
-        strip_quad(mesh, j.lat, j.lon, nlat, nlon, j.hdg_deg, 2.2, a.elev_m + 5.0, a.elev_m + 5.0,
-                   0.55f, 0.56f, 0.58f, 3.f);
+        const Building jb = jetbridge_building(j);
+        if (jb.ring.size() < 3)
+            continue;
+        double clat = 0, clon = 0;
+        building_centroid(jb, clat, clon);
+        const double z0 = session_ground_m(clat, clon, a.elev_m);
+        const double z1 = z0 + static_cast<double>(jb.height_m);
+        geo::Ecef e, n, u;
+        geo::ecef_to_enu_axes(clat, clon, e, n, u);
+        const geo::Ecef roof_c = geo::lla_to_ecef(clat, clon, z1);
+        const int ns = static_cast<int>(jb.ring.size());
+        for (int i = 0; i < ns; ++i) {
+            const auto& p0 = jb.ring[static_cast<std::size_t>(i)];
+            const auto& p1 = jb.ring[static_cast<std::size_t>((i + 1) % ns)];
+            const geo::Ecef A = geo::lla_to_ecef(p0.first, p0.second, z0);
+            const geo::Ecef B = geo::lla_to_ecef(p1.first, p1.second, z0);
+            const geo::Ecef C = geo::lla_to_ecef(p1.first, p1.second, z1);
+            const geo::Ecef D = geo::lla_to_ecef(p0.first, p0.second, z1);
+            geo::Ecef wn{B.x - A.x, B.y - A.y, B.z - A.z};
+            geo::Ecef nn{wn.y * u.z - wn.z * u.y, wn.z * u.x - wn.x * u.z, wn.x * u.y - wn.y * u.x};
+            add_tri(mesh, A, B, C, nn, 0.55f, 0.56f, 0.58f, 3.f);
+            add_tri(mesh, A, C, D, nn, 0.55f, 0.56f, 0.58f, 3.f);
+            add_tri(mesh, roof_c, D, C, u, 0.40f, 0.41f, 0.43f, 4.f);
+        }
     }
     return mesh;
 }

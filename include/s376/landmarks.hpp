@@ -70,6 +70,14 @@ struct SegHit {
     double t = 0; // 0..1 along the segment
 };
 
+struct SolidMem {
+    std::size_t volumes = 0;
+    std::size_t bytes = 0;
+    std::size_t airport_volumes = 0; // terminals, hangars, tower, jetbridges
+    std::size_t osm_volumes = 0;     // houses / other OSM
+    std::size_t landmark_volumes = 0;
+};
+
 // Always-resident compact index: packed footprints + heights in a
 // uniform grid. Independent of mesh LOD, render cap, and tile paging.
 class SolidBvh {
@@ -77,7 +85,10 @@ class SolidBvh {
     void clear();
     void add_building(const Building& b, double ground_m);
     void add_landmark(const Landmark& lm, double ground_m);
+    void add_jetbridge(const Jetbridge& j, double ground_m);
     void build();
+    // Drop OSM houses until `bytes()` fits. Never drops airport / landmarks.
+    void trim_osm_to_budget(std::size_t max_bytes = kMaxSolidBytes);
     // Re-base each prism on DEM ground (centroid). Height AGL is kept.
     void apply_ground(const HeightSource* dem, double fallback_m);
 
@@ -95,6 +106,7 @@ class SolidBvh {
         float z0_m = 0;
         std::uint32_t vert0 = 0;
         std::uint16_t nvert = 0;
+        std::uint8_t kind = 0; // 0 OSM house, 1 airport structure, 2 landmark
         float z1_m() const { return z0_m + height_m; }
     };
     std::vector<Rec> recs_;
@@ -109,6 +121,7 @@ class SolidBvh {
 
     friend bool write_solids_bin(const SolidBvh& bvh, const std::string& path);
     friend int read_solids_bin(SolidBvh& bvh, const std::string& path);
+    friend SolidMem solids_mem(const SolidBvh& bvh);
 };
 
 bool write_solids_bin(const SolidBvh& bvh, const std::string& path);
@@ -142,6 +155,7 @@ std::vector<LightPoint> landmark_warning_lights(SkylineEra era);
 
 void fill_solids(SolidBvh& bvh, SkylineEra era, const std::vector<Airport>& apts,
                  double default_ground_m = 3.0, const HeightSource* dem = nullptr);
+SolidMem solids_mem(const SolidBvh& bvh);
 
 // HAT/HOT with DEM + active-era solids. Optional previous eye for a
 // segment test (tunneling through a building is a hit → HAT ≤ 0).
