@@ -1,4 +1,5 @@
 #include "s376/airport.hpp"
+#include "s376/diagnostics.hpp"
 #include "s376/dxt.hpp"
 #include "s376/fetch.hpp"
 #include "s376/log.hpp"
@@ -21,6 +22,8 @@ void usage() {
            "usage:\n"
            "  s376-cache fetch ICAO [--radius-km N] [--out DIR] [--dem auto|glo30|3dep]\n"
            "                       [--imagery auto|naip|s2|hillshade] [--dry-run]\n"
+           "                       [--near-m M] [--near-dem-m M] [--mid-m M] [--far-m M]\n"
+           "                       [--near-km N] [--approach-nm N] [--max-export N]\n"
            "  s376-cache synth-ksea [--out DIR] [--size N] [--lods]\n"
            "  s376-cache from-geotiff DEM.tif [--imagery FILE] [--out DIR] [--lods]\n"
            "  s376-cache pack-lods --from DIR --out DIR\n"
@@ -84,6 +87,13 @@ int main(int argc, char** argv) {
     std::string img_kind = "auto";
     int size = 128;
     double radius_km = 25;
+    double near_m = 1.0;
+    double near_dem_m = 2.0;
+    double mid_m = 4.0;
+    double far_m = 20.0;
+    double near_km = 5.0;
+    double approach_nm = 10.0;
+    int max_export = 4000;
     bool lods = false;
     bool dry = false;
     for (int i = 2; i < argc; ++i) {
@@ -103,6 +113,20 @@ int main(int argc, char** argv) {
             size = std::stoi(need("--size"));
         else if (a == "--radius-km")
             radius_km = std::stod(need("--radius-km"));
+        else if (a == "--near-m")
+            near_m = std::stod(need("--near-m"));
+        else if (a == "--near-dem-m")
+            near_dem_m = std::stod(need("--near-dem-m"));
+        else if (a == "--mid-m")
+            mid_m = std::stod(need("--mid-m"));
+        else if (a == "--far-m")
+            far_m = std::stod(need("--far-m"));
+        else if (a == "--near-km")
+            near_km = std::stod(need("--near-km"));
+        else if (a == "--approach-nm")
+            approach_nm = std::stod(need("--approach-nm"));
+        else if (a == "--max-export")
+            max_export = std::stoi(need("--max-export"));
         else if (a == "--dem")
             dem_kind = need("--dem");
         else if (a == "--imagery")
@@ -145,10 +169,26 @@ int main(int argc, char** argv) {
             req.imagery = img_kind;
             req.out_dir = out;
             req.dry_run = dry;
+            req.near_m = near_m;
+            req.near_dem_m = near_dem_m;
+            req.mid_m = mid_m;
+            req.far_m = far_m;
+            req.near_radius_km = near_km;
+            req.approach_nm = approach_nm;
+            req.max_export = max_export;
             s376::FetchPlan plan;
             const auto bytes = s376::fetch_and_pack(req, &plan);
             std::cout << plan.icao << " dem=" << plan.dem_kind << " img=" << plan.img_kind
                       << " lods=" << plan.lods.size() << "\n";
+            std::cout << "  estimate tiles img=" << plan.estimate.img_tiles
+                      << " dem=" << plan.estimate.dem_tiles << " raw~"
+                      << s376::format_byte_count(plan.estimate.est_raw_bytes) << " packed~"
+                      << s376::format_byte_count(plan.estimate.est_packed_bytes) << "\n";
+            for (const auto& lod : plan.lods) {
+                std::cout << "  lod" << lod.level << " r=" << lod.radius_km << "km  img "
+                          << lod.img_m << "m/px  dem " << lod.dem_m << "m/px"
+                          << (lod.bc7 ? "  BC7" : "  BC1") << (lod.tiled ? "  tiled" : "") << "\n";
+            }
             for (const auto& u : plan.urls)
                 std::cout << "  url " << u << "\n";
             std::cout << plan.attribution;
@@ -156,7 +196,8 @@ int main(int argc, char** argv) {
                 s376::log::shutdown();
                 return 0;
             }
-            std::cout << "wrote " << out << "  " << bytes << " bytes (BC1/BC7 + s376dem + mips)\n";
+            std::cout << "wrote " << out << "  " << bytes << " bytes  "
+                      << s376::count_cache_tiles(out) << " tiles (BC1/BC7 + s376dem + mips)\n";
             s376::log::shutdown();
             return 0;
         }
@@ -174,14 +215,23 @@ int main(int argc, char** argv) {
             std::string dest = out;
             if (dest.empty() || dest == "cache/ksea")
                 dest = std::string("cache/") + ref.icao;
+            const auto query =
+                s376::overpass_aeroway_query(box.south, box.west, box.north, box.east);
             std::cout << ref.icao << " overpass " << url << "\n";
+            if (!s376::curl_glob_safe(url)) {
+                std::cerr << "overpass URL is not curl-glob-safe (raw [ ]); this is a bug\n";
+                s376::log::shutdown();
+                return 1;
+            }
             if (dry) {
                 s376::log::shutdown();
                 return 0;
             }
             std::filesystem::create_directories(dest);
             const std::string json_path = dest + "/osm.json";
-            if (!s376::http_get_file(url, json_path)) {
+            // POST the QL so [ ] never sit in the URL; GET with -g is the fallback.
+            if (!s376::http_post_file("https://overpass-api.de/api/interpreter", query, json_path) &&
+                !s376::http_get_file(url, json_path)) {
                 std::cerr << "overpass download failed\n";
                 s376::log::shutdown();
                 return 1;

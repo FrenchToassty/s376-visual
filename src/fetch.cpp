@@ -1,4 +1,5 @@
 #include "s376/fetch.hpp"
+#include "s376/airport.hpp"
 #include "s376/dxt.hpp"
 #include "s376/geo.hpp"
 #include "s376/log.hpp"
@@ -47,6 +48,78 @@ GeoBox box_from_radius(double lat, double lon, double radius_km) {
     return b;
 }
 
+GeoBox union_boxes(const std::vector<GeoBox>& boxes) {
+    GeoBox u;
+    if (boxes.empty())
+        return u;
+    u = boxes.front();
+    for (const auto& b : boxes) {
+        u.west = std::min(u.west, b.west);
+        u.south = std::min(u.south, b.south);
+        u.east = std::max(u.east, b.east);
+        u.north = std::max(u.north, b.north);
+    }
+    return u;
+}
+
+std::vector<GeoBox> coverage_boxes(const AirportRef& apt, const FetchRequest& req) {
+    std::vector<GeoBox> boxes;
+    boxes.push_back(box_from_radius(apt.lat, apt.lon, req.near_radius_km));
+    try {
+        const Airport a = airport_by_icao(apt.icao);
+        const double final_m = std::max(0.0, req.approach_nm) * 1852.0;
+        for (const auto& rw : a.runways) {
+            for (int end = 0; end < 2; ++end) {
+                const double lat0 = end == 0 ? rw.le_lat : rw.he_lat;
+                const double lon0 = end == 0 ? rw.le_lon : rw.he_lon;
+                const double hdg = end == 0 ? rw.heading_deg + 180.0 : rw.heading_deg;
+                double lat1 = lat0, lon1 = lon0;
+                offset_m(lat0, lon0, hdg, final_m, lat1, lon1);
+                constexpr int kSteps = 6;
+                for (int i = 0; i <= kSteps; ++i) {
+                    const double t = static_cast<double>(i) / kSteps;
+                    const double la = lat0 + (lat1 - lat0) * t;
+                    const double lo = lon0 + (lon1 - lon0) * t;
+                    boxes.push_back(box_from_radius(la, lo, 0.8));
+                }
+            }
+        }
+    } catch (const std::exception&) {
+        // Unknown ICAO layout: ARP circle only.
+    }
+    return boxes;
+}
+
+std::vector<RasterTile> tile_raster(const GeoBox& box, double m_per_px, int max_px) {
+    std::vector<RasterTile> out;
+    const double mpp = std::max(0.25, m_per_px);
+    const int cap = std::max(64, max_px);
+    const double lat = 0.5 * (box.south + box.north);
+    const double m_lat = 111320.0;
+    const double m_lon = 111320.0 * std::max(0.2, std::cos(geo::deg2rad(lat)));
+    const double width_m = std::max(mpp, (box.east - box.west) * m_lon);
+    const double height_m = std::max(mpp, (box.north - box.south) * m_lat);
+    const int nx = std::max(1, static_cast<int>(std::ceil(width_m / (mpp * cap))));
+    const int ny = std::max(1, static_cast<int>(std::ceil(height_m / (mpp * cap))));
+    for (int iy = 0; iy < ny; ++iy) {
+        for (int ix = 0; ix < nx; ++ix) {
+            RasterTile t;
+            t.ix = ix;
+            t.iy = iy;
+            t.box.west = box.west + (box.east - box.west) * ix / nx;
+            t.box.east = box.west + (box.east - box.west) * (ix + 1) / nx;
+            t.box.south = box.south + (box.north - box.south) * iy / ny;
+            t.box.north = box.south + (box.north - box.south) * (iy + 1) / ny;
+            const double tw = (t.box.east - t.box.west) * m_lon;
+            const double th = (t.box.north - t.box.south) * m_lat;
+            t.w = std::max(8, std::min(cap, static_cast<int>(std::lround(tw / mpp))));
+            t.h = std::max(8, std::min(cap, static_cast<int>(std::lround(th / mpp))));
+            out.push_back(t);
+        }
+    }
+    return out;
+}
+
 std::vector<LodSpec> default_lods(double radius_km) {
     std::vector<LodSpec> out;
     LodSpec near;
@@ -73,6 +146,69 @@ std::vector<LodSpec> default_lods(double radius_km) {
         out.push_back(far);
     }
     return out;
+}
+
+std::vector<LodSpec> fetch_lods(const FetchRequest& req) {
+    std::vector<LodSpec> out;
+    LodSpec near;
+    near.level = 0;
+    near.radius_km = std::min(req.near_radius_km, req.radius_km);
+    near.img_m = req.near_m;
+    near.dem_m = req.near_dem_m;
+    near.bc7 = true;
+    near.tiled = true;
+    near.img_n = req.max_export;
+    near.dem_n = req.max_export;
+    out.push_back(near);
+    if (req.radius_km > req.near_radius_km + 0.5) {
+        LodSpec mid;
+        mid.level = 1;
+        mid.radius_km = std::min(req.mid_radius_km, req.radius_km);
+        mid.img_m = req.mid_m;
+        mid.dem_m = req.mid_dem_m;
+        mid.tiled = true;
+        mid.img_n = req.max_export;
+        mid.dem_n = req.max_export;
+        out.push_back(mid);
+    }
+    if (req.radius_km > req.mid_radius_km + 0.5) {
+        LodSpec far;
+        far.level = 2;
+        far.radius_km = req.radius_km;
+        far.img_m = req.far_m;
+        far.dem_m = req.far_dem_m;
+        far.tiled = true;
+        far.img_n = req.max_export;
+        far.dem_n = req.max_export;
+        out.push_back(far);
+    }
+    return out;
+}
+
+GeoBox lod_coverage(const AirportRef& apt, const FetchRequest& req, const LodSpec& lod) {
+    if (lod.level == 0)
+        return union_boxes(coverage_boxes(apt, req));
+    return box_from_radius(apt.lat, apt.lon, lod.radius_km);
+}
+
+FetchEstimate estimate_fetch(const FetchRequest& req) {
+    FetchEstimate e;
+    const AirportRef apt = lookup_airport_ref(req.icao);
+    for (const auto& lod : fetch_lods(req)) {
+        const GeoBox box = lod_coverage(apt, req, lod);
+        const auto img = tile_raster(box, lod.img_m > 0 ? lod.img_m : 20.0, req.max_export);
+        const auto dem = tile_raster(box, lod.dem_m > 0 ? lod.dem_m : 30.0, req.max_export);
+        e.img_tiles += img.size();
+        e.dem_tiles += dem.size();
+        for (const auto& t : img) {
+            e.est_raw_bytes += static_cast<std::uint64_t>(t.w) * static_cast<std::uint64_t>(t.h) * 3;
+            const auto packed = lod.bc7 ? dxt::bc7_size(t.w, t.h) : dxt::bc1_size(t.w, t.h);
+            e.est_packed_bytes += packed + packed / 3; // mips
+        }
+        for (const auto& t : dem)
+            e.est_raw_bytes += static_cast<std::uint64_t>(t.w) * static_cast<std::uint64_t>(t.h) * 4;
+    }
+    return e;
 }
 
 AirportRef lookup_airport_ref(const std::string& icao) {
@@ -139,31 +275,98 @@ std::string s2_tile_url(int z, int x, int y) {
     return o.str();
 }
 
-bool http_get_file(const std::string& url, const std::string& dest) {
-    safety::check_data_url(url);
+const char* curl_bin() {
+#ifdef _WIN32
+    return "curl.exe";
+#else
+    return "curl";
+#endif
+}
+
+bool curl_glob_safe(const std::string& url) {
+    return url.find('[') == std::string::npos && url.find(']') == std::string::npos;
+}
+
+std::string http_get_command(const std::string& url, const std::string& dest) {
     if (!shell_quote_ok(url) || !shell_quote_ok(dest))
         throw std::runtime_error("refusing curl path with a quote");
-    ensure_dir(std::filesystem::path(dest).parent_path().string());
-    const char* curl = "curl";
-#ifdef _WIN32
-    curl = "curl.exe";
-#endif
     std::ostringstream cmd;
-    cmd << curl << " -fsSL --max-time 180 --retry 2 -A "
+    // -g / --globoff: Overpass QL has [out:json] etc. curl treats [ ] as
+    // a glob character class ("bad range in URL") unless globbing is off.
+    cmd << curl_bin() << " -g -fsSL --max-time 180 --retry 5 --retry-delay 2 -A "
         << "'s376-visual/0.1 (+https://github.com/joeylawell/s376-visual)' -o '" << dest << "' '"
         << url << "'";
+    return cmd.str();
+}
+
+std::string http_post_command(const std::string& url, const std::string& body_file,
+                              const std::string& dest) {
+    if (!shell_quote_ok(url) || !shell_quote_ok(dest) || !shell_quote_ok(body_file))
+        throw std::runtime_error("refusing curl path with a quote");
+    std::ostringstream cmd;
+    cmd << curl_bin() << " -g -fsSL --max-time 180 --retry 5 --retry-delay 2 -A "
+        << "'s376-visual/0.1 (+https://github.com/joeylawell/s376-visual)' --data-urlencode 'data@"
+        << body_file << "' -o '" << dest << "' '" << url << "'";
+    return cmd.str();
+}
+
+bool http_get_file(const std::string& url, const std::string& dest) {
+    safety::check_data_url(url);
+    if (std::filesystem::exists(dest) && std::filesystem::file_size(dest) > 32) {
+        S376_LOG_INFO("cache", "resume skip %s", dest.c_str());
+        return true;
+    }
+    ensure_dir(std::filesystem::path(dest).parent_path().string());
+    const std::string cmd = http_get_command(url, dest);
     S376_LOG_INFO("cache", "GET %s", url.c_str());
-    const int rc = std::system(cmd.str().c_str());
+    const int rc = std::system(cmd.c_str());
     if (rc != 0)
         return false;
     return std::filesystem::exists(dest) && std::filesystem::file_size(dest) > 32;
+}
+
+bool http_post_file(const std::string& url, const std::string& body, const std::string& dest) {
+    safety::check_data_url(url);
+    if (std::filesystem::exists(dest) && std::filesystem::file_size(dest) > 32) {
+        S376_LOG_INFO("cache", "resume skip %s", dest.c_str());
+        return true;
+    }
+    ensure_dir(std::filesystem::path(dest).parent_path().string());
+    const std::string body_file = dest + ".post";
+    {
+        std::ofstream o(body_file);
+        o << body;
+    }
+    const std::string cmd = http_post_command(url, body_file, dest);
+    S376_LOG_INFO("cache", "POST %s  %zu bytes", url.c_str(), body.size());
+    const int rc = std::system(cmd.c_str());
+    std::error_code ec;
+    std::filesystem::remove(body_file, ec);
+    if (rc != 0)
+        return false;
+    return std::filesystem::exists(dest) && std::filesystem::file_size(dest) > 32;
+}
+
+std::size_t count_cache_tiles(const std::string& dir) {
+    if (!std::filesystem::exists(dir))
+        return 0;
+    std::size_t n = 0;
+    for (const auto& e : std::filesystem::recursive_directory_iterator(dir)) {
+        if (!e.is_regular_file())
+            continue;
+        const auto name = e.path().filename().string();
+        if (name == "elev.s376dem")
+            ++n;
+    }
+    return n;
 }
 
 FetchPlan plan_fetch(const FetchRequest& req) {
     const AirportRef apt = lookup_airport_ref(req.icao);
     FetchPlan p;
     p.icao = apt.icao;
-    p.lods = default_lods(req.radius_km);
+    p.lods = fetch_lods(req);
+    p.estimate = estimate_fetch(req);
     std::string dem = req.dem;
     std::string img = req.imagery;
     if (dem == "auto")
@@ -182,10 +385,12 @@ FetchPlan plan_fetch(const FetchRequest& req) {
     } else if (dem == "3dep") {
         attr << "Elevation: USGS 3DEP (public domain, US government work).\n";
         for (const auto& lod : p.lods) {
-            const GeoBox b = box_from_radius(apt.lat, apt.lon, lod.radius_km);
-            p.urls.push_back(usgs_export_url("3DEPElevation", b, lod.dem_n, lod.dem_n, "tiff", "F32"));
+            const GeoBox box = lod_coverage(apt, req, lod);
+            const auto tiles = tile_raster(box, lod.dem_m > 0 ? lod.dem_m : 30.0, req.max_export);
+            for (const auto& t : tiles)
+                p.urls.push_back(
+                    usgs_export_url("3DEPElevation", t.box, t.w, t.h, "tiff", "F32"));
         }
-        // GLO-30 fallback tiles
         auto g = glo30_urls_for_box(box_from_radius(apt.lat, apt.lon, req.radius_km));
         p.urls.insert(p.urls.end(), g.begin(), g.end());
     } else {
@@ -194,17 +399,20 @@ FetchPlan plan_fetch(const FetchRequest& req) {
     if (img == "naip") {
         attr << "Imagery: USDA NAIP via USGS National Map ImageServer (US public domain).\n";
         for (const auto& lod : p.lods) {
-            const GeoBox b = box_from_radius(apt.lat, apt.lon, lod.radius_km);
-            p.urls.push_back("https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/"
-                             "ImageServer/exportImage?bbox=" +
-                             std::to_string(b.west) + "," + std::to_string(b.south) + "," +
-                             std::to_string(b.east) + "," + std::to_string(b.north) +
-                             "&bboxSR=4326&imageSR=4326&size=" + std::to_string(lod.img_n) + "," +
-                             std::to_string(lod.img_n) + "&format=jpg&f=image");
+            const GeoBox box = lod_coverage(apt, req, lod);
+            const auto tiles = tile_raster(box, lod.img_m > 0 ? lod.img_m : 20.0, req.max_export);
+            for (const auto& t : tiles) {
+                p.urls.push_back(
+                    "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/"
+                    "ImageServer/exportImage?bbox=" +
+                    std::to_string(t.box.west) + "," + std::to_string(t.box.south) + "," +
+                    std::to_string(t.box.east) + "," + std::to_string(t.box.north) +
+                    "&bboxSR=4326&imageSR=4326&size=" + std::to_string(t.w) + "," +
+                    std::to_string(t.h) + "&format=tiff&f=image");
+            }
         }
     } else if (img == "s2") {
         attr << "Imagery: EOX Sentinel-2 cloudless 2023 (CC BY 4.0, Copernicus Sentinel data).\n";
-        // A few z=12 tiles covering the ARP — exact mosaic is built at fetch time.
         p.urls.push_back(s2_tile_url(12, 0, 0));
     } else if (img == "hillshade") {
         attr << "Imagery: local hillshade (no download).\n";
@@ -350,15 +558,69 @@ std::uint64_t fetch_and_pack(const FetchRequest& req, FetchPlan* plan_out) {
         }
     };
 
-    if (plan.dem_kind == "3dep") {
-        const GeoBox b = box_from_radius(apt.lat, apt.lon, std::min(8.0, req.radius_km));
-        const std::string dest = raw + "/3dep.tif";
-        const std::string url = usgs_export_url("3DEPElevation", b, 384, 384, "tiff", "F32");
-        if (try_get(url, dest) && gdal_available()) {
-            try {
-                dems.push_back(DemGrid::load_geotiff(dest));
-            } catch (const std::exception& ex) {
-                S376_LOG_WARN("cache", "3DEP read: %s", ex.what());
+    auto naip_url = [](const RasterTile& t) {
+        return std::string("https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/"
+                           "ImageServer/exportImage?bbox=") +
+               std::to_string(t.box.west) + "," + std::to_string(t.box.south) + "," +
+               std::to_string(t.box.east) + "," + std::to_string(t.box.north) +
+               "&bboxSR=4326&imageSR=4326&size=" + std::to_string(t.w) + "," +
+               std::to_string(t.h) + "&format=tiff&f=image";
+    };
+
+    std::size_t packed_tiles = 0;
+    if (plan.dem_kind == "3dep" || plan.img_kind == "naip") {
+        for (const auto& lod : plan.lods) {
+            const GeoBox box = lod_coverage(apt, req, lod);
+            const auto dem_tiles =
+                tile_raster(box, lod.dem_m > 0 ? lod.dem_m : 30.0, req.max_export);
+            const auto img_tiles =
+                tile_raster(box, lod.img_m > 0 ? lod.img_m : 20.0, req.max_export);
+            const std::size_t n = std::max(dem_tiles.size(), img_tiles.size());
+            for (std::size_t i = 0; i < n; ++i) {
+                const RasterTile& dt = i < dem_tiles.size() ? dem_tiles[i]
+                                                           : (img_tiles.empty() ? dem_tiles[0]
+                                                                                : img_tiles[i]);
+                const RasterTile& it = i < img_tiles.size() ? img_tiles[i] : dt;
+                DemGrid tile_dem;
+                ImageRgb tile_img;
+                if (plan.dem_kind == "3dep") {
+                    const std::string dest = raw + "/l" + std::to_string(lod.level) + "-d-" +
+                                             std::to_string(dt.iy) + "-" + std::to_string(dt.ix) +
+                                             ".tif";
+                    const std::string url =
+                        usgs_export_url("3DEPElevation", dt.box, dt.w, dt.h, "tiff", "F32");
+                    if (try_get(url, dest) && gdal_available()) {
+                        try {
+                            tile_dem = DemGrid::load_geotiff(dest);
+                        } catch (const std::exception& ex) {
+                            S376_LOG_WARN("cache", "3DEP tile: %s", ex.what());
+                        }
+                    }
+                }
+                if (plan.img_kind == "naip") {
+                    const std::string dest = raw + "/l" + std::to_string(lod.level) + "-i-" +
+                                             std::to_string(it.iy) + "-" + std::to_string(it.ix) +
+                                             ".tif";
+                    if (try_get(naip_url(it), dest) && gdal_available()) {
+                        try {
+                            tile_img = ImageRgb::load_jpeg_or_png(dest);
+                        } catch (const std::exception& ex) {
+                            S376_LOG_WARN("cache", "NAIP tile: %s", ex.what());
+                        }
+                    }
+                }
+                if (tile_dem.empty())
+                    continue;
+                if (tile_img.rgb.empty())
+                    tile_img = ImageRgb::hillshade(tile_dem);
+                const std::string tdir = out + "/lod" + std::to_string(lod.level) + "/t" +
+                                         std::to_string(dt.iy) + "_" + std::to_string(dt.ix);
+                write_lod_dir(tdir, tile_dem, tile_img, lod.bc7, req.mips);
+                ++packed_tiles;
+                if (dems.empty())
+                    dems.push_back(tile_dem);
+                if (imagery.rgb.empty())
+                    imagery = tile_img;
             }
         }
     }
@@ -456,14 +718,16 @@ std::uint64_t fetch_and_pack(const FetchRequest& req, FetchPlan* plan_out) {
         region.dem.north = box_from_radius(apt.lat, apt.lon, req.radius_km).north;
     }
     region.imagery = imagery.rgb.empty() ? ImageRgb::hillshade(region.dem) : imagery;
-    const auto bytes = pack_lods(region, out, plan.lods, req.mips);
+    // Coarse root + lodN/elev for HAT / fallback. High-res tiles already
+    // live in lodN/tY_X from the ImageServer loop.
+    const auto bytes = pack_lods(region, out, default_lods(req.radius_km), req.mips);
     // Drop raw GeoTIFFs after a successful pack — they are gitignored anyway
     // and a 1° GLO-30 COG is tens of MiB.
     std::error_code ec;
     std::filesystem::remove_all(raw, ec);
     const auto packed = directory_bytes(out);
-    S376_LOG_INFO("cache", "packed %s  %llu bytes  dem=%s img=%s", apt.icao.c_str(),
-                  static_cast<unsigned long long>(packed), plan.dem_kind.c_str(),
+    S376_LOG_INFO("cache", "packed %s  %llu bytes  %zu tiles  dem=%s img=%s", apt.icao.c_str(),
+                  static_cast<unsigned long long>(packed), packed_tiles, plan.dem_kind.c_str(),
                   plan.img_kind.c_str());
     (void)bytes;
     return packed;

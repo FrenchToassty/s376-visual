@@ -1,4 +1,5 @@
 #include "s376/airport.hpp"
+#include "s376/fetch.hpp"
 #include "s376/geo.hpp"
 
 #include <cmath>
@@ -189,6 +190,20 @@ void test_airport() {
     CHECK(url.find("overpass-api.de") != std::string::npos);
     CHECK(url.find("taxiway") != std::string::npos);
     CHECK(url.find("apron") != std::string::npos);
+    CHECK(s376::curl_glob_safe(url));
+    CHECK(url.find('[') == std::string::npos);
+    CHECK(url.find(']') == std::string::npos);
+    CHECK(url.find("%5B") != std::string::npos);
+    const auto q = s376::overpass_aeroway_query(37.60, -122.40, 37.64, -122.35);
+    CHECK(q.find("[out:json]") != std::string::npos);
+    CHECK(!s376::curl_glob_safe(q));
+    const auto cmd = s376::http_get_command(url, "/tmp/s376-osm-test.json");
+    CHECK(cmd.find(" -g ") != std::string::npos);
+    CHECK(cmd.find("--retry") != std::string::npos);
+    const auto post = s376::http_post_command("https://overpass-api.de/api/interpreter",
+                                              "/tmp/s376-osm-test.post", "/tmp/s376-osm-test.json");
+    CHECK(post.find(" -g ") != std::string::npos);
+    CHECK(post.find("--data-urlencode") != std::string::npos);
 
     s376::Airport osm = s376::ksfo_public();
     const std::size_t taxis0 = osm.taxiways.size();

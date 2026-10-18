@@ -85,7 +85,34 @@ void test_fetch() {
     CHECK(plan.img_kind == "naip");
     CHECK(plan.lods.size() >= 2);
     CHECK(plan.lods[0].bc7);
+    CHECK(plan.lods[0].tiled);
+    CHECK(plan.lods[0].img_m > 0 && plan.lods[0].img_m <= 1.01);
     CHECK(!plan.urls.empty());
+    CHECK(plan.estimate.img_tiles >= 4);
+    CHECK(plan.estimate.dem_tiles >= 2);
+    CHECK(plan.estimate.est_packed_bytes > 1024 * 1024);
+    for (const auto& u : plan.urls)
+        CHECK(s376::curl_glob_safe(u));
+
+    s376::GeoBox tb;
+    tb.west = -122.40;
+    tb.east = -122.20;
+    tb.south = 47.40;
+    tb.north = 47.52;
+    const auto rast = s376::tile_raster(tb, 1.0, 4000);
+    CHECK(rast.size() >= 4);
+    for (const auto& t : rast) {
+        CHECK(t.w <= 4000 && t.h <= 4000);
+        CHECK(t.w >= 8 && t.h >= 8);
+        CHECK(t.box.east > t.box.west);
+        CHECK(t.box.north > t.box.south);
+    }
+    const auto cov = s376::coverage_boxes(ksea, req);
+    CHECK(cov.size() >= 2);
+    const auto uni = s376::union_boxes(cov);
+    CHECK(uni.east > uni.west);
+    const auto est = s376::estimate_fetch(req);
+    CHECK(est.img_tiles == plan.estimate.img_tiles);
     CHECK(plan.attribution.find("GLO-30") != std::string::npos ||
           plan.attribution.find("3DEP") != std::string::npos);
 

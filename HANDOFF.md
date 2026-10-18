@@ -6,6 +6,30 @@ account may stop mid-run — treat this file as the source of truth.
 **PR:** https://github.com/joeylawell/s376-visual/pull/1
 **Branch:** `cursor/s376-visual-v1-6852`
 
+## Milestone: Overpass glob + high-res fetch (2026-10-18)
+
+Joey's first real `s376-cache osm KSEA` died with
+`curl: (3) bad range in URL position 47` — curl globbed `[out:json]`.
+GET URLs now percent-encode `[ ] { } "`, every curl line uses `-g`,
+and `osm` POSTs the QL (`--data-urlencode data@file`).
+`curl_glob_safe` / `http_get_command` are unit-tested.
+
+Fetch no longer pulls one 384×384 DEM + 768×768 NAIP (~20 m/px).
+ImageServer exports are tiled at 4000 px with resume (skip existing)
+and `--retry 5`. Default pyramid:
+
+- lod0: 5 km ARP + 10 nm finals, 1 m imagery / 2 m DEM, BC7 tiles
+- lod1: 20 km, 4 m / 8 m, BC1
+- lod2: outer radius, 20 m / 30 m, BC1 (GLO-30 / S2 outside CONUS)
+
+`--dry-run` prints tile counts and a packed-size estimate. KSEA
+defaults: **43 img + 17 DEM tiles, raw~2.0 GiB, packed~607 MiB**.
+`--near-m` / `--near-dem-m` / `--mid-m` / `--far-m` / `--near-km` /
+`--approach-nm` / `--max-export` override the targets. The renderer
+drapes `lodN/tY_X` tiles. `s376-doctor` reports tile counts.
+Resume + BC7 keep the 980 Ti (6 GB) path streamable; drop `--near-m`
+to 2 if VRAM is tight.
+
 ## Milestone: GL compat + SIGTERM/Esc (2026-10-18)
 
 Hangar box (Mint 22.3, RTX 5060 Ti, NVIDIA 595.99 open, apt OSG 3.6.5)
@@ -31,8 +55,8 @@ ignored SIGTERM (`timeout 8` needed `kill -9`).
 
 ## Verified in this run
 
-- `s376-tests`: **9128 passed, 0 failed** (plan_gl_display Linux/legacy
-  vs 3.3+compat-mask, `render.gl_debug`, plus the previous suite).
+- `s376-tests`: **9273 passed, 0 failed** (plan_gl_display, glob-safe
+  Overpass URL/`-g`/POST, tiled fetch estimate, plus previous suite).
 - `timeout -k 2 3 --headless --demo --duration 3600`: exit **124**
   (SIGTERM honored; stopped after 178 frames). Previously hung 60+ s.
 - `s376-doctor`: 0 fail, 1 warn (osgEarth). Reports `cache-ksea` 4.9 KiB,
@@ -223,8 +247,9 @@ are unit-tested.
   (105 + CSN 28–30), lightning flash. Local DEM patch + BC1 drape.
   osgEarth earth file is loaded when the lib is present. Linux GL
   context is legacy-compat; `--gl-debug` re-enables OSG error checks.
-- `s376-cache`: `fetch` / `synth-ksea --lods` / `from-geotiff` / `info`.
-  Real 3DEP+NAIP or GLO-30+S2; LOD pyramid with BC1/BC7 mips.
+- `s376-cache`: `fetch` / `osm` / `synth-ksea --lods` / `from-geotiff` /
+  `info`. Tiled 3DEP+NAIP (or GLO-30+S2) LOD pyramid, BC1/BC7 mips.
+  `osm` POSTs Overpass QL (`-g`, percent-encoded GET fallback).
 - Airport rebuild plan: `docs/AIRPORTS.md`. Terrain sources: `docs/SOURCES.md`.
 - Safety: `10.1.95.0/24` and `192.168.173.0/24` refused unless
   `host.allow_sim_lan` / `S376_ALLOW_SIM_LAN=1`. Tests never set that.
@@ -238,20 +263,17 @@ are unit-tested.
 | HAT off-DEM | `sample_hat` | Stand-in elev=0 when the point is outside the packed region |
 | More airports | `docs/AIRPORTS.md` | KSEA / KSFO / KLAS / KLAX / KJFK are in. Next: EGLL / EDDF |
 | Off-axis frustum | camera is rotated by heading offset | Shared eyepoint + asymmetric projection later |
-| Overpass `s376-cache osm` | `src/fetch.cpp` `http_get_file` | curl glob on `[out:json]` — encode started; need `-g` + glob-safe test |
-| Fetch resolution | `src/fetch.cpp` | KSEA cache ~3.1 MB (384 DEM / 768 NAIP). Tile ImageServer, high-res near field |
+| High-res fetch on hangar | `s376-cache fetch KSEA` | Dry-run estimate only on this agent. Need a real download + doctor bytes on the Mint box |
 
 ## Next 5 concrete steps (in order)
 
-1. **Overpass curl glob** — `s376-cache osm` fails `curl: (3) bad range`
-   on `[ ]`. Finish `-g` / percent-encode + glob-safe test.
-2. **High-res fetch** — tile ImageServer (≤4000 px), near ~1 m imagery /
-   ~2 m DEM, mid/far rings, `--dry-run` size, doctor report.
-3. **Close remaining PARITY gaps**: 109 beams, 131 display, 128
+1. **Run `s376-cache fetch KSEA` + `osm KSEA` on the hangar box** and
+   paste doctor cache bytes / tile counts back into this file.
+2. **Close remaining PARITY gaps**: 109 beams, 131 display, 128
    patchy/speed-cue, 124 runway condition, PAPI/taxi, cloud type
    catalog, real storm-cell sizes.
-4. **Asymmetric / off-axis projection** if ViewAngles overlap is not enough.
-5. **EGLL / EDDF** layouts.
+3. **Asymmetric / off-axis projection** if ViewAngles overlap is not enough.
+4. **EGLL / EDDF** layouts.
 
 ## How to build / run / test (Linux Mint 22)
 
@@ -262,6 +284,8 @@ cmake --build build -j"$(nproc)"
 unset S376_ALLOW_SIM_LAN S376_ALLOW_LAN
 ctest --test-dir build --output-on-failure
 ./build/s376-cache synth-ksea --out cache/ksea
+./build/s376-cache fetch KSEA --dry-run
+./build/s376-cache osm KSEA --dry-run
 ./build/s376-doctor -c config/s376-visual.toml
 ./build/s376-visual --headless --demo --duration 3 --bind 127.0.0.1:2300
 ./build/s376-visual --headless --demo-weather --duration 3 --bind 127.0.0.1:2300

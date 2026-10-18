@@ -28,6 +28,7 @@ struct AirportCacheSize {
     std::string icao;
     std::string path;
     std::uint64_t bytes = 0;
+    std::size_t tiles = 0;
 };
 
 struct ChannelFrameTime {

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -360,12 +361,28 @@ std::vector<Airport> all_public_airports() {
     return {ksea_public(), ksfo_public(), klas_public(), klax_public(), kjfk_public()};
 }
 
-std::string overpass_aeroway_url(double south, double west, double north, double east) {
+std::string overpass_aeroway_query(double south, double west, double north, double east) {
     std::ostringstream o;
-    o << "https://overpass-api.de/api/interpreter?data="
-      << "[out:json][timeout:25];(way[%22aeroway%22=%22taxiway%22](" << south << "," << west << ","
-      << north << "," << east << ");way[%22aeroway%22=%22apron%22](" << south << "," << west << ","
-      << north << "," << east << "););out%20geom;";
+    o << "[out:json][timeout:25];(way[\"aeroway\"=\"taxiway\"](" << south << "," << west << ","
+      << north << "," << east << ");way[\"aeroway\"=\"apron\"](" << south << "," << west << ","
+      << north << "," << east << "););out geom;";
+    return o.str();
+}
+
+std::string overpass_aeroway_url(double south, double west, double north, double east) {
+    const std::string q = overpass_aeroway_query(south, west, north, east);
+    std::ostringstream o;
+    o << "https://overpass-api.de/api/interpreter?data=";
+    for (unsigned char c : q) {
+        if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~' || c == '=' ||
+            c == ';' || c == ',' || c == '(' || c == ')' || c == '/' || c == ':') {
+            o << c;
+        } else {
+            char buf[8];
+            std::snprintf(buf, sizeof(buf), "%%%02X", c);
+            o << buf;
+        }
+    }
     return o.str();
 }
 

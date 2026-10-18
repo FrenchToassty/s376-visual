@@ -96,6 +96,9 @@ std::vector<Airport> all_public_airports();
 
 // Merge Overpass `out geom` JSON (aeroway=taxiway|apron). Returns ways added.
 int merge_osm_json(Airport& a, const std::string& json);
+// Raw Overpass QL (may contain [ ]). Never pass this string to curl unquoted.
+std::string overpass_aeroway_query(double south, double west, double north, double east);
+// GET URL with [ ] { } percent-encoded so curl globbing cannot expand it.
 std::string overpass_aeroway_url(double south, double west, double north, double east);
 // Load that JSON from a file (0 if missing). Search cache/<icao>/osm.json etc.
 int try_merge_osm_file(Airport& a, const std::string& path);

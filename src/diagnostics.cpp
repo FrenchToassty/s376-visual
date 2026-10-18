@@ -71,9 +71,11 @@ std::string lower_icao(std::string id) {
 }
 
 bool looks_packed(const std::string& dir) {
-    return std::filesystem::exists(dir + "/elev.s376dem") ||
-           std::filesystem::exists(dir + "/lod0/elev.s376dem") ||
-           std::filesystem::exists(dir + "/imagery.dds");
+    if (std::filesystem::exists(dir + "/elev.s376dem") ||
+        std::filesystem::exists(dir + "/lod0/elev.s376dem") ||
+        std::filesystem::exists(dir + "/imagery.dds"))
+        return true;
+    return count_cache_tiles(dir) > 0;
 }
 
 } // namespace
@@ -104,6 +106,7 @@ std::vector<AirportCacheSize> scan_airport_caches(const std::string& root,
         s.icao = icao;
         s.path = path;
         s.bytes = directory_bytes(path);
+        s.tiles = count_cache_tiles(path);
         out.push_back(std::move(s));
     };
 
@@ -379,7 +382,9 @@ DoctorReport run_doctor(const AppConfig& cfg, const std::string& config_path, bo
                         "s376-cache fetch " + s.icao + " --out " + s.path});
             } else {
                 add(r, {name, CheckStatus::Pass,
-                        format_byte_count(s.bytes) + " on disk (" + s.path + ")", ""});
+                        format_byte_count(s.bytes) + " on disk (" + s.path + ")  " +
+                            std::to_string(s.tiles) + " tiles",
+                        ""});
             }
         }
     }

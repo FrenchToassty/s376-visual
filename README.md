@@ -143,10 +143,13 @@ region once, offline:
 ./build/s376-cache synth-ksea --out cache/ksea --lods
 
 # real, freely licensed data (hangar box with a network)
+# near field ~1 m NAIP / ~2 m 3DEP, tiled at the ImageServer 4000 px cap
 ./build/s376-cache fetch KSEA --radius-km 25 --out cache/ksea
 ./build/s376-cache fetch KSFO --out cache/ksfo
-# preview URLs only:
+# preview URLs + packed-size estimate (no download):
 ./build/s376-cache fetch KSEA --dry-run
+# Overpass taxi/apron (POST; [ ] never reach curl globbing):
+./build/s376-cache osm KSEA --out cache/ksea
 
 ./build/s376-visual --demo --cache-dir cache/ksea
 ```

@@ -21,6 +21,17 @@ struct LodSpec {
     int dem_n = 256;
     int img_n = 512;
     bool bc7 = false; // near-field only
+    double img_m = 0; // metres / px; 0 = use img_n
+    double dem_m = 0;
+    bool tiled = false;
+};
+
+struct RasterTile {
+    GeoBox box;
+    int w = 0;
+    int h = 0;
+    int ix = 0;
+    int iy = 0;
 };
 
 struct AirportRef {
@@ -40,6 +51,23 @@ struct FetchRequest {
     std::string out_dir;
     bool dry_run = false;
     bool mips = true;
+    double near_m = 1.0;       // imagery m/px near ARP + finals
+    double near_dem_m = 2.0;
+    double mid_m = 4.0;
+    double mid_dem_m = 8.0;
+    double far_m = 20.0;
+    double far_dem_m = 30.0;
+    double near_radius_km = 5.0;
+    double mid_radius_km = 20.0;
+    double approach_nm = 10.0; // 10 nm final each runway end
+    int max_export = 4000;     // ImageServer export cap
+};
+
+struct FetchEstimate {
+    std::uint64_t img_tiles = 0;
+    std::uint64_t dem_tiles = 0;
+    std::uint64_t est_raw_bytes = 0;
+    std::uint64_t est_packed_bytes = 0;
 };
 
 struct FetchPlan {
@@ -49,11 +77,26 @@ struct FetchPlan {
     std::string attribution;
     std::vector<LodSpec> lods;
     std::vector<std::string> urls;
+    FetchEstimate estimate;
 };
 
 GeoBox box_from_radius(double lat, double lon, double radius_km);
-std::vector<LodSpec> default_lods(double radius_km);
+GeoBox union_boxes(const std::vector<GeoBox>& boxes);
+std::vector<GeoBox> coverage_boxes(const AirportRef& apt, const FetchRequest& req);
+std::vector<LodSpec> default_lods(double radius_km); // synth / offline
+std::vector<LodSpec> fetch_lods(const FetchRequest& req);
+std::vector<RasterTile> tile_raster(const GeoBox& box, double m_per_px, int max_px);
+FetchEstimate estimate_fetch(const FetchRequest& req);
 AirportRef lookup_airport_ref(const std::string& icao); // throws if unknown
+
+// curl glob-safe: no raw [ ] that curl would treat as a character class.
+bool curl_glob_safe(const std::string& url);
+std::string http_get_command(const std::string& url, const std::string& dest);
+std::string http_post_command(const std::string& url, const std::string& body_file,
+                              const std::string& dest);
+bool http_post_file(const std::string& url, const std::string& body, const std::string& dest);
+
+std::size_t count_cache_tiles(const std::string& dir);
 
 std::string glo30_tile_url(int lat_deg, int lon_deg);
 std::vector<std::string> glo30_urls_for_box(const GeoBox& b);

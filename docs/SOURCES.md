@@ -10,7 +10,7 @@ s376-visual streams or caches standard formats.
 | [Esri World Imagery](https://www.arcgis.com/home/item.html?id=10df2279f9684e4a9f6a7f08febac2a9) (default earth file) | osgEarth XYZ, spherical mercator | Attribution required. Fine for development; check Esri terms before a public show |
 | OpenStreetMap standard tiles | osgEarth XYZ | [Tile usage policy](https://operations.osmfoundation.org/policies/tiles/) — do **not** point a 60 Hz IG at `tile.openstreetmap.org` in production. Host your own tile cache |
 | Sentinel-2 L2A (Copernicus) | Local GeoTIFF / MBTiles / WMTS | Best free true-colour around European airports (EGLL, EDDF, LEBL). Copernicus open licence |
-| [NAIP](https://naip-usdaonline.hub.arcgis.com/) | Local GeoTIFF / MBTiles | USDA 1 m imagery for CONUS airports (KSEA, KSFO, KLAX, KLAS, KJFK, …) |
+| [NAIP](https://naip-usdaonline.hub.arcgis.com/) | Tiled ImageServer export + local BC7 | USDA ~0.6 m native; we pull ~1 m near the ARP and 10 nm finals (4000 px tiles), 4 m mid, 20 m far |
 | osgEarth ReadyMap | TMS, if the public endpoint is still up | Historical osgEarth demo. Treat as optional |
 
 The default `data/earth/s376.earth` points at Esri World Imagery so a

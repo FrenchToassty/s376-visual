@@ -189,7 +189,6 @@ void strip_ff(osg::StateSet* ss) {
     ss->removeMode(GL_ALPHA_TEST);
     ss->removeMode(GL_POINT_SMOOTH);
     ss->removeMode(GL_POINT_SPRITE);
-    ss->removeMode(GL_TEXTURE_2D);
     ss->removeAttribute(osg::StateAttribute::MATERIAL);
     ss->removeAttribute(osg::StateAttribute::LIGHTMODEL);
     ss->removeAttribute(osg::StateAttribute::LIGHT);
@@ -952,21 +951,35 @@ class OsgRenderer final : public Renderer {
             const std::string dir = cfg.render.cache_dir;
             bool any_lod = false;
             if (!dir.empty()) {
-                for (int i = 2; i >= 0; --i) {
-                    const std::string lod = dir + "/lod" + std::to_string(i);
-                    if (!std::filesystem::exists(lod + "/elev.s376dem"))
-                        continue;
+                auto try_patch = [&](const std::string& path, const char* label) {
+                    if (!std::filesystem::exists(path + "/elev.s376dem"))
+                        return;
                     try {
-                        auto cache = load_cache(lod);
-                        if (auto* patch = make_dem_patch(cache, static_cast<float>(cfg.render.aniso))) {
+                        auto cache = load_cache(path);
+                        if (auto* patch =
+                                make_dem_patch(cache, static_cast<float>(cfg.render.aniso))) {
                             root->addChild(patch);
                             any_lod = true;
-                            S376_LOG_INFO("render", "draped LOD%d  %dx%d  %.3f,%.3f .. %.3f,%.3f", i,
-                                          cache.dem.w, cache.dem.h, cache.dem.west, cache.dem.south,
-                                          cache.dem.east, cache.dem.north);
+                            S376_LOG_INFO("render", "draped %s  %dx%d  %.3f,%.3f .. %.3f,%.3f",
+                                          label, cache.dem.w, cache.dem.h, cache.dem.west,
+                                          cache.dem.south, cache.dem.east, cache.dem.north);
                         }
                     } catch (const std::exception& ex) {
-                        S376_LOG_WARN("render", "LOD%d: %s", i, ex.what());
+                        S376_LOG_WARN("render", "%s: %s", label, ex.what());
+                    }
+                };
+                for (int i = 2; i >= 0; --i) {
+                    const std::string lod = dir + "/lod" + std::to_string(i);
+                    try_patch(lod, ("LOD" + std::to_string(i)).c_str());
+                    if (!std::filesystem::is_directory(lod))
+                        continue;
+                    for (const auto& e : std::filesystem::directory_iterator(lod)) {
+                        if (!e.is_directory())
+                            continue;
+                        const std::string name = e.path().filename().string();
+                        if (name.size() < 2 || name[0] != 't')
+                            continue;
+                        try_patch(e.path().string(), name.c_str());
                     }
                 }
             }
