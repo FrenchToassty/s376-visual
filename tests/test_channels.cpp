@@ -31,43 +31,71 @@ extern int g_passes;
 void test_channels() {
     auto cfg = s376::default_config();
     auto all = s376::select_channels(cfg, "");
-    CHECK(all.size() == 3);
-    CHECK(all[0].name == "front" && all[1].name == "left" && all[2].name == "right");
-    auto one = s376::select_channels(cfg, "left");
-    CHECK(one.size() == 1 && one[0].name == "left");
-    CHECK_NEAR(one[0].heading_offset_deg, 35.515, 1e-6);
+    CHECK(all.size() == 4);
+    CHECK(all[0].name == "far_left" && all[1].name == "mid_left");
+    CHECK(all[2].name == "mid_right" && all[3].name == "far_right");
+    CHECK_NEAR(all[0].heading_offset_deg, 35.515, 1e-6);
+    CHECK_NEAR(all[1].heading_offset_deg, 0.0, 1e-6);
+    CHECK_NEAR(all[2].heading_offset_deg, 0.0, 1e-6);
+    CHECK_NEAR(all[3].heading_offset_deg, -35.25, 1e-6);
+    auto one = s376::select_channels(cfg, "mid_left");
+    CHECK(one.size() == 1 && one[0].name == "mid_left");
+    CHECK_NEAR(one[0].heading_offset_deg, 0.0, 1e-6);
+    auto alias = s376::select_channels(cfg, "front");
+    CHECK(alias.size() == 1 && alias[0].name == "mid_left");
+    CHECK(s376::select_channels(cfg, "left")[0].name == "far_left");
+    CHECK(s376::select_channels(cfg, "right")[0].name == "far_right");
+    CHECK(s376::select_channels(cfg, "front_fo")[0].name == "mid_right");
+    CHECK(s376::select_channels(cfg, "fo_front")[0].name == "mid_right");
     auto none = s376::select_channels(cfg, "bogus");
     CHECK(none.empty());
     auto all2 = s376::select_channels(cfg, "all");
-    CHECK(all2.size() == 3);
+    CHECK(all2.size() == 4);
+
+    CHECK(cfg.host.reply_master == "mid_left");
+    CHECK(s376::hat_reply_enabled(cfg.host, one));
+    CHECK(!s376::hat_reply_enabled(cfg.host, s376::select_channels(cfg, "far_left")));
+    CHECK(!s376::hat_reply_enabled(cfg.host, s376::select_channels(cfg, "mid_right")));
+    CHECK(!s376::hat_reply_enabled(cfg.host, s376::select_channels(cfg, "far_right")));
+    CHECK(s376::hat_reply_enabled(cfg.host, all));
+    auto no_hat = cfg.host;
+    no_hat.hat_responder = false;
+    CHECK(!s376::hat_reply_enabled(no_hat, one));
+    no_hat.hat_responder = true;
+    no_hat.reply_master.clear();
+    CHECK(s376::hat_reply_enabled(no_hat, s376::select_channels(cfg, "far_right")));
+    CHECK(s376::default_shot_channel(cfg) == "mid_left");
 
     cfg.channels[1].enabled = false;
-    CHECK(s376::select_channels(cfg, "").size() == 2);
+    CHECK(s376::select_channels(cfg, "").size() == 3);
 
-    // Single display: tile left | front | right, scaled to fit.
+    // Single display: tile far_left | mid_left | mid_right | far_right.
     auto tiled = s376::layout_channels(all, 1, 1920, 1080);
-    CHECK(tiled.size() == 3);
-    CHECK(tiled[0].name == "left");
-    CHECK(tiled[1].name == "front");
-    CHECK(tiled[2].name == "right");
-    CHECK(tiled[0].x < tiled[1].x && tiled[1].x < tiled[2].x);
-    CHECK(tiled[0].w + tiled[1].w + tiled[2].w <= 1920 + 3);
+    CHECK(tiled.size() == 4);
+    CHECK(tiled[0].name == "far_left");
+    CHECK(tiled[1].name == "mid_left");
+    CHECK(tiled[2].name == "mid_right");
+    CHECK(tiled[3].name == "far_right");
+    CHECK(tiled[0].x < tiled[1].x && tiled[2].x < tiled[3].x);
+    CHECK(tiled[0].w + tiled[1].w + tiled[2].w + tiled[3].w <= 1920 + 4);
     CHECK(!tiled[0].fullscreen);
 
-    // Three monitors: each channel on its configured screen, native size.
-    auto multi = s376::layout_channels(all, 3, 1920, 1080);
-    CHECK(multi.size() == 3);
+    // Four monitors: each channel on its configured screen, native size.
+    auto multi = s376::layout_channels(all, 4, 1920, 1080);
+    CHECK(multi.size() == 4);
     int screens_used = 0;
     for (const auto& p : multi) {
-        if (p.name == "front")
+        if (p.name == "far_left")
             CHECK(p.screen == 0 && p.w == 1920);
-        if (p.name == "left")
+        if (p.name == "mid_left")
             CHECK(p.screen == 1);
-        if (p.name == "right")
+        if (p.name == "mid_right")
             CHECK(p.screen == 2);
+        if (p.name == "far_right")
+            CHECK(p.screen == 3);
         screens_used += p.screen;
     }
-    CHECK(screens_used == 0 + 1 + 2);
+    CHECK(screens_used == 0 + 1 + 2 + 3);
 
     // Explicit window_x/y wins.
     all[0].window_x = 40;
@@ -75,7 +103,7 @@ void test_channels() {
     auto ex = s376::layout_channels(all, 1, 1920, 1080);
     bool found = false;
     for (const auto& p : ex) {
-        if (p.name == "front") {
+        if (p.name == "far_left") {
             CHECK(p.x == 40 && p.y == 50);
             found = true;
         }
@@ -97,4 +125,10 @@ void test_channels() {
     const double dot = front.forward.x * left.forward.x + front.forward.y * left.forward.y +
                        front.forward.z * left.forward.z;
     CHECK(dot < 0.95);
+
+    // mid_left and mid_right share the front frustum; FO eye offset is optional.
+    CHECK_NEAR(all[1].heading_offset_deg, all[2].heading_offset_deg, 1e-9);
+    const auto fo = s376::geo::make_channel_view(47.46, -122.31, 136.0, 180.34, 0, 0, 0, 0, 0, 50,
+                                                32.5, 1920, 1080, 0, 0.51, 0);
+    CHECK(std::fabs(fo.eye.x - front.eye.x) + std::fabs(fo.eye.y - front.eye.y) > 0.1);
 }

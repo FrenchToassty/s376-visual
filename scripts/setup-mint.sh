@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # One-command Linux Mint 22 / Ubuntu 24.04 setup for s376-visual.
 # Installs apt deps, builds with g++, runs tests, packs a synth KSEA cache,
-# and writes desktop launchers for --demo and the 3-channel config.
+# and writes desktop launchers for --demo (mid_left) and the laptop
+# 3-channel config.
 #
 # Never talks to 10.1.95.0/24, 192.168.173.0/24, or UDP 3340/3341.
 set -euo pipefail
@@ -116,8 +117,8 @@ EOF
 
 if [[ "$NO_DESKTOP" -eq 0 ]]; then
     BIN="$ROOT/build/s376-visual"
-    DEMO_EXEC="$BIN --demo --channel front --cache-dir $ROOT/cache/ksea -c $ROOT/config/s376-visual.toml"
-    CH3_EXEC="$BIN --demo --cache-dir $ROOT/cache/ksea -c $ROOT/config/s376-visual.toml"
+    DEMO_EXEC="$BIN --demo --channel mid_left --cache-dir $ROOT/cache/ksea -c $ROOT/config/s376-visual.toml"
+    CH3_EXEC="$BIN --demo --cache-dir $ROOT/cache/ksea -c $ROOT/config/channels-3.toml"
     APPDIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
     if [[ "$DRY" -eq 1 ]]; then
         echo "+ write $APPDIR/s376-visual-demo.desktop"
@@ -125,22 +126,22 @@ if [[ "$NO_DESKTOP" -eq 0 ]]; then
     else
         write_desktop "$APPDIR/s376-visual-demo.desktop" \
             "s376-visual demo" "$DEMO_EXEC" \
-            "KSEA 16L takeoff, single front channel"
+            "KSEA 16L takeoff, one projector channel (mid_left)"
         write_desktop "$APPDIR/s376-visual-3ch.desktop" \
             "s376-visual 3-channel" "$CH3_EXEC" \
-            "Left / front / right CompositeViewer (tiled on one display)"
+            "Laptop 3-channel alternative (front/left/right)"
         write_desktop "$APPDIR/s376-visual-desk.desktop" \
             "s376-visual 4-monitor desk" \
             "$BIN --demo --cache-dir $ROOT/cache/ksea -c $ROOT/config/desk-4monitor.toml" \
             "IOS on DP-4, L/F/R on DP-3 / HDMI-0 / DP-0"
         write_desktop "$APPDIR/s376-visual-weather.desktop" \
             "s376-visual weather demo" \
-            "$BIN --demo-weather --channel front --cache-dir $ROOT/cache/ksea -c $ROOT/config/s376-visual.toml" \
+            "$BIN --demo-weather --channel mid_left --cache-dir $ROOT/cache/ksea -c $ROOT/config/s376-visual.toml" \
             "Type-124 rain / type-128 fog (host fields only)"
         if [[ -d "$HOME/Desktop" ]]; then
             write_desktop "$HOME/Desktop/s376-visual-demo.desktop" \
                 "s376-visual demo" "$DEMO_EXEC" \
-                "KSEA 16L takeoff, single front channel"
+                "KSEA 16L takeoff, one projector channel (mid_left)"
             write_desktop "$HOME/Desktop/s376-visual-3ch.desktop" \
                 "s376-visual 3-channel" "$CH3_EXEC" \
                 "Left / front / right CompositeViewer"
@@ -150,5 +151,5 @@ if [[ "$NO_DESKTOP" -eq 0 ]]; then
     fi
 fi
 
-echo "s376-visual setup ok. Demo: $ROOT/build/s376-visual --demo --channel front"
+echo "s376-visual setup ok. Demo: $ROOT/build/s376-visual --demo --channel mid_left"
 echo "Optional osgEarth: scripts/build-osgearth.sh  (installs to /opt/osgearth)"

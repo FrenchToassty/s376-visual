@@ -93,9 +93,9 @@ public numbers. Do not paste RSI `.nx3` coordinates into them.
 Side-by-side vs Joey's Raster 4R photo (reference only, never commit):
 
 ```bash
-./build/s376-visual --screenshot /tmp/jfk-04r.ppm --at KJFK:04R:0 --channel front
-./build/s376-visual --screenshot /tmp/bos-04r.ppm --at KBOS:04R:0 --channel front
-./build/s376-visual --screenshot /tmp/jfk-04r-3nm.ppm --at KJFK:04R:3 --channel front
+./build/s376-visual --screenshot /tmp/jfk-04r.ppm --at KJFK:04R:0 --channel mid_left
+./build/s376-visual --screenshot /tmp/bos-04r.ppm --at KBOS:04R:0 --channel mid_left
+./build/s376-visual --screenshot /tmp/jfk-04r-3nm.ppm --at KJFK:04R:3 --channel mid_left
 ```
 
 ## Suggested build order

@@ -124,30 +124,38 @@ void apply_quality_preset(RenderConfig& r, const std::string& name) {
         r.exposure = 1.05f;
         return;
     }
-    // gtx980ti (default): 60 Hz × 3 on 6 GB Maxwell.
-    r.msaa = r.msaa > 0 ? std::min(r.msaa, 4) : 2;
-    r.aniso = std::min(std::max(r.aniso, 8), 16);
+    // gtx980ti (default): 60 Hz × 1 on 6 GB Maxwell (one projector PC).
+    r.msaa = r.msaa > 0 ? std::min(std::max(r.msaa, 4), 8) : 4;
+    r.aniso = 16;
     r.hdr = true;
     r.atmosphere = true;
     r.markings = true;
     r.detail_textures = true;
     r.buildings = true;
-    r.ssao = false;
+    r.ssao = true;
     r.shadows = false;
     r.exposure = 1.0f;
 }
 
 AppConfig default_config() {
     AppConfig c;
-    ChannelConfig front, left, right;
-    front.name = "front";
-    left.name = "left";
-    left.heading_offset_deg = 35.515;
-    left.monitor = 1;
-    right.name = "right";
-    right.heading_offset_deg = -35.25;
-    right.monitor = 2;
-    c.channels = {front, left, right};
+    // Four projector PCs, Raster's 3 collimated channels:
+    // captain sees far_left+mid_left; FO sees mid_right+far_right.
+    // Both middles are the same front frustum (duplicate).
+    ChannelConfig fl, ml, mr, fr;
+    fl.name = "far_left"; // Raster left
+    fl.heading_offset_deg = 35.515;
+    fl.monitor = 0;
+    ml.name = "mid_left"; // Raster front (captain)
+    ml.heading_offset_deg = 0;
+    ml.monitor = 1;
+    mr.name = "mid_right"; // Raster front (FO duplicate)
+    mr.heading_offset_deg = 0;
+    mr.monitor = 2;
+    fr.name = "far_right"; // Raster right
+    fr.heading_offset_deg = -35.25;
+    fr.monitor = 3;
+    c.channels = {fl, ml, mr, fr};
     return c;
 }
 
@@ -162,6 +170,8 @@ static void fill_host(HostConfig& h, const std::unordered_map<std::string, std::
         h.float_fmt = parse_float_fmt(kv.at("host.float_format"));
     if (kv.count("host.hat_responder"))
         parse_bool(kv.at("host.hat_responder"), h.hat_responder);
+    if (kv.count("host.reply_master"))
+        h.reply_master = kv.at("host.reply_master");
     if (kv.count("host.allow_sim_lan"))
         parse_bool(kv.at("host.allow_sim_lan"), h.allow_sim_lan);
     if (kv.count("host.allow_lan"))
@@ -208,6 +218,8 @@ static void fill_render(RenderConfig& r, const std::unordered_map<std::string, s
         parse_bool(kv.at("render.shadows"), r.shadows);
     if (kv.count("render.exposure"))
         r.exposure = static_cast<float>(std::stod(kv.at("render.exposure")));
+    if (kv.count("render.sync_to_host"))
+        parse_bool(kv.at("render.sync_to_host"), r.sync_to_host);
 }
 
 static ChannelConfig fill_channel(const std::unordered_map<std::string, std::string>& kv) {
@@ -227,6 +239,9 @@ static ChannelConfig fill_channel(const std::unordered_map<std::string, std::str
     num("roll_offset_deg", c.roll_offset_deg);
     num("hfov_deg", c.hfov_deg);
     num("vfov_deg", c.vfov_deg);
+    num("eye_fwd_m", c.eye_fwd_m);
+    num("eye_right_m", c.eye_right_m);
+    num("eye_up_m", c.eye_up_m);
     inum("monitor", c.monitor);
     inum("width", c.width);
     inum("height", c.height);
@@ -259,6 +274,17 @@ AppConfig load_config(const std::string& path) {
         cfg.channels.clear();
         for (const auto& tab : t.tables)
             cfg.channels.push_back(fill_channel(tab));
+        // Old 3-channel files may omit reply_master; don't inherit mid_left
+        // from default_config() if that name is not in this file.
+        if (!cfg.host.reply_master.empty()) {
+            bool known = false;
+            for (const auto& ch : cfg.channels) {
+                if (ch.name == cfg.host.reply_master)
+                    known = true;
+            }
+            if (!known)
+                cfg.host.reply_master.clear();
+        }
     }
     return cfg;
 }
@@ -270,6 +296,7 @@ std::string dump_config(const AppConfig& cfg) {
     o << "host.word_order=" << xt4::word_order_name(cfg.host.word_order) << "\n";
     o << "host.float_format=" << xt4::float_fmt_name(cfg.host.float_fmt) << "\n";
     o << "host.hat_responder=" << (cfg.host.hat_responder ? "true" : "false") << "\n";
+    o << "host.reply_master=" << cfg.host.reply_master << "\n";
     o << "host.allow_sim_lan=" << (cfg.host.allow_sim_lan ? "true" : "false") << "\n";
     o << "render.engine=" << cfg.render.engine << "\n";
     o << "render.earth_file=" << cfg.render.earth_file << "\n";
@@ -286,12 +313,27 @@ std::string dump_config(const AppConfig& cfg) {
     o << "render.buildings=" << (cfg.render.buildings ? "true" : "false") << "\n";
     o << "render.ssao=" << (cfg.render.ssao ? "true" : "false") << "\n";
     o << "render.shadows=" << (cfg.render.shadows ? "true" : "false") << "\n";
+    o << "render.sync_to_host=" << (cfg.render.sync_to_host ? "true" : "false") << "\n";
     for (const auto& ch : cfg.channels) {
         o << "channel " << ch.name << " hdg=" << ch.heading_offset_deg << " fov=" << ch.hfov_deg
-          << "x" << ch.vfov_deg << " " << ch.width << "x" << ch.height
-          << (ch.enabled ? "" : " disabled") << "\n";
+          << "x" << ch.vfov_deg << " " << ch.width << "x" << ch.height;
+        if (ch.eye_right_m != 0.0 || ch.eye_fwd_m != 0.0 || ch.eye_up_m != 0.0)
+            o << " eye=" << ch.eye_fwd_m << "," << ch.eye_right_m << "," << ch.eye_up_m;
+        o << (ch.enabled ? "" : " disabled") << "\n";
     }
     return o.str();
+}
+
+static std::string resolve_channel_alias(const std::string& name) {
+    if (name == "left")
+        return "far_left";
+    if (name == "front")
+        return "mid_left";
+    if (name == "right")
+        return "far_right";
+    if (name == "front_fo" || name == "fo_front")
+        return "mid_right";
+    return name;
 }
 
 std::vector<ChannelConfig> select_channels(const AppConfig& cfg, const std::string& name) {
@@ -305,8 +347,9 @@ std::vector<ChannelConfig> select_channels(const AppConfig& cfg, const std::stri
             out.push_back(cfg.channels.front());
         return out;
     }
+    const std::string want = resolve_channel_alias(name);
     for (const auto& ch : cfg.channels) {
-        if (ch.name == name)
+        if (ch.name == want || ch.name == name)
             out.push_back(ch);
     }
     return out;
@@ -378,6 +421,33 @@ std::vector<WindowPlacement> layout_channels(const std::vector<ChannelConfig>& c
         out.push_back(p);
     }
     return out;
+}
+
+bool hat_reply_enabled(const HostConfig& h, const std::vector<ChannelConfig>& selected) {
+    if (!h.hat_responder)
+        return false;
+    if (h.reply_master.empty())
+        return true;
+    for (const auto& ch : selected) {
+        if (ch.name == h.reply_master)
+            return true;
+    }
+    return false;
+}
+
+std::string default_shot_channel(const AppConfig& cfg) {
+    const char* prefer[] = {"mid_left", "mid_right", "front", nullptr};
+    for (int i = 0; prefer[i]; ++i) {
+        for (const auto& ch : cfg.channels) {
+            if (ch.enabled && ch.name == prefer[i])
+                return ch.name;
+        }
+    }
+    for (const auto& ch : cfg.channels) {
+        if (ch.enabled)
+            return ch.name;
+    }
+    return {};
 }
 
 } // namespace s376

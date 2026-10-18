@@ -60,13 +60,17 @@ Binaries land in `build/`: `s376-visual`, `s376-synth`, `s376-doctor`,
 ### Run without a VAX (demo)
 
 ```bash
-./build/s376-visual --demo --channel front
+./build/s376-visual --demo --channel mid_left
 ```
 
-A synthetic 737 takes off from KSEA 16L. Default is three channel windows
-(Front / Left +35.515° / Right −35.25°), tiled on a single display or
-placed on `monitor` 0/1/2. `--channel front` is the laptop single-window
-fallback. `--headless` runs the same path with no GL.
+A synthetic 737 takes off from KSEA 16L. Production is **one process per
+projector PC** (`--channel far_left|mid_left|mid_right|far_right`, or
+`$S376_CHANNEL`). The two middle PCs show the same Raster front frustum
+(0°); far_left is Raster left (+35.515°), far_right is Raster right
+(−35.25°); all 50° × 32.5°. `--channel front` still aliases `mid_left`.
+Omit `--channel` (or `--channel all`) to tile every enabled window on a
+laptop. `config/channels-3.toml` is the three-name laptop alternative.
+`--headless` runs the same path with no GL.
 `--demo-weather` adds type-124 rain/wind/lightning, type-125/126/127
 cloud decks, type-128 fog, and one type-105 storm cell (host fields
 only; no invented packet types). Ctrl-C / SIGTERM exits within a frame;
@@ -79,7 +83,7 @@ On the IG PC, with the visual LAN isolated:
 ```bash
 # production only — allows replies to 192.168.173.x
 export S376_ALLOW_SIM_LAN=1
-./build/s376-visual --config config/local.toml --channel front
+./build/s376-visual --config config/local.toml --channel mid_left
 ```
 
 `config/local.toml` (gitignored) should set `host.allow_sim_lan = true` and
@@ -91,7 +95,7 @@ contact `10.1.95.0/24` or `192.168.173.0/24`.
 ### Two-process bench (loopback)
 
 ```bash
-./build/s376-visual --bind 127.0.0.1:2300 --channel front
+./build/s376-visual --bind 127.0.0.1:2300 --channel mid_left
 # other terminal
 ./build/s376-synth --dest 127.0.0.1:2300 --rate 20 --encoding le/vax
 # same plus type-124 rain and type-128 fog:
@@ -104,7 +108,8 @@ contact `10.1.95.0/24` or `192.168.173.0/24`.
 |---|---|
 | `-c / --config PATH` | TOML file (see `config/s376-visual.toml`) |
 | `--bind HOST:PORT` | override listen address |
-| `--channel front\|left\|right\|all` | frustum(s) to open (default: all enabled, tiled on one display) |
+| `--channel NAME` | `far_left`/`mid_left`/`mid_right`/`far_right`/`all` (aliases `left`/`front`/`right`/`front_fo`). Default: all enabled, or `$S376_CHANNEL` |
+| `--reply-master NAME` | only this `--channel` sends the type-200 HAT reply (default `mid_left`) |
 | `--cache-dir PATH` | packed DEM/imagery from `s376-cache` |
 | `--headless` | decoder + socket, no GL |
 | `--demo` | in-process synth to loopback |
@@ -121,8 +126,8 @@ Compare to Joey's Raster 4R photo on the hangar GPU (photo is reference
 only — never commit it):
 
 ```bash
-./build/s376-visual --screenshot /tmp/jfk-04r.ppm --at KJFK:04R:0 --channel front
-./build/s376-visual --screenshot /tmp/bos-04r.ppm --at KBOS:04R:0 --channel front
+./build/s376-visual --screenshot /tmp/jfk-04r.ppm --at KJFK:04R:0 --channel mid_left
+./build/s376-visual --screenshot /tmp/bos-04r.ppm --at KBOS:04R:0 --channel mid_left
 ```
 
 `s376-doctor` never sends a packet off the machine. It reports on-disk
@@ -219,8 +224,10 @@ the hangar NVIDIA box runs the compatibility profile that apt OSG uses.
 
 - Clean-room xT4 decoder (eyepoint, TOD, visibility, fog, light steps, lights)
 - HAT / HOT reply sampled from the local DEM (host-compatible 64-byte BE IEEE)
-- Channel TOML (Front 0°, Left +35.515°, Right −35.25°, 50° × 32.5°)
-- Three CompositeViewer windows, or `--channel front` on a laptop
+- Channel TOML: 4 projector PCs / Raster 3 frusta (far_left +35.515°,
+  mid_left 0°, mid_right 0° duplicate front, far_right −35.25°, 50° × 32.5°)
+- One process per PC via `--channel`; laptop tiles all four. `reply_master`
+  + `sync_to_host` keep the four boxes on the same host pose
 - Logging, `--debug`, `--doctor`, `--diagnostics`
 - `s376-synth` kinematic takeoff from KSEA 16L
 - Globe + local DEM drape (BC1), camera from the host, fog, sun from TOD
@@ -232,7 +239,7 @@ AC 150/5340-1 painted markings and edge / centreline / approach light
 points are in the scene; intensity follows packet-112 steps 0–5.
 Taxi/apron/building graphs start schematic; `s376-cache osm ICAO` pulls
 Overpass `aeroway=*` and `building=*`. Quality presets: `gtx980ti`
-(default, 60 Hz × 3 on 6 GB Maxwell) and `rtx`.
+(default, 60 Hz × 1 on 6 GB Maxwell) and `rtx`.
 
 Not yet: NLIM, landing-light beams, remaining airports. The plan is in
 [docs/AIRPORTS.md](docs/AIRPORTS.md) and [docs/DESIGN.md](docs/DESIGN.md).

@@ -1056,7 +1056,8 @@ void apply_view_camera(osg::Camera* cam, const ChannelConfig& ch, const HostStat
     const auto v = geo::make_channel_view(
         host.eye.lat_deg, host.eye.lon_deg, host.eye.alt_ft * geo::kFtToM,
         host.eye.true_heading_deg(), host.eye.pitch_deg, host.eye.roll_deg, ch.heading_offset_deg,
-        ch.pitch_offset_deg, ch.roll_offset_deg, ch.hfov_deg, ch.vfov_deg, ch.width, ch.height);
+        ch.pitch_offset_deg, ch.roll_offset_deg, ch.hfov_deg, ch.vfov_deg, ch.width, ch.height,
+        ch.eye_fwd_m, ch.eye_right_m, ch.eye_up_m);
     const osg::Vec3d epos = ecef_to_osg(v.eye);
     const osg::Vec3d center =
         epos + osg::Vec3d(v.forward.x, v.forward.y, v.forward.z) * 100.0;

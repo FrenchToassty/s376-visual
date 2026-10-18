@@ -21,8 +21,8 @@ The IG has to do all of the following from day one or shortly after:
 | Small footprint | No CERTS-style store. First frame is a WGS84 globe; tiles fill in |
 | Fast cold start | Earth file + HTTP/local cache, not a 17 GiB airport preload |
 
-**Why not Godot 4.** Geocentric WGS84, streamed DEM/imagery, and three
-off-axis simulator channels are not first-class Godot features. We would
+**Why not Godot 4.** Geocentric WGS84, streamed DEM/imagery, and
+collimated multi-channel frusta are not first-class Godot features. We would
 still need GDAL and a tile stack, plus a heavier editor/runtime for a
 machine that only ever shows the OTW.
 
@@ -58,9 +58,9 @@ SIMH MicroVAX 3900 (VMS)
  └─────────────────────────────────────────────┘
 ```
 
-One process. Default bind `0.0.0.0:2300`. Reply port `2301`. A tiny
-`s376-synth` tool emits fake host traffic so the IG can be developed
-without SIMH.
+One process per projector PC (four on the live sim). Default bind
+`0.0.0.0:2300`. Reply port `2301`. A tiny `s376-synth` tool emits fake
+host traffic so the IG can be developed without SIMH.
 
 ## Protocol
 
@@ -78,18 +78,34 @@ to those nets. Binding `0.0.0.0` is listen-only and is allowed.
 
 ## Config
 
-One TOML file (`config/s376-visual.toml`). Three channels match the 1987
-CAE 737-300 RSI setup:
+Default TOML (`config/s376-visual.toml`) is **four projector PCs**, one
+channel per process, showing Raster's **three** collimated frusta.
+Collimated cross-cockpit: the captain sees far_left + mid_left; the FO
+sees mid_right + far_right (mirrors hide the other side). Both middle
+projectors show the **same front view** (duplicated front, not a split).
 
-| Channel | Heading offset | FOV |
-|---|---|---|
-| Front | 0° | 50° × 32.5° |
-| Left | +35.515° | 50° × 32.5° |
-| Right | −35.25° | 50° × 32.5° |
+| PC / `--channel` | Raster channel | Heading | FOV |
+|---|---|---|---|
+| far_left | left | +35.515° | 50° × 32.5° |
+| mid_left | front (captain) | 0° | 50° × 32.5° |
+| mid_right | front (FO duplicate) | 0° | 50° × 32.5° |
+| far_right | right | −35.25° | 50° × 32.5° |
 
-The IG opens every enabled `[[channels]]` entry (CompositeViewer). One
-display tiles left|front|right; three monitors use `monitor` 0/1/2.
-`--channel front` is the single-window laptop fallback.
+Optional `eye_right_m` / `eye_fwd_m` / `eye_up_m` on a channel shift the
+camera in aircraft body metres (FO seat). Default 0 = shared host eye.
+
+`config/channels-3.toml` is the same three frusta as a laptop 3-window
+layout (names front/left/right).
+
+Production: each PC runs `s376-visual --channel mid_left` (or
+`S376_CHANNEL`). Aliases: `left`/`front`/`right`/`front_fo`. All four
+bind UDP 2300 and consume the same xT4 stream. `host.reply_master`
+(default `mid_left`) is the only process that sends the type-200 HAT
+reply. `render.sync_to_host` draws a frame only when a new type-100
+eyepoint arrives so the four boxes stay on the same host pose.
+
+`--channel all` (or omit `--channel` on a laptop) still tiles every
+enabled entry.
 
 ## Terrain and airports
 
@@ -105,7 +121,7 @@ reference and is never committed.
 - Distortion meshes / edge blend (NLIM)
 - Landing-light volumetric beams
 - Weather cells, ocean FFT, traffic models
-- Three genlocked channel PCs (one box, one GPU, one or more windows)
+- Hardware genlock / swap-group (host packet stream is the frame clock)
 
 Those are follow-on work. The sockets, decoder, config, and camera path
 are the foundation they sit on.

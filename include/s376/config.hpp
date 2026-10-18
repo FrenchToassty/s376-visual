@@ -15,6 +15,11 @@ struct ChannelConfig {
     double roll_offset_deg = 0;
     double hfov_deg = 50.0;
     double vfov_deg = 32.5;
+    // Optional seat offset in aircraft body (m). 0 = host eyepoint (true
+    // duplicate front). FO mid_right/far_right may set eye_right_m > 0.
+    double eye_fwd_m = 0;
+    double eye_right_m = 0;
+    double eye_up_m = 0;
     int monitor = 0;
     int width = 1920;
     int height = 1080;
@@ -40,6 +45,10 @@ struct HostConfig {
     xt4::WordOrder word_order = xt4::WordOrder::Auto;
     xt4::FloatFmt float_fmt = xt4::FloatFmt::Auto;
     bool hat_responder = true;
+    // Empty = this process replies (single-box / laptop). Otherwise only the
+    // process whose selected channel list includes this name sends type-200.
+    // Four projector PCs share one TOML; set reply_master = "mid_left".
+    std::string reply_master = "mid_left";
     bool allow_sim_lan = false;
     bool allow_lan = false;
 };
@@ -60,9 +69,10 @@ struct RenderConfig {
     bool markings = true;         // FAA AC 150/5340-1 painted markings
     bool detail_textures = true;  // procedural / CC0 asphalt+grass
     bool buildings = true;        // OSM extruded footprints
-    bool ssao = false;            // cheap baked AO; full SSAO on rtx
-    bool shadows = false;         // 1-cascade sun; off on 980 Ti
+    bool ssao = true;             // cheap baked AO; one 980 Ti channel can afford it
+    bool shadows = false;         // CSM toggle; still not drawn
     float exposure = 1.0f;
+    bool sync_to_host = true;     // draw only on a new type-100 eyepoint
 };
 
 void apply_quality_preset(RenderConfig& r, const std::string& name);
@@ -87,8 +97,14 @@ std::string dump_config(const AppConfig& cfg);
 // name empty or "all" → every enabled channel; otherwise the named one.
 std::vector<ChannelConfig> select_channels(const AppConfig& cfg, const std::string& name);
 
+// Type-200 HAT: hat_responder must be on, and reply_master empty or selected.
+bool hat_reply_enabled(const HostConfig& h, const std::vector<ChannelConfig>& selected);
+
+// First configured name in `prefer`, else the first enabled channel.
+std::string default_shot_channel(const AppConfig& cfg);
+
 // Place windows: explicit window_x/y win; else one channel per monitor when
-// num_screens > 1; else tile left|front|right on a single display (scaled to fit).
+// num_screens > 1; else tile by heading (far_left … far_right) on one display.
 std::vector<WindowPlacement> layout_channels(const std::vector<ChannelConfig>& channels,
                                              int num_screens, int screen_w, int screen_h);
 

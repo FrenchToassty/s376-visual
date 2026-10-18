@@ -52,7 +52,7 @@ numbers in committed airport TOML are **ours**, not RSI's.
 | 128 layer height | Fog deck AGL | **partial** | Thickens EXP2 when last HAT is below height+200 ft. No visible deck slab |
 | In-cloud fog | Thick vis inside 125/126/127 | **ok** | EXP2 × 2.4 when eye MSL is between ceiling and top |
 | 131 display 0/1/2 | Channel off / on / standby | **gap** | Decoded, windows always on |
-| Channel geometry | 3 frusta, ~50°×32.5°, ±35.5° / ±35.25° | **partial** | Shared-eye + heading offset. No off-axis / NLIM / edge blend |
+| Channel geometry | 3 Raster frusta on 4 projector PCs | **ok** | far_left=left +35.515, mid_left=front 0, mid_right=front 0 (duplicate), far_right=right −35.25, 50×32.5. Optional FO `eye_right_m`. No off-axis / NLIM / edge blend |
 | Airport lights | Edge, CL, ALS, PAPI, taxi | **partial** | Edge/CL/ALS/threshold on KSEA KSFO KLAS KLAX KJFK KBOS. PAPI/taxi **gap** |
 | Terrain / imagery | CERTS + NX tiles | **n/a** | Rebuilt from GLO-30/3DEP + NAIP/S2. Different pixels, same role |
 | Airport meshes | NX airport DB | **n/a** | Rebuilt from OurAirports + OSM. No RSI geometry |
@@ -82,18 +82,22 @@ or deep it is. Expensive levers are TOML toggles; `render.quality =
 | Analytic sky + aerial perspective | **partial** — Preetham-like dome, sun disc, moon+stars at night, EXP2 fog. Not a full Bruneton LUT |
 | Cloud soft edge / lighting | **partial** — hash edge + sun wrap on the weather-round decks |
 | HDR + ACES | **ok** — filmic in every forward shader; `render.exposure` |
-| SSAO | **partial** — cheap wall darkening when `render.ssao` (rtx on, 980 Ti off). No depth post-pass |
+| SSAO | **partial** — cheap wall darkening; on for both `gtx980ti` (one channel) and `rtx`. No depth post-pass |
 | Sun shadows | **gap** — `render.shadows` toggle only; CSM not drawn (980 Ti budget) |
 | GPU point sprites for lights | **ok** — GLSL 120 points (no PointSprite / POINT_SMOOTH); still step 0–5 |
 | GL compatibility (not Core) | **ok** — Linux leaves the context version unset (NVIDIA 4.6 compat). Elsewhere 3.3 + `COMPATIBILITY_PROFILE_BIT`. Scene lighting/fog/points are shaders so a CORE context does not emit `invalid enumerant` |
-| `--screenshot PATH --at ICAO:RWY[:nm]` | **ok** — Raster FOV 50×32.5; front 0 / left +35.515 / right −35.25. `KJFK:04R:0` lined-up, `:3` = 3 nm final |
+| `--screenshot PATH --at ICAO:RWY[:nm]` | **ok** — defaults to `mid_left` (captain front). `--channel front` aliases that |
 
 ## Channel / desk
 
 | Item | Status |
 |---|---|
-| Front 0°, left +35.515°, right −35.25°, 50×32.5 | **ok** |
-| 4-monitor desk pin (`config/desk-4monitor.toml`) | **ok** — IOS on DP-4 (x=0), L/F/R on DP-3 / HDMI-0 / DP-0 |
+| 4 projector PCs, Raster 3 channels | **ok** — captain: far_left+mid_left; FO: mid_right+far_right; both mids = front. `$S376_CHANNEL` |
+| Host-stream frame sync | **ok** — `render.sync_to_host` draws only on a new type-100 eyepoint |
+| HAT reply master | **ok** — `host.reply_master` / `--reply-master` (default mid_left); other PCs listen only |
+| Per-seat eyepoint | **partial** — `eye_right_m` / `eye_fwd_m` / `eye_up_m` optional on FO channels; default 0 (shared host eye) |
+| Laptop 3-window | **ok** — `config/channels-3.toml` (front/left/right names) |
+| 4-monitor desk pin (`config/desk-4monitor.toml`) | **ok** — one-PC hangar desk: IOS on DP-4, L/F/R on DP-3 / HDMI-0 / DP-0 |
 | IOS / debug view | **partial** — same eyepoint, pitched −18°, 60° FOV. Not a second ownship |
 
 ## Safety (must never regress)

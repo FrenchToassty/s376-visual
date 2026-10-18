@@ -110,9 +110,24 @@ Ecef sun_ecef(double lat_deg, double lon_deg, double tod_hours, int month, int d
 ChannelView make_channel_view(double lat_deg, double lon_deg, double alt_m, double true_hdg_deg,
                               double pitch_deg, double roll_deg, double heading_offset_deg,
                               double pitch_offset_deg, double roll_offset_deg, double hfov_deg,
-                              double vfov_deg, int width, int height) {
+                              double vfov_deg, int width, int height, double eye_fwd_m,
+                              double eye_right_m, double eye_up_m) {
     ChannelView v;
     v.eye = lla_to_ecef(lat_deg, lon_deg, alt_m);
+    if (eye_fwd_m != 0.0 || eye_right_m != 0.0 || eye_up_m != 0.0) {
+        Enu bf, br, bd;
+        body_to_enu(true_hdg_deg, pitch_deg, roll_deg, bf, br, bd);
+        Ecef east, north, up;
+        ecef_to_enu_axes(lat_deg, lon_deg, east, north, up);
+        auto add = [&](const Enu& b, double s) {
+            v.eye.x += s * (b.e * east.x + b.n * north.x + b.u * up.x);
+            v.eye.y += s * (b.e * east.y + b.n * north.y + b.u * up.y);
+            v.eye.z += s * (b.e * east.z + b.n * north.z + b.u * up.z);
+        };
+        add(bf, eye_fwd_m);
+        add(br, eye_right_m);
+        add(bd, -eye_up_m);
+    }
     const double hdg = true_hdg_deg + heading_offset_deg;
     const double pit = pitch_deg + pitch_offset_deg;
     const double rol = roll_deg + roll_offset_deg;

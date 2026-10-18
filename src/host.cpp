@@ -84,6 +84,9 @@ void HostSocket::open(const HostConfig& cfg) {
 
     int yes = 1;
     setsockopt(s, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&yes), sizeof(yes));
+#ifdef SO_BROADCAST
+    setsockopt(s, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char*>(&yes), sizeof(yes));
+#endif
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;

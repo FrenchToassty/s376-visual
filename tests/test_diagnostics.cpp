@@ -81,19 +81,21 @@ void test_diagnostics() {
 
     auto cfg = s376::default_config();
     auto times = s376::bench_channel_times(cfg, false);
-    CHECK(times.size() == 3);
-    bool front = false, left = false, right = false;
+    CHECK(times.size() == 4);
+    bool fl = false, ml = false, mr = false, fr = false;
     for (const auto& t : times) {
         CHECK(t.cpu_ms >= 0);
         CHECK(t.gpu_ms < 0);
-        if (t.name == "front")
-            front = true;
-        if (t.name == "left")
-            left = true;
-        if (t.name == "right")
-            right = true;
+        if (t.name == "far_left")
+            fl = true;
+        if (t.name == "mid_left")
+            ml = true;
+        if (t.name == "mid_right")
+            mr = true;
+        if (t.name == "far_right")
+            fr = true;
     }
-    CHECK(front && left && right);
+    CHECK(fl && ml && mr && fr);
 
     const char* old_dpy = std::getenv("DISPLAY");
     std::string saved_dpy = old_dpy ? old_dpy : "";
@@ -106,8 +108,9 @@ void test_diagnostics() {
     CHECK(text.find("cache-ksfo") != std::string::npos);
     CHECK(text.find("cache-klas") != std::string::npos);
     CHECK(text.find("mesh-build") != std::string::npos);
-    CHECK(text.find("frame-front") != std::string::npos);
-    CHECK(text.find("frame-left") != std::string::npos);
-    CHECK(text.find("frame-right") != std::string::npos);
+    CHECK(text.find("frame-far_left") != std::string::npos);
+    CHECK(text.find("frame-mid_left") != std::string::npos);
+    CHECK(text.find("frame-mid_right") != std::string::npos);
+    CHECK(text.find("frame-far_right") != std::string::npos);
     CHECK(report.fails == 0);
 }

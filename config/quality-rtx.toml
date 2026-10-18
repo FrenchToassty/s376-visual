@@ -1,9 +1,16 @@
 # Overlay / example for a newer GPU (hangar RTX 5060 Ti).
-# Use: s376-visual --config config/quality-rtx.toml
+# Use: s376-visual --config config/quality-rtx.toml --channel mid_left
 # or   s376-visual --quality rtx
 #
-# Same Raster ViewAngles. Expensive levers on: SSAO (cheap baked), shadows
-# (toggle only — CSM is not drawn on Maxwell). MSAA 4 / AF 16 stay.
+# Same 3-frustum-on-4-PC mapping as s376-visual.toml.
+# Expensive levers on: SSAO (cheap baked), shadows (toggle only — CSM is
+# not drawn). MSAA 4 / AF 16 stay.
+
+[host]
+bind = "0.0.0.0:2300"
+reply_port = 2301
+hat_responder = true
+reply_master = "mid_left"
 
 [render]
 engine = "auto"
@@ -21,10 +28,11 @@ buildings = true
 ssao = true
 shadows = true
 exposure = 1.05
+sync_to_host = true
 
 [[channels]]
-name = "front"
-heading_offset_deg = 0.0
+name = "far_left"
+heading_offset_deg = 35.515
 hfov_deg = 50.0
 vfov_deg = 32.5
 width = 1920
@@ -32,8 +40,8 @@ height = 1080
 enabled = true
 
 [[channels]]
-name = "left"
-heading_offset_deg = 35.515
+name = "mid_left"
+heading_offset_deg = 0.0
 hfov_deg = 50.0
 vfov_deg = 32.5
 monitor = 1
@@ -42,11 +50,21 @@ height = 1080
 enabled = true
 
 [[channels]]
-name = "right"
-heading_offset_deg = -35.25
+name = "mid_right"
+heading_offset_deg = 0.0
 hfov_deg = 50.0
 vfov_deg = 32.5
 monitor = 2
+width = 1920
+height = 1080
+enabled = true
+
+[[channels]]
+name = "far_right"
+heading_offset_deg = -35.25
+hfov_deg = 50.0
+vfov_deg = 32.5
+monitor = 3
 width = 1920
 height = 1080
 enabled = true

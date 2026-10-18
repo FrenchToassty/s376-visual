@@ -35,19 +35,26 @@ extern int g_passes;
 
 void test_config() {
     auto d = s376::default_config();
-    CHECK(d.channels.size() == 3);
-    CHECK(d.channels[0].name == "front");
-    CHECK_NEAR(d.channels[1].heading_offset_deg, 35.515, 1e-6);
-    CHECK_NEAR(d.channels[2].heading_offset_deg, -35.25, 1e-6);
+    CHECK(d.channels.size() == 4);
+    CHECK(d.channels[0].name == "far_left");
+    CHECK(d.channels[1].name == "mid_left");
+    CHECK(d.channels[2].name == "mid_right");
+    CHECK(d.channels[3].name == "far_right");
+    CHECK_NEAR(d.channels[0].heading_offset_deg, 35.515, 1e-6);
+    CHECK_NEAR(d.channels[1].heading_offset_deg, 0.0, 1e-6);
+    CHECK_NEAR(d.channels[2].heading_offset_deg, 0.0, 1e-6);
+    CHECK_NEAR(d.channels[3].heading_offset_deg, -35.25, 1e-6);
     CHECK_NEAR(d.channels[0].hfov_deg, 50.0, 1e-9);
     CHECK_NEAR(d.channels[0].vfov_deg, 32.5, 1e-9);
     CHECK(d.host.bind == "0.0.0.0:2300");
     CHECK(d.host.reply_port == 2301);
+    CHECK(d.host.reply_master == "mid_left");
     CHECK(!d.render.gl_debug);
     CHECK(d.render.quality == "gtx980ti");
     CHECK(d.render.hdr && d.render.atmosphere && d.render.markings);
     CHECK(d.render.detail_textures && d.render.buildings);
-    CHECK(!d.render.ssao && !d.render.shadows);
+    CHECK(d.render.ssao && !d.render.shadows);
+    CHECK(d.render.sync_to_host);
     {
         auto rtx = d.render;
         s376::apply_quality_preset(rtx, "rtx");
@@ -57,7 +64,7 @@ void test_config() {
         CHECK_NEAR(rtx.exposure, 1.05, 1e-4);
         auto gtx = d.render;
         s376::apply_quality_preset(gtx, "gtx980ti");
-        CHECK(!gtx.ssao && !gtx.shadows);
+        CHECK(gtx.ssao && !gtx.shadows);
         CHECK(gtx.hdr && gtx.atmosphere);
     }
     {
@@ -85,6 +92,7 @@ void test_config() {
     CHECK(c.host.bind == "127.0.0.1:2300");
     CHECK(c.host.word_order == s376::xt4::WordOrder::Be);
     CHECK(c.host.float_fmt == s376::xt4::FloatFmt::Ieee);
+    CHECK(c.host.reply_master.empty()); // mid_left is not in this file
     CHECK(!c.host.hat_responder);
     CHECK(c.render.engine == "osg");
     CHECK_NEAR(c.render.frame_rate, 30.0, 1e-9);
@@ -120,7 +128,23 @@ void test_config() {
         auto rtx_file = s376::load_config(rtx_path);
         CHECK(rtx_file.render.quality == "rtx");
         CHECK(rtx_file.render.ssao && rtx_file.render.shadows);
-        CHECK_NEAR(rtx_file.channels[1].heading_offset_deg, 35.515, 1e-6);
+        CHECK(rtx_file.host.reply_master == "mid_left");
+        CHECK_NEAR(rtx_file.channels[1].heading_offset_deg, 0.0, 1e-6);
+        CHECK_NEAR(rtx_file.channels[0].heading_offset_deg, 35.515, 1e-6);
+    }
+    {
+        std::string ch3 = "config/channels-3.toml";
+        {
+            std::ifstream probe(ch3);
+            if (!probe)
+                ch3 = "../config/channels-3.toml";
+        }
+        auto c3 = s376::load_config(ch3);
+        CHECK(c3.channels.size() == 3);
+        CHECK(c3.channels[0].name == "front");
+        CHECK(c3.host.reply_master == "front");
+        CHECK(!c3.render.sync_to_host);
+        CHECK_NEAR(c3.channels[1].heading_offset_deg, 35.515, 1e-6);
     }
 
     std::ifstream ksea_earth("data/earth/ksea.earth");

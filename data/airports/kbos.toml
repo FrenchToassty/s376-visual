@@ -7,7 +7,7 @@
 #
 # Joey's Raster 4R daytime photo may be this field (hdg 35°, 10006×150,
 # ALSF-2) or KJFK 04R (hdg 31°, 8400×200, MALSR). Compare with
-# `s376-visual --screenshot /tmp/bos-04r.ppm --at KBOS:04R:0 --channel front`.
+# `s376-visual --screenshot /tmp/bos-04r.ppm --at KBOS:04R:0 --channel mid_left`.
 
 icao = "KBOS"
 name = "Boston Logan International"

@@ -6,13 +6,65 @@ account may stop mid-run — treat this file as the source of truth.
 **PR:** https://github.com/joeylawell/s376-visual/pull/1
 **Branch:** `cursor/s376-visual-v1-6852`
 
+## Milestone: collimated 3-on-4 PCs (2026-10-18)
+
+Joey: the display is a **collimated cross-cockpit**. From each seat you
+only see two screens — captain far_left + mid_left, FO mid_right +
+far_right; the mirrors hide the other side. The two middle projectors
+show the **same front view** (a duplicated front channel, not a split).
+So Raster's 3 channels (startup log: front 0, left +35.515, right
+−35.25, 50×32.5) run on 4 PCs. This supersedes the earlier "four unique
+headings / TO MEASURE" note.
+
+| PC / `--channel` | Raster channel | Heading | Who sees it |
+|---|---|---|---|
+| far_left | left | +35.515° | captain outboard |
+| mid_left | front | 0° | captain inboard |
+| mid_right | front (duplicate) | 0° | FO inboard |
+| far_right | right | −35.25° | FO outboard |
+
+- Default TOML is four `[[channels]]` (`config/s376-visual.toml`).
+  Production is **one process per PC**: `--channel mid_left` or
+  `$S376_CHANNEL`. Aliases: `left`→far_left, `front`→mid_left,
+  `right`→far_right, `front_fo`/`fo_front`→mid_right.
+- Laptop 3-window: `config/channels-3.toml` (names front/left/right).
+- Hangar 4-monitor desk (one PC): `config/desk-4monitor.toml`
+  (IOS + L/F/R on DP-4 / DP-3 / HDMI-0 / DP-0).
+- All four bind UDP 2300 and consume the **same** xT4 stream (host must
+  broadcast / multicast / fan-out). `render.sync_to_host` (default true)
+  draws only on a new type-100 eyepoint so the four boxes stay on the
+  same host pose. `host.reply_master` (default `mid_left`) is the only
+  process that sends type-200. `--reply-master` / `--no-hat`.
+- Optional per-seat offset: `eye_right_m` / `eye_fwd_m` / `eye_up_m`
+  (metres, aircraft body). Default 0 = true duplicate front. Commented
+  `eye_right_m = 0.51` on the FO channels in the TOML.
+- `gtx980ti` preset is now 60 Hz × **1** on 6 GB Maxwell (ssao on,
+  shadows off). Budget was ×3 when one box drove three windows.
+- Parity: channel geometry **ok**. Host-stream sync **ok**. HAT master
+  **ok**. Per-seat eye **partial** (config exists, default off).
+
+`10766` unit tests passed on this agent (g++ / OSG 3.6.5). Headless:
+`HAT reply on  master='mid_left'  this=mid_left`; far_left logs
+`HAT reply off`. Both mids dump `hdg=0`.
+
+Hangar (four boxes, same TOML):
+
+```bash
+# on each projector PC — or S376_CHANNEL=mid_left
+./build/s376-visual --config config/local.toml --channel far_left
+./build/s376-visual --config config/local.toml --channel mid_left    # reply_master
+./build/s376-visual --config config/local.toml --channel mid_right
+./build/s376-visual --config config/local.toml --channel far_right
+```
+
 ## Milestone: image quality (2026-10-18)
 
 Joey's phone photo of Raster on 4R (day, two collimated channels) is
 **reference only** — gitignored under `refs/` / `raster-*.jpg`. Do not
 commit it. Goal: match Raster's crisp markings / blue sky / horizon,
 beat the tiled grass, repeating asphalt, painted-dome clouds, and
-blocky terminals, stay at 60 Hz × 3 on a GTX 980 Ti.
+blocky terminals. Budget at the time was 60 Hz × 3; now one channel
+per 980 Ti (see the 3-on-4 milestone above).
 
 - **Markings:** FAA AC 150/5340-1 from OurAirports geometry — threshold
   bars (8/12), 5×7 numbers/L/R/C, aiming points, TDZ, 36 m centerline,
@@ -42,9 +94,9 @@ blocky terminals, stay at 60 Hz × 3 on a GTX 980 Ti.
 Hangar check (real GPU):
 
 ```bash
-./build/s376-visual --screenshot /tmp/jfk-04r.ppm --at KJFK:04R:0 --channel front
-./build/s376-visual --screenshot /tmp/bos-04r.ppm --at KBOS:04R:0 --channel front
-./build/s376-visual --screenshot /tmp/jfk-04r-3nm.ppm --at KJFK:04R:3 --channel front
+./build/s376-visual --screenshot /tmp/jfk-04r.ppm --at KJFK:04R:0 --channel mid_left
+./build/s376-visual --screenshot /tmp/bos-04r.ppm --at KBOS:04R:0 --channel mid_left
+./build/s376-visual --screenshot /tmp/jfk-04r-3nm.ppm --at KJFK:04R:3 --channel mid_left
 ```
 
 This agent Xvfb often fails `GLXBadFBConfig`; the hangar box is the
@@ -292,7 +344,9 @@ are unit-tested.
   the safety check.
 - Host socket binds `0.0.0.0:2300` by default (overridable). Replies on
   2301. Built into the IG (no bridge process).
-- TOML config with the three RSI channels (`config/s376-visual.toml`).
+- TOML config: four projector PCs mapping Raster's three channels
+  (`config/s376-visual.toml`). `host.reply_master` + `render.sync_to_host`.
+  Laptop 3-window: `config/channels-3.toml`.
 - Logging (`-v`, `--debug`, rotating file under `logs/`).
 - `s376-doctor` / `--diagnostics` (cache bytes per airport, frame time
   per channel).
@@ -315,7 +369,8 @@ are unit-tested.
 | osgEarth tiles | `data/earth/ksea.earth` | File is in. Build osgEarth on the hangar box (`scripts/build-osgearth.sh`) and confirm the cache GeoTIFFs drape |
 | Cloud / storm packets | `docs/PARITY.md` | 105/125–127 decoded and drawn. Remaining: catalog type table, real cell sizes, top-layer heights |
 | HAT off-DEM | `sample_hat` | Stand-in elev=0 when the point is outside the packed region |
-| More airports | `docs/AIRPORTS.md` | KSEA / KSFO / KLAS / KLAX / KJFK are in. Next: EGLL / EDDF |
+| More airports | `docs/AIRPORTS.md` | KSEA / KSFO / KLAS / KLAX / KJFK / KBOS are in. Next: EGLL / EDDF |
+| Per-seat FO eye | `eye_right_m` | Config exists, default 0 (collimated shared eye). Uncomment 0.51 m if Joey wants it |
 | Off-axis frustum | camera is rotated by heading offset | Shared eyepoint + asymmetric projection later |
 | High-res fetch on hangar | `s376-cache fetch KSEA` | Dry-run estimate only on this agent. Need a real download + doctor bytes on the Mint box |
 
@@ -328,6 +383,7 @@ are unit-tested.
    catalog, real storm-cell sizes.
 3. **Asymmetric / off-axis projection** if ViewAngles overlap is not enough.
 4. **EGLL / EDDF** layouts.
+5. **FO `eye_right_m`** only if the duplicated front needs a seat offset.
 
 ## How to build / run / test (Linux Mint 22)
 
@@ -343,10 +399,11 @@ ctest --test-dir build --output-on-failure
 ./build/s376-doctor -c config/s376-visual.toml
 ./build/s376-visual --headless --demo --duration 3 --bind 127.0.0.1:2300
 ./build/s376-visual --headless --demo-weather --duration 3 --bind 127.0.0.1:2300
-# three tiled windows (one display) or --channel front for a single view:
-./build/s376-visual --demo --cache-dir cache/ksea
-./build/s376-visual --demo-weather --channel front
-./build/s376-visual --demo --channel front
+# production: one projector PC. --channel front aliases mid_left.
+./build/s376-visual --demo --cache-dir cache/ksea --channel mid_left
+./build/s376-visual --demo-weather --channel mid_left
+# laptop 3-window (front/left/right names):
+./build/s376-visual --demo --config config/channels-3.toml
 # Ctrl-C / SIGTERM must exit within a frame. --gl-debug re-enables OSG GL checks.
 ```
 

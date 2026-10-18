@@ -56,6 +56,7 @@ struct ChannelView {
 ChannelView make_channel_view(double lat_deg, double lon_deg, double alt_m, double true_hdg_deg,
                               double pitch_deg, double roll_deg, double heading_offset_deg,
                               double pitch_offset_deg, double roll_offset_deg, double hfov_deg,
-                              double vfov_deg, int width, int height);
+                              double vfov_deg, int width, int height, double eye_fwd_m = 0,
+                              double eye_right_m = 0, double eye_up_m = 0);
 
 } // namespace s376::geo

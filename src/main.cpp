@@ -11,6 +11,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <csignal>
 #include <cstring>
 #include <filesystem>
@@ -34,7 +35,9 @@ void usage() {
            "usage: s376-visual [options]\n"
            "  -c, --config PATH     TOML config (default config/s376-visual.toml if present)\n"
            "  --bind HOST:PORT      override host.bind (default 0.0.0.0:2300)\n"
-           "  --channel NAME        front|left|right|ios|all  (default: all enabled)\n"
+           "  --channel NAME        far_left|mid_left|mid_right|far_right|all\n"
+           "                        aliases: left|front|right|front_fo\n"
+           "                        (default: all enabled, or $S376_CHANNEL)\n"
            "  --cache-dir PATH      packed DEM/imagery from s376-cache\n"
            "  --headless            run the host receiver with no GL window\n"
            "  --demo                in-process synth to 127.0.0.1 (no VAX needed)\n"
@@ -44,6 +47,8 @@ void usage() {
            "  --debug               packet dumps + DEBUG\n"
            "  --gl-debug            OSG per-attribute GL error checks (off in Release)\n"
            "  --quality NAME        gtx980ti | rtx | custom\n"
+           "  --reply-master NAME   only this --channel sends the type-200 HAT reply\n"
+           "  --no-hat              never send HAT (overrides reply_master)\n"
            "  --screenshot PATH     write the first channel after a few frames and exit\n"
            "  --at ICAO:RWY[:nm]    pose the eye (KJFK:04R:0 lined-up, :3 = 3 nm final)\n"
            "  --diagnostics         print a dump and exit\n"
@@ -92,6 +97,8 @@ int main(int argc, char** argv) {
     std::string quality_override;
     std::string screenshot_path;
     std::string at_spec;
+    std::string reply_master_override;
+    bool no_hat = false;
 
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -136,6 +143,10 @@ int main(int argc, char** argv) {
             gl_debug = true;
         else if (a == "--quality")
             quality_override = need(a.c_str());
+        else if (a == "--reply-master")
+            reply_master_override = need(a.c_str());
+        else if (a == "--no-hat")
+            no_hat = true;
         else if (a == "--screenshot")
             screenshot_path = need(a.c_str());
         else if (a == "--at")
@@ -185,6 +196,14 @@ int main(int argc, char** argv) {
         if (quality_override != "custom")
             s376::apply_quality_preset(cfg.render, quality_override);
     }
+    if (!reply_master_override.empty())
+        cfg.host.reply_master = reply_master_override;
+    if (no_hat)
+        cfg.host.hat_responder = false;
+    if (channel_name.empty()) {
+        if (const char* env_ch = std::getenv("S376_CHANNEL"))
+            channel_name = env_ch;
+    }
     if (demo) {
         cfg.host.bind = "127.0.0.1:2300";
         cfg.host.allow_sim_lan = false;
@@ -231,7 +250,7 @@ int main(int argc, char** argv) {
         return 2;
     }
     if (!screenshot_path.empty() && channel_name.empty())
-        channel_name = "front";
+        channel_name = s376::default_shot_channel(cfg);
     if (!screenshot_path.empty()) {
         const auto parent = std::filesystem::path(screenshot_path).parent_path();
         if (!parent.empty())
@@ -244,6 +263,17 @@ int main(int argc, char** argv) {
                        channel_name.empty() ? "all" : channel_name.c_str());
         return 2;
     }
+    const bool hat_on = s376::hat_reply_enabled(cfg.host, channels);
+    cfg.host.hat_responder = hat_on;
+    if (channels.size() > 1) {
+        S376_LOG_INFO("ig",
+                      "opening %zu channels on one process (laptop/desk). "
+                      "Production is one projector PC: --channel far_left|mid_left|mid_right|far_right",
+                      channels.size());
+    }
+    S376_LOG_INFO("ig", "HAT reply %s  master='%s'  this=%s", hat_on ? "on" : "off",
+                  cfg.host.reply_master.c_str(),
+                  channels.size() == 1 ? channels.front().name.c_str() : "all");
 
     std::signal(SIGINT, on_sig);
     std::signal(SIGTERM, on_sig);
@@ -299,6 +329,7 @@ int main(int argc, char** argv) {
     const auto t0 = std::chrono::steady_clock::now();
     const double period = 1.0 / std::max(cfg.render.frame_rate, 1.0);
     std::uint64_t frames = 0;
+    std::uint64_t last_eyepoints = 0;
     while (!g_stop && !rend->done()) {
         if (g_stop) {
             rend->request_stop();
@@ -315,6 +346,12 @@ int main(int argc, char** argv) {
         s376::HostState host = state.load();
         if (have_shot)
             host = shot_host;
+        else if (cfg.render.sync_to_host && host.have_eyepoint &&
+                 host.eyepoints == last_eyepoints) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            continue;
+        }
+        last_eyepoints = host.eyepoints;
         rend->frame(host);
         ++frames;
         if (headless)
