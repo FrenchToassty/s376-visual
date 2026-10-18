@@ -74,6 +74,8 @@ struct LightPoint {
     LightKind kind = LightKind::Edge;
     int runway_k = 0; // 1..7, 0 = taxi / airport-wide
     int seq = -1;     // sequenced-flasher index, −1 = none
+    int papi_box = -1;     // 0..3 inboard→outboard; −1 = not a PAPI unit
+    float papi_gs_deg = 3.f;
 };
 
 struct DataSource {

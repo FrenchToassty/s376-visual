@@ -27,6 +27,16 @@ from tests/CI. `scripts/check-no-rsi.sh` fails the build if
 
 ## Current state (2026-10-18, this increment)
 
+**ALS / sky / water (this increment):** 04R ALSF-2 is on the extended
+centerline (2400 ft bars, 1000 ft crossbar, red side-row barrettes,
+SFL) on DEM or over-water piers; daytime approach intensity is
+Raster-readable. PAPI is four boxes left of 04R at 3.00° and shows
+2W2R on a 3° path. The far-end black blob was a full-length 0.10
+rubber strip (now 900 m/end at 0.26). Sky fills the VFOV (undecorated
+1920×1200, oversized NDC quad). Near-field water is Jamaica Bay:
+lod0 + skirts + flattened ocean verts + a south-of-JFK land_coverage
+hole. Tiny pack is still ~8 m.
+
 **Doctor AIP labels / stale SKBO+VNKT:** non-US `faa-*` checks print
 `vs DFS|NATS|ENAIRE|DGAC Ecuador|Aerocivil|CAAN <date>`, not
 `vs FAA`. SKBO 2016 and VNKT 2024 are flagged `aip-stale-*` (warn)

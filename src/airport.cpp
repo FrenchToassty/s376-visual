@@ -196,17 +196,34 @@ void add_faa_markings(AirportMesh& mesh, const Runway& rw) {
     };
     one_end(rw.le_lat, rw.le_lon, rw.heading_deg, rw.ident_le, rw.le_displaced_ft);
     one_end(rw.he_lat, rw.he_lon, wrap360(rw.heading_deg + 180.0), rw.ident_he, rw.he_displaced_ft);
-    // Rubber deposits in the first 900 m each end (darker asphalt, not a marking).
-    strip_quad(mesh, rw.le_lat, rw.le_lon, rw.he_lat, rw.he_lon, rw.heading_deg, half * 0.35,
-               rw.le_elev_m + 0.42, rw.he_elev_m + 0.42, 0.10f, 0.09f, 0.09f, 0.f);
+    // Rubber in the first 900 m of each end only — a full-length 0.10
+    // strip read as a black blob at the departure end from 0.6 nm.
+    auto rubber = [&](double lat, double lon, double hdg, double elev) {
+        const double reach = std::min(900.0, rw.length_m * 0.35);
+        double elat, elon;
+        offset_m(lat, lon, hdg, reach, elat, elon);
+        strip_quad(mesh, lat, lon, elat, elon, hdg, half * 0.32, elev + 0.42, elev + 0.42, 0.26f,
+                   0.25f, 0.24f, 0.f);
+    };
+    rubber(rw.le_lat, rw.le_lon, rw.heading_deg, rw.le_elev_m);
+    rubber(rw.he_lat, rw.he_lon, wrap360(rw.heading_deg + 180.0), rw.he_elev_m);
+}
+
+double light_alt_m(double lat, double lon, double runway_elev_m) {
+    const double ground = session_ground_m(lat, lon, runway_elev_m);
+    const float cover = geo::land_coverage(lat, lon);
+    if (cover < 0.35f)
+        return std::max(ground, 0.25) + 2.4; // ALS pier over water
+    return std::max(ground, runway_elev_m) + 0.6;
 }
 
 void push_light(Airport& a, double lat, double lon, double alt_m, float r, float g, float b,
-                int sw, LightKind kind, int runway_k = 0, int seq = -1) {
+                int sw, LightKind kind, int runway_k = 0, int seq = -1, int papi_box = -1,
+                float papi_gs = 3.f) {
     LightPoint p;
     p.lat = lat;
     p.lon = lon;
-    p.alt_m = alt_m + 0.6;
+    p.alt_m = alt_m;
     p.r = r;
     p.g = g;
     p.b = b;
@@ -214,6 +231,8 @@ void push_light(Airport& a, double lat, double lon, double alt_m, float r, float
     p.kind = kind;
     p.runway_k = runway_k;
     p.seq = seq;
+    p.papi_box = papi_box;
+    p.papi_gs_deg = papi_gs;
     a.lights.push_back(p);
 }
 
@@ -225,7 +244,7 @@ void bar(Airport& a, double lat, double lon, double hdg, double alt_m, double ha
         const double t = n == 1 ? 0.0 : (i / static_cast<double>(n - 1) - 0.5) * 2.0;
         double plat, plon;
         offset_m(lat, lon, hdg + 90.0, t * half_span, plat, plon);
-        push_light(a, plat, plon, alt_m, r, g, b, sw, kind, runway_k);
+        push_light(a, plat, plon, light_alt_m(plat, plon, alt_m), r, g, b, sw, kind, runway_k);
     }
 }
 
@@ -253,8 +272,10 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
         double llat, llon, rlat, rlon;
         offset_m(clat, clon, rw.heading_deg - 90.0, rw.width_m * 0.5, llat, llon);
         offset_m(clat, clon, rw.heading_deg + 90.0, rw.width_m * 0.5, rlat, rlon);
-        push_light(a, llat, llon, elev, er, eg, eb, sw_edge, LightKind::Edge, k);
-        push_light(a, rlat, rlon, elev, er, eg, eb, sw_edge, LightKind::Edge, k);
+        push_light(a, llat, llon, light_alt_m(llat, llon, elev), er, eg, eb, sw_edge,
+                   LightKind::Edge, k);
+        push_light(a, rlat, rlon, light_alt_m(rlat, rlon, elev), er, eg, eb, sw_edge,
+                   LightKind::Edge, k);
     }
 
     const int n_cl = std::max(2, static_cast<int>(std::floor(rw.length_m / step_cl)));
@@ -264,8 +285,8 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
         offset_m(rw.le_lat, rw.le_lon, rw.heading_deg, d, clat, clon);
         const double elev = rw.le_elev_m + (rw.he_elev_m - rw.le_elev_m) * (d / rw.length_m);
         const bool red = d > rw.length_m - 300.0;
-        push_light(a, clat, clon, elev, 1.f, red ? 0.2f : 1.f, red ? 0.15f : 0.95f, sw_cl,
-                   LightKind::Centerline, k);
+        push_light(a, clat, clon, light_alt_m(clat, clon, elev), 1.f, red ? 0.2f : 1.f,
+                   red ? 0.15f : 0.95f, sw_cl, LightKind::Centerline, k);
     }
 
     auto landing = [&](bool le, double& lat, double& lon, double& hdg, double& elev, double& disp_m) {
@@ -310,20 +331,23 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
         if (side.empty() || side == "NONE")
             return;
         const int nsys = le ? rw.papi_count_le : rw.papi_count_he;
+        const double gs = le ? rw.papi_deg_le : rw.papi_deg_he;
         double lat, lon, hdg, elev, disp_m;
         landing(le, lat, lon, hdg, elev, disp_m);
         const bool right = side.find("P4R") != std::string::npos && side.find("P4L") == std::string::npos;
-        const double perp = (right ? 1.0 : -1.0) * (rw.width_m * 0.5 + 15.0);
+        const double sdir = right ? 1.0 : -1.0;
         for (int s = 0; s < std::max(1, nsys); ++s) {
             double plat, plon;
             offset_m(lat, lon, hdg, 107.0 + s * 30.0, plat, plon); // ~350 ft past threshold
-            offset_m(plat, plon, hdg + 90.0, perp + s * 8.0, plat, plon);
             for (int i = 0; i < 4; ++i) {
                 double qlat, qlon;
-                offset_m(plat, plon, hdg, i * 9.0, qlat, qlon);
+                // 4 boxes perpendicular to the runway, inboard (i=0) to outboard.
+                const double x = sdir * (rw.width_m * 0.5 + 15.0 + i * 9.0 + s * 8.0);
+                offset_m(plat, plon, hdg + 90.0, x, qlat, qlon);
                 const float g = i < 2 ? 1.f : 0.15f;
                 const float r = i < 2 ? 0.15f : 1.f;
-                push_light(a, qlat, qlon, elev, r, g, 0.15f, sw_vasi, LightKind::Vasi, k);
+                push_light(a, qlat, qlon, light_alt_m(qlat, qlon, elev), r, g, 0.15f, sw_vasi,
+                           LightKind::Vasi, k, -1, i, static_cast<float>(gs));
             }
         }
     };
@@ -338,8 +362,10 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
         double llat, llon, rlat, rlon;
         offset_m(lat, lon, hdg + 90.0, rw.width_m * 0.5 + 8.0, rlat, rlon);
         offset_m(lat, lon, hdg - 90.0, rw.width_m * 0.5 + 8.0, llat, llon);
-        push_light(a, llat, llon, elev, 1.f, 1.f, 1.f, sw, LightKind::Reil, k);
-        push_light(a, rlat, rlon, elev, 1.f, 1.f, 1.f, sw, LightKind::Reil, k);
+        push_light(a, llat, llon, light_alt_m(llat, llon, elev), 1.f, 1.f, 1.f, sw, LightKind::Reil,
+                   k);
+        push_light(a, rlat, rlon, light_alt_m(rlat, rlon, elev), 1.f, 1.f, 1.f, sw, LightKind::Reil,
+                   k);
     };
     reil(true, sw_strobe_a);
     reil(false, sw_strobe_b);
@@ -354,27 +380,32 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
         auto bar5 = [&](double dist_ft, LightKind kind, int seq = -1) {
             double plat, plon;
             offset_m(lat, lon, back, dist_ft * geo::kFtToM, plat, plon);
-            bar(a, plat, plon, hdg, elev, 6.0, 5, 1.f, 1.f, 0.92f, sw, kind, k);
+            bar(a, plat, plon, hdg, light_alt_m(plat, plon, elev), 6.0, 5, 1.f, 1.f, 0.92f, sw,
+                kind, k);
             if (seq >= 0) {
-                push_light(a, plat, plon, elev + 0.3, 1.f, 1.f, 1.f, sw, LightKind::Flasher, k, seq);
+                push_light(a, plat, plon, light_alt_m(plat, plon, elev) + 0.3, 1.f, 1.f, 1.f, sw,
+                           LightKind::Flasher, k, seq);
             }
         };
         if (sys == "ALSF-2") {
-            // FAA ALSF-2: 5-light bars every 100 ft to 2400 ft, 1000-ft
-            // crossbar, side rows, sequenced flashers.
+            // FAA ALSF-2: 5-light bars every 100 ft to 2400 ft before the
+            // landing THR, 1000-ft crossbar, red side-row barrettes in the
+            // inner 1000 ft, sequenced flashers on the outer bars.
             for (int i = 1; i <= 24; ++i)
                 bar5(100.0 * i, LightKind::Approach, (i >= 10) ? (24 - i) : -1);
             double xlat, xlon;
             offset_m(lat, lon, back, 1000.0 * geo::kFtToM, xlat, xlon);
-            bar(a, xlat, xlon, hdg, elev, 22.0, 15, 1.f, 1.f, 0.92f, sw, LightKind::Approach, k);
+            bar(a, xlat, xlon, hdg, light_alt_m(xlat, xlon, elev), 22.0, 15, 1.f, 1.f, 0.92f, sw,
+                LightKind::Approach, k);
             for (int i = 1; i <= 10; ++i) {
                 double slat, slon;
                 offset_m(lat, lon, back, 100.0 * i * geo::kFtToM, slat, slon);
-                double llat, llon, rlat, rlon;
-                offset_m(slat, slon, hdg - 90.0, 18.0, llat, llon);
-                offset_m(slat, slon, hdg + 90.0, 18.0, rlat, rlon);
-                push_light(a, llat, llon, elev, 1.f, 0.15f, 0.1f, sw, LightKind::Approach, k);
-                push_light(a, rlat, rlon, elev, 1.f, 0.15f, 0.1f, sw, LightKind::Approach, k);
+                for (int side = -1; side <= 1; side += 2) {
+                    double blat, blon;
+                    offset_m(slat, slon, hdg + 90.0 * side, 18.0, blat, blon);
+                    bar(a, blat, blon, hdg, light_alt_m(blat, blon, elev), 2.2, 3, 1.f, 0.15f, 0.1f,
+                        sw, LightKind::Approach, k);
+                }
             }
         } else if (sys == "ALSF-1") {
             for (int i = 1; i <= 24; ++i)
@@ -437,14 +468,14 @@ void lights_for_taxi(Airport& a) {
                 const double lon = o0 + (o1 - o0) * t;
                 double elat, elon, clat = lat, clon = lon;
                 offset_m(lat, lon, hdg + 90.0, tw.width_m * 0.5, elat, elon);
-                push_light(a, elat, elon, a.elev_m, 0.15f, 0.85f, 0.25f, a.sw_taxi_edge,
-                           LightKind::TaxiEdge);
+                push_light(a, elat, elon, light_alt_m(elat, elon, a.elev_m), 0.15f, 0.85f, 0.25f,
+                           a.sw_taxi_edge, LightKind::TaxiEdge);
                 offset_m(lat, lon, hdg - 90.0, tw.width_m * 0.5, elat, elon);
-                push_light(a, elat, elon, a.elev_m, 0.15f, 0.85f, 0.25f, a.sw_taxi_edge,
-                           LightKind::TaxiEdge);
+                push_light(a, elat, elon, light_alt_m(elat, elon, a.elev_m), 0.15f, 0.85f, 0.25f,
+                           a.sw_taxi_edge, LightKind::TaxiEdge);
                 if (i % 2 == 0)
-                    push_light(a, clat, clon, a.elev_m, 1.f, 0.85f, 0.15f, a.sw_taxi_centerline,
-                               LightKind::TaxiCenterline);
+                    push_light(a, clat, clon, light_alt_m(clat, clon, a.elev_m), 1.f, 0.85f, 0.15f,
+                               a.sw_taxi_centerline, LightKind::TaxiCenterline);
             }
             if (s == 1) {
                 bar(a, a0, o0, hdg, a.elev_m, tw.width_m * 0.45, 5, 1.f, 0.12f, 0.1f, a.sw_stop_bar,
@@ -1569,6 +1600,24 @@ int write_airport_geojson(const Airport& a, const std::string& path) {
     return out ? 1 : 0;
 }
 
+bool on_official_pavement(const Airport& a, double lat, double lon) {
+    for (const auto& rw : a.runways) {
+        double hdg = 0;
+        const double len = geo::inverse_wgs84(rw.le_lat, rw.le_lon, lat, lon, &hdg);
+        double dh = hdg - rw.heading_deg;
+        while (dh > 180.0)
+            dh -= 360.0;
+        while (dh < -180.0)
+            dh += 360.0;
+        const double along = len * std::cos(geo::deg2rad(dh));
+        const double across = len * std::sin(geo::deg2rad(dh));
+        if (along > -80.0 && along < rw.length_m + 80.0 &&
+            std::fabs(across) < rw.width_m * 0.5 + 8.0)
+            return true;
+    }
+    return false;
+}
+
 AirportMesh build_airport_mesh(const Airport& a, bool buildings, bool markings) {
     AirportMesh mesh;
     for (const auto& rw : a.runways) {
@@ -1674,7 +1723,12 @@ AirportMesh build_airport_mesh(const Airport& a, bool buildings, bool markings) 
         }
         clat /= static_cast<double>(b.ring.size());
         clon /= static_cast<double>(b.ring.size());
-        const float h = std::max(2.f, b.height_m);
+        if (on_official_pavement(a, clat, clon))
+            continue;
+        float h = b.height_m;
+        if (b.kind == BuildingKind::Osm)
+            h = std::min(h, 80.f);
+        h = std::max(2.f, h);
         const double z0 = session_ground_m(clat, clon, a.elev_m) + kBuildingSitM;
         const double z1 = z0 + static_cast<double>(h);
         geo::Ecef e, n, u;
@@ -1698,8 +1752,25 @@ AirportMesh build_airport_mesh(const Airport& a, bool buildings, bool markings) 
         ++nb;
     }
     for (const auto& t : a.trees) {
+        if (on_official_pavement(a, t.lat, t.lon))
+            continue;
         strip_quad(mesh, t.lat, t.lon, t.lat + 0.00004, t.lon, 0.0, 1.6, a.elev_m, a.elev_m + t.height_m,
                    0.18f, 0.32f, 0.14f, 4.f);
+    }
+    for (const auto& L : a.lights) {
+        if (L.kind != LightKind::Approach && L.kind != LightKind::Flasher &&
+            L.kind != LightKind::Threshold)
+            continue;
+        if (geo::land_coverage(L.lat, L.lon) >= 0.35f)
+            continue;
+        const double z0 = 0.15;
+        if (L.alt_m - z0 < 0.8)
+            continue;
+        // Crossed pier legs so ALS over Jamaica Bay sits above the water.
+        strip_quad(mesh, L.lat, L.lon, L.lat + 1.2e-6, L.lon, 0.0, 0.11, z0, L.alt_m, 0.48f, 0.48f,
+                   0.46f, 2.f);
+        strip_quad(mesh, L.lat, L.lon, L.lat, L.lon + 1.2e-6, 90.0, 0.11, z0, L.alt_m, 0.48f, 0.48f,
+                   0.46f, 2.f);
     }
     for (const auto& p : a.parked) {
         double nlat, nlon;

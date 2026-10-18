@@ -53,12 +53,19 @@ bool is_runway_switch(int sw, int offset);
 
 float intensity(LightKind kind, int step); // 0 if step <= 0
 // 1 at night; daytime edge/taxi/night-layer barely visible (~0.04).
+// Approach / TDZ / PAPI stay readable in daylight (Raster step curve).
 float tod_visibility(LightKind kind, float tod_hours);
 float size_mult_hat(float hat_ft);
 float base_size_px(float tod_hours);
 float point_size_px(float tod_hours, float hat_ft);
 float type_range_scale(LightKind kind); // 1 = full kMaxRangeFt
 float max_range_m();
+
+// PAPI 4-box: box 0 inboard (lowest angle) … box 3 outboard. 20' of arc
+// between units. White when the eye is above that unit's setting.
+bool papi_box_white(float eye_angle_deg, int box, float gs_deg);
+float papi_eye_angle_deg(double eye_lat, double eye_lon, double eye_alt_m, double papi_lat,
+                         double papi_lon, double papi_alt_m);
 
 bool beacon_on(double t_s);
 bool strobe_on(double t_s);

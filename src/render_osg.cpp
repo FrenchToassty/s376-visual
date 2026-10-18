@@ -152,7 +152,12 @@ void main() {
     if (uWater > 0.5)
         wet = smoothstep(0.03, 0.16, albedo.b - max(albedo.r, albedo.g) * 0.90);
     float ndl = max(dot(n, normalize(uSunDir)), 0.0);
-    if (wet < 0.98) {
+    float luma = dot(albedo, vec3(0.30, 0.50, 0.20));
+    float chroma = albedo.b + albedo.g * 0.6 - albedo.r * 1.4;
+    float darkWater = (1.0 - smoothstep(0.05, 0.20, luma)) * smoothstep(0.00, 0.06, chroma);
+    if (uWater > 0.5)
+        wet = max(wet, darkWater);
+    if (wet < 0.55) {
         float macro = 0.82 + 0.18 * noise(vUV * 24.0);
         float micro = 0.90 + 0.10 * noise(vUV * 180.0);
         vec3 land = albedo * mix(1.0, macro * micro, uDetail);
@@ -247,8 +252,8 @@ void main() {
         albedo *= mix(1.0, 0.85 + 0.15 * uSsao, 1.0);
     }
     if (mat > 0.5 && mat < 1.5) {
-        float fade = clamp(1.0 - vEyeDist / 4500.0, 0.0, 1.0);
-        albedo = mix(vec3(0.17, 0.17, 0.18), albedo, fade);
+        float fade = clamp(1.0 - vEyeDist / 12000.0, 0.35, 1.0);
+        albedo = mix(vec3(0.34, 0.34, 0.35), albedo, fade);
     }
     float lit = (mat < 0.5 || (mat > 1.5 && mat < 2.5)) ? mix(0.72, ndl, 0.28) : ndl;
     vec3 col = albedo * (uAmbient + uDiffuse * lit);
@@ -409,7 +414,7 @@ const char* kSkyVS = R"(
 varying vec2 vNdc;
 void main() {
     vNdc = gl_Vertex.xy;
-    gl_Position = vec4(gl_Vertex.xy, 0.999, 1.0);
+    gl_Position = vec4(gl_Vertex.xy, 0.999, 1.0); // clip-space; verts oversized vs NDC
 }
 )";
 
@@ -704,10 +709,10 @@ osg::Node* make_sky_dome() {
     auto* geode = new osg::Geode;
     auto* geom = new osg::Geometry;
     auto* verts = new osg::Vec3Array;
-    verts->push_back(osg::Vec3(-1.f, -1.f, 0.f));
-    verts->push_back(osg::Vec3(1.f, -1.f, 0.f));
-    verts->push_back(osg::Vec3(1.f, 1.f, 0.f));
-    verts->push_back(osg::Vec3(-1.f, 1.f, 0.f));
+    verts->push_back(osg::Vec3(-1.15f, -1.15f, 0.f));
+    verts->push_back(osg::Vec3(1.15f, -1.15f, 0.f));
+    verts->push_back(osg::Vec3(1.15f, 1.15f, 0.f));
+    verts->push_back(osg::Vec3(-1.15f, 1.15f, 0.f));
     auto* idx = new osg::DrawElementsUInt(GL_TRIANGLES);
     idx->push_back(0);
     idx->push_back(1);
@@ -915,15 +920,17 @@ osg::Node* make_dem_patch(const CacheRegion& cache, float aniso = 16.f) {
         const double lat = dem.north - (dem.north - dem.south) * y / std::max(1, dem.h - 1);
         for (int x = 0; x < dem.w; ++x) {
             const double lon = dem.west + (dem.east - dem.west) * x / std::max(1, dem.w - 1);
-            const double z = dem.z_m[static_cast<std::size_t>(y * dem.w + x)];
+            double z = dem.z_m[static_cast<std::size_t>(y * dem.w + x)];
+            if (geo::land_coverage(lat, lon) < 0.35f && z < 2.5)
+                z = 0.0; // flatten bay so 96² tiles are not a faceted green grid
             const geo::Ecef p = geo::lla_to_ecef(lat, lon, z);
             verts->push_back(ecef_to_osg(p));
             geo::Ecef e, n, u;
             geo::ecef_to_enu_axes(lat, lon, e, n, u);
             norms->push_back(osg::Vec3(static_cast<float>(u.x), static_cast<float>(u.y),
                                        static_cast<float>(u.z)));
-            uvs->push_back(osg::Vec2(static_cast<float>(x) / std::max(1, dem.w - 1),
-                                     static_cast<float>(y) / std::max(1, dem.h - 1)));
+            uvs->push_back(osg::Vec2((static_cast<float>(x) + 0.5f) / static_cast<float>(dem.w),
+                                     (static_cast<float>(y) + 0.5f) / static_cast<float>(dem.h)));
         }
     }
     auto* idx = new osg::DrawElementsUInt(GL_TRIANGLES);
@@ -940,6 +947,41 @@ osg::Node* make_dem_patch(const CacheRegion& cache, float aniso = 16.f) {
             idx->push_back(c);
             idx->push_back(d);
         }
+    }
+    // Skirts: drop the boundary 40 m so adjacent-tile cracks do not show sky.
+    const int w = dem.w, h = dem.h;
+    const unsigned base = static_cast<unsigned>(w * h);
+    auto drop = [&](int x, int y) {
+        const unsigned i = static_cast<unsigned>(y * w + x);
+        const double lat = dem.north - (dem.north - dem.south) * y / std::max(1, h - 1);
+        const double lon = dem.west + (dem.east - dem.west) * x / std::max(1, w - 1);
+        const double z = dem.z_m[static_cast<std::size_t>(y * w + x)] - 40.0;
+        const geo::Ecef e = geo::lla_to_ecef(lat, lon, z);
+        verts->push_back(ecef_to_osg(e));
+        norms->push_back((*norms)[i]);
+        uvs->push_back((*uvs)[i]);
+        return static_cast<unsigned>(verts->size() - 1);
+    };
+    auto skirt_edge = [&](int x0, int y0, int x1, int y1) {
+        const unsigned a = static_cast<unsigned>(y0 * w + x0);
+        const unsigned b = static_cast<unsigned>(y1 * w + x1);
+        const unsigned c = drop(x0, y0);
+        const unsigned d = drop(x1, y1);
+        idx->push_back(a);
+        idx->push_back(b);
+        idx->push_back(c);
+        idx->push_back(b);
+        idx->push_back(d);
+        idx->push_back(c);
+    };
+    (void)base;
+    for (int x = 0; x < w - 1; ++x) {
+        skirt_edge(x, 0, x + 1, 0);
+        skirt_edge(x, h - 1, x + 1, h - 1);
+    }
+    for (int y = 0; y < h - 1; ++y) {
+        skirt_edge(0, y, 0, y + 1);
+        skirt_edge(w - 1, y, w - 1, y + 1);
     }
     geom->setVertexArray(verts);
     geom->setNormalArray(norms, osg::Array::BIND_PER_VERTEX);
@@ -1100,6 +1142,11 @@ struct LightGpu {
     std::vector<LightKind> kinds;
     std::vector<int> seq;
     std::vector<osg::Vec4> base;
+    std::vector<double> lat;
+    std::vector<double> lon;
+    std::vector<double> alt_m;
+    std::vector<int> papi_box;
+    std::vector<float> papi_gs;
 };
 
 LightGpu make_light_gpu(const Airport& apt) {
@@ -1117,6 +1164,11 @@ LightGpu make_light_gpu(const Airport& apt) {
         g.switches.push_back(L.switch_num);
         g.kinds.push_back(L.kind);
         g.seq.push_back(L.seq);
+        g.lat.push_back(L.lat);
+        g.lon.push_back(L.lon);
+        g.alt_m.push_back(L.alt_m);
+        g.papi_box.push_back(L.papi_box);
+        g.papi_gs.push_back(L.papi_gs_deg);
     }
     g.geom->setVertexArray(verts);
     g.geom->setColorArray(g.colors, osg::Array::BIND_PER_VERTEX);
@@ -1126,7 +1178,7 @@ LightGpu make_light_gpu(const Airport& apt) {
     g.geom->setUseVertexBufferObjects(true);
     auto* ss = g.geom->getOrCreateStateSet();
     ss->setMode(GL_BLEND, osg::StateAttribute::ON);
-    ss->setAttributeAndModes(new osg::BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
+    ss->setAttributeAndModes(new osg::BlendFunc(GL_SRC_ALPHA, GL_ONE));
     ss->setAttributeAndModes(new osg::Depth(osg::Depth::LEQUAL, 0, 1, false));
     attach_points(ss, lights::kBaseSizePx);
     ss->setRenderBinDetails(20, "DepthSortedBin");
@@ -1574,7 +1626,15 @@ void apply_light_steps(LightGpu& g, const HostState& host) {
         const int seq = i < g.seq.size() ? g.seq[i] : -1;
         if (kind == LightKind::Flasher && seq >= 0 && !lights::sfl_on(t_s, seq))
             k = 0.f;
-        const osg::Vec4& b = g.base[i];
+        osg::Vec4 b = g.base[i];
+        if (kind == LightKind::Vasi && i < g.papi_box.size() && g.papi_box[i] >= 0 &&
+            host.have_eyepoint) {
+            const float ang = lights::papi_eye_angle_deg(
+                host.eye.lat_deg, host.eye.lon_deg, host.eye.alt_ft * geo::kFtToM, g.lat[i],
+                g.lon[i], g.alt_m[i]);
+            const bool white = lights::papi_box_white(ang, g.papi_box[i], g.papi_gs[i]);
+            b = white ? osg::Vec4(1.f, 1.f, 0.92f, 1.f) : osg::Vec4(1.f, 0.12f, 0.08f, 1.f);
+        }
         (*g.colors)[static_cast<unsigned>(i)] = osg::Vec4(b.r() * k, b.g() * k, b.b() * k, k);
     }
     g.colors->dirty();
@@ -1766,7 +1826,7 @@ osg::ref_ptr<osg::GraphicsContext> make_gl_context(int x, int y, int w, int h) {
         tr->y = y;
         tr->width = std::max(8, w);
         tr->height = std::max(8, h);
-        tr->windowDecoration = !pbuffer;
+        tr->windowDecoration = false; // projectors / screenshots: no chrome, exact WxH
         tr->doubleBuffer = !pbuffer;
         tr->samples = 0;
         tr->sampleBuffers = 0;
@@ -2153,28 +2213,37 @@ class OsgRenderer final : public Renderer {
 
             osg::ref_ptr<osgViewer::View> view = new osgViewer::View;
             view->setSceneData(root);
-            // setUpViewInWindow handles X11 DISPLAY / pixel format; raw Traits
-            // often fail under Xvfb.
-            if (place.fullscreen)
+            const int win_w = std::max(8, ch.width);
+            const int win_h = std::max(8, ch.height);
+            // Undecorated exact-size window so the sky quad and the
+            // channel viewport are the same pixels (no chrome band).
+            osg::ref_ptr<osg::GraphicsContext> gc =
+                make_gl_context(place.x, place.y, win_w, win_h);
+            if (gc) {
+                if (auto* cam = view->getCamera()) {
+                    cam->setGraphicsContext(gc);
+                    cam->setViewport(new osg::Viewport(0, 0, win_w, win_h));
+                }
+            } else if (place.fullscreen) {
                 view->setUpViewOnSingleScreen(static_cast<unsigned>(place.screen));
-            else
-                view->setUpViewInWindow(place.x, place.y, place.w, place.h,
+            } else {
+                view->setUpViewInWindow(place.x, place.y, win_w, win_h,
                                         static_cast<unsigned>(place.screen));
+            }
             if (auto* cam = view->getCamera()) {
                 osg::GraphicsContext* have = cam->getGraphicsContext();
                 if (!have || !have->valid()) {
-                    osg::ref_ptr<osg::GraphicsContext> gc =
-                        make_gl_context(place.x, place.y, place.w, place.h);
-                    if (gc) {
-                        cam->setGraphicsContext(gc);
-                        cam->setViewport(new osg::Viewport(0, 0, std::max(8, place.w),
-                                                           std::max(8, place.h)));
+                    osg::ref_ptr<osg::GraphicsContext> gc2 =
+                        make_gl_context(place.x, place.y, win_w, win_h);
+                    if (gc2) {
+                        cam->setGraphicsContext(gc2);
+                        cam->setViewport(new osg::Viewport(0, 0, win_w, win_h));
                     }
                 }
-                cam->setClearColor(osg::Vec4(0.35f, 0.50f, 0.72f, 1));
+                cam->setClearColor(osg::Vec4(0.55f, 0.72f, 0.95f, 1));
                 cam->setNearFarRatio(0.0001);
                 cam->setComputeNearFarMode(osg::CullSettings::DO_NOT_COMPUTE_NEAR_FAR);
-                cam->setViewport(0, 0, std::max(8, ch.width), std::max(8, ch.height));
+                cam->setViewport(0, 0, win_w, win_h);
                 if (channels_.size() == 1 && ch.flip_vertical)
                     cam->setPostDrawCallback(new OutputMirrorCallback);
                 if (auto* vp = cam->getViewport()) {
@@ -2907,9 +2976,8 @@ class OsgRenderer final : public Renderer {
             env_u_.ambient->set(osg::Vec3(0.04f + 0.12f * dayf + flash * 0.4f,
                                           0.04f + 0.12f * dayf + flash * 0.4f,
                                           0.06f + 0.12f * dayf + flash * 0.5f));
-        const float t = 0.25f + 0.55f * dayf;
-        const osg::Vec4 sky(0.12f + 0.18f * t + flash * 0.4f, 0.32f + 0.28f * t + flash * 0.4f,
-                            0.72f + 0.22f * t + flash * 0.2f, 1);
+        const osg::Vec4 sky(0.55f * dayf + 0.04f + flash * 0.3f, 0.72f * dayf + 0.06f + flash * 0.3f,
+                            0.95f * dayf + 0.10f + flash * 0.2f, 1);
         for (auto& view : views_) {
             if (auto* cam = view->getCamera())
                 cam->setClearColor(sky);

@@ -36,13 +36,18 @@ float tod_visibility(LightKind kind, float tod_hours) {
     const float day = 1.f - night;
     float floor = 0.04f;
     switch (kind) {
-    case LightKind::Vasi:
-        floor = 0.16f; // PAPI still readable in daylight
-        break;
     case LightKind::Approach:
+    case LightKind::Strobe:
+    case LightKind::Flasher:
+    case LightKind::Reil:
+        floor = 0.62f; // Raster ALS is built to read in daylight
+        break;
     case LightKind::Threshold:
     case LightKind::End:
-        floor = 0.07f;
+        floor = 0.45f;
+        break;
+    case LightKind::Vasi:
+        floor = 0.50f; // 2W2R must read on a 3° path at noon
         break;
     case LightKind::Night:
     case LightKind::SignGlow:
@@ -111,6 +116,28 @@ float base_size_px(float tod_hours) {
 
 float point_size_px(float tod_hours, float hat_ft) {
     return base_size_px(tod_hours) * size_mult_hat(hat_ft);
+}
+
+bool papi_box_white(float eye_angle_deg, int box, float gs_deg) {
+    if (box < 0)
+        box = 0;
+    if (box > 3)
+        box = 3;
+    if (!std::isfinite(eye_angle_deg))
+        eye_angle_deg = gs_deg;
+    if (!std::isfinite(gs_deg) || gs_deg < 0.5f)
+        gs_deg = 3.f;
+    const float step = 20.f / 60.f; // FAA 20 arcmin between units
+    const float setting = gs_deg + (static_cast<float>(box) - 1.5f) * step;
+    return eye_angle_deg > setting;
+}
+
+float papi_eye_angle_deg(double eye_lat, double eye_lon, double eye_alt_m, double papi_lat,
+                         double papi_lon, double papi_alt_m) {
+    const double dist = geo::ground_distance_m(eye_lat, eye_lon, papi_lat, papi_lon);
+    if (!(dist > 1.0) || !std::isfinite(dist))
+        return 90.f;
+    return static_cast<float>(geo::rad2deg(std::atan2(eye_alt_m - papi_alt_m, dist)));
 }
 
 float type_range_scale(LightKind kind) {

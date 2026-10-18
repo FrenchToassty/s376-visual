@@ -4,6 +4,7 @@
 #include "s376/landmarks.hpp"
 #include "s376/lights.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <exception>
 #include <filesystem>
@@ -251,6 +252,45 @@ void test_airport() {
     check_runway_length(jfk.runways[3]);
     check_lights(jfk, 200, 400);
     check_mesh(jfk);
+    {
+        const auto& rw = jfk.runways[1]; // 04R ALSF-2
+        int n_als = 0, n_before = 0, n_side = 0, n_papi = 0, n_tdz = 0;
+        double max_back_m = 0;
+        for (const auto& L : jfk.lights) {
+            if (L.runway_k != 2)
+                continue;
+            if (L.kind == s376::LightKind::Vasi) {
+                ++n_papi;
+                CHECK(L.papi_box >= 0 && L.papi_box <= 3);
+                CHECK_NEAR(L.papi_gs_deg, 3.0, 0.05);
+            }
+            if (L.kind == s376::LightKind::Threshold)
+                ++n_tdz;
+            if (L.kind != s376::LightKind::Approach && L.kind != s376::LightKind::Flasher)
+                continue;
+            ++n_als;
+            double hdg = 0;
+            const double d = s376::geo::inverse_wgs84(rw.le_lat, rw.le_lon, L.lat, L.lon, &hdg);
+            double dh = hdg - (rw.heading_deg + 180.0);
+            while (dh > 180.0)
+                dh -= 360.0;
+            while (dh < -180.0)
+                dh += 360.0;
+            if (std::fabs(dh) < 30.0 && d > 20.0) {
+                ++n_before;
+                max_back_m = std::max(max_back_m, d);
+                const double across = d * std::sin(s376::geo::deg2rad(dh));
+                if (std::fabs(across) > 12.0 && L.r > 0.6f && L.g < 0.3f)
+                    ++n_side;
+            }
+        }
+        CHECK(n_als > 120);
+        CHECK(n_before > 80);
+        CHECK(max_back_m > 700.0); // 2400 ft ≈ 732 m
+        CHECK(n_side >= 20);
+        CHECK(n_papi >= 4);
+        CHECK(n_tdz >= 30);
+    }
 
     s376::SolidBvh jfk_solids;
     s376::fill_solids(jfk_solids, s376::SkylineEra::Current, {jfk});

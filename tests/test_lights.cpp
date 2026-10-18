@@ -78,6 +78,20 @@ void test_lights() {
     CHECK(tod_visibility(s376::LightKind::Edge, 14.5f) > 0.02f);
     CHECK(tod_visibility(s376::LightKind::Night, 14.5f) <
           tod_visibility(s376::LightKind::Vasi, 14.5f));
+    CHECK(tod_visibility(s376::LightKind::Approach, 14.5f) > 0.50f);
+    CHECK(tod_visibility(s376::LightKind::Vasi, 14.5f) > 0.40f);
+    CHECK(tod_visibility(s376::LightKind::Threshold, 14.5f) > 0.35f);
+    CHECK(papi_box_white(3.0f, 0, 3.0f) && papi_box_white(3.0f, 1, 3.0f));
+    CHECK(!papi_box_white(3.0f, 2, 3.0f) && !papi_box_white(3.0f, 3, 3.0f));
+    CHECK(papi_box_white(4.0f, 3, 3.0f));
+    CHECK(!papi_box_white(2.0f, 0, 3.0f));
+    {
+        // Eye 1 km south of a PAPI, 52.4 m above it → atan(52.4/1000) ≈ 3°.
+        const float ang = papi_eye_angle_deg(40.63, -73.78, 52.4, 40.639, -73.78, 0.0);
+        CHECK_NEAR(ang, 3.0, 0.15);
+        CHECK(papi_box_white(ang, 0, 3.0f) && papi_box_white(ang, 1, 3.0f));
+        CHECK(!papi_box_white(ang, 2, 3.0f) && !papi_box_white(ang, 3, 3.0f));
+    }
     CHECK_NEAR(tod_visibility(s376::LightKind::Edge, 0.5f), 1.0, 1e-3);
     CHECK_NEAR(kMaxRangeFt, 250000.0, 1e-3);
     CHECK(max_range_m() > 70000.f);

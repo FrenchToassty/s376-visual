@@ -221,6 +221,8 @@ float land_coverage(double lat, double lon) {
     // Long Island + Rockaway barrier (KJFK photos). Soft so coasts are not stairs.
     land = std::max(land, soft_box(lat, lon, 40.58, 41.18, -74.06, -71.86, 0.03));
     land = std::min(land, 1.f - 0.96f * soft_box(lat, lon, 40.598, 40.652, -73.900, -73.778, 0.008));
+    // South/east Jamaica Bay — 04L/04R short final sits over water, not the LI box.
+    land = std::min(land, 1.f - 0.96f * soft_box(lat, lon, 40.588, 40.625, -73.812, -73.742, 0.005));
     land = std::max(land, soft_box(lat, lon, 40.545, 40.588, -73.96, -73.73, 0.008)); // Rockaway
     land = std::max(land, soft_box(lat, lon, 40.626, 40.662, -73.828, -73.752, 0.006)); // JFK field
     land = std::max(land, soft_box(lat, lon, 41.52, 42.10, -70.62, -69.90, 0.04));     // Cape Cod

@@ -59,6 +59,7 @@ void test_geo() {
     // Soft US coasts: airports are land, nearby ocean / bays are water.
     CHECK(s376::geo::land_coverage(40.6399, -73.7787) > 0.55); // KJFK
     CHECK(s376::geo::land_coverage(40.620, -73.840) < 0.40);   // Jamaica Bay
+    CHECK(s376::geo::land_coverage(40.620, -73.774) < 0.40);   // 04R short final over the bay
     CHECK(s376::geo::land_coverage(40.500, -73.800) < 0.25);   // Atlantic south of Rockaway
     CHECK(s376::geo::land_coverage(40.565, -73.850) > 0.45);   // Rockaway barrier
     CHECK(s376::geo::land_coverage(42.3656, -71.0096) > 0.55); // KBOS
