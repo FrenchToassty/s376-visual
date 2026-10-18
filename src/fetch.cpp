@@ -360,7 +360,7 @@ FetchRequest resolved_fetch(const FetchRequest& in) {
     if (r.approach_nm <= 0)
         r.approach_nm = 12.0;
     if (r.radius_km <= 0)
-        r.radius_km = 50.0;
+        r.radius_km = kFarFieldKm;
     r.max_export = clamp_export_px(r.max_export);
     r.dem = dem;
     r.imagery = img;

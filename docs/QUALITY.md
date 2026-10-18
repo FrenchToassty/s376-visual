@@ -53,9 +53,9 @@ Joey's Mint PC is back.
 |---|---|---|---|
 | base (tiles + mesh + lights) | — | **6.00** | paged lod + official lights |
 | atmosphere | `render.atmosphere` | **0.45** | Rayleigh/Mie sky, aerial haze from host visibility |
-| water | `render.water` | **0.80** | Jamaica Bay / ocean, Fresnel, glint, wave scroll, foam |
+| water | `render.water` | **0.80** | Jamaica Bay / ocean from cover mask + chroma, Fresnel, glint, foam |
 | detail | `render.detail_textures` | **0.55** | land-cover atlas under ortho (near field) |
-| buildings | `render.buildings` | **1.10** | OSM facades/roofs by type, night windows |
+| buildings | `render.buildings` | **1.10** | Official + OSM campus (800) + Queens/Brooklyn ring (2500) |
 | runway PBR | `render.markings` | **0.30** | asphalt/concrete + rubber + wet + night HIRL sheen (+0.05 ALU, absorbed) |
 | bloom | `render.bloom` | **0.70** | Raster fog-halo on lights + city glow |
 | filmic | `render.filmic` | **0.15** | lift/gamma/gain after ACES |
@@ -77,6 +77,10 @@ Night-light GPU impact on the 980 Ti (same point-sprite path):
 
 Net **−0.10 ms**. Budgeted total stays **12.20 ms**.
 
+Far-field hangar frames (2.99 / 0.6 nm, `--tod 12`): globe-under-tiles
+**+0.05** ALU (one 160×80 mesh, absorbed in the 6.00 ms base). Reserved
+lod1/lod2 are cheap coarse meshes. Budgeted total stays **12.20 ms**.
+
 ## Why a 1 GB KJFK pack used 14 GB RAM
 
 A packed `cache/KJFK` on the hangar box was about **1.6 GB on disk**
@@ -93,6 +97,11 @@ and the host app.
 Runtime rules now:
 
 - **Page** `lodN/tY_X` by distance and a coarse heading frustum.
+  **Reserved lod1/lod2** inside 40 nm (74 km) cannot be starved by
+  lod0 1 m tiles. A coarse tile is evicted only when lod0 **fully**
+  covers it (overlap used to drop the 50 km lod2 and leave empty sky).
+  The procedural globe stays under packed tiles (80 m inset) so the
+  far field is never a sky-blue void while coarse pages in.
 - **Subsample** each resident DEM to `mesh_n` (`DemGrid::load_subsampled`).
 - **Upload DXT1 through OSG 3.6.** `dxt::read_dds` keeps the block
   payload. BC7 (BPTC) is transcoded block-by-block to DXT1 because
@@ -130,7 +139,7 @@ source finer than native unless the operator set a positive
 |---|---|---|---|
 | 0 | **8 km** around the ARP + **12 nm** finals | native: NYS **0.15 m**, HRO **0.30 m**, NAIP **0.60 m**, S2 **10 m** | native: 3DEP **1 m**, GLO-30 **30 m** |
 | 1 | **40 km** | 4× native | 2× native |
-| 2 | **50 km** outer | 16× native | 8× native (never finer than native) |
+| 2 | **40 nm / 74 km** outer | 16× native | 8× native (never finer than native) |
 
 | Source | Native | Default pull (near / mid / far) | Licence |
 |---|---|---|---|

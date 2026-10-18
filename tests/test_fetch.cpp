@@ -123,6 +123,18 @@ void test_fetch() {
     CHECK_NEAR(resolved_ksea.far_m, 1.28, 1e-6);
     CHECK_NEAR(resolved_ksea.near_radius_km, 8.0, 1e-6);
     CHECK_NEAR(resolved_ksea.approach_nm, 12.0, 1e-6);
+    {
+        s376::FetchRequest def;
+        def.icao = "KJFK";
+        def.radius_km = 0;
+        def.dry_run = true;
+        const auto r = s376::resolved_fetch(def);
+        CHECK(r.radius_km + 0.01 >= s376::kFarFieldKm);
+        const auto lods = s376::fetch_lods(def);
+        CHECK(lods.size() >= 3);
+        CHECK(lods.back().level == 2);
+        CHECK(lods.back().radius_km + 0.01 >= 40.0 * 1.852);
+    }
     auto plan = s376::plan_fetch(req);
     CHECK(plan.dem_kind == "3dep");
     CHECK(plan.img_kind == "kingco");

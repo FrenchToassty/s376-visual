@@ -201,6 +201,65 @@ bool pixels_near_solid(const RgbImage& im, std::uint8_t r, std::uint8_t g, std::
     return true;
 }
 
+float sky_like_fraction(const RgbImage& im, float x0, float x1, float y0, float y1) {
+    if (im.w < 8 || im.h < 8 ||
+        im.rgb.size() < static_cast<std::size_t>(im.w * im.h * 3))
+        return 1.f;
+    const int xa = std::max(0, std::min(im.w - 1, static_cast<int>(x0 * static_cast<float>(im.w))));
+    const int xb = std::max(xa + 1, std::min(im.w, static_cast<int>(x1 * static_cast<float>(im.w))));
+    const int ya = std::max(0, std::min(im.h - 1, static_cast<int>(y0 * static_cast<float>(im.h))));
+    const int yb = std::max(ya + 1, std::min(im.h, static_cast<int>(y1 * static_cast<float>(im.h))));
+    int sky = 0, n = 0;
+    for (int y = ya; y < yb; ++y) {
+        for (int x = xa; x < xb; ++x) {
+            const std::size_t o = static_cast<std::size_t>(y * im.w + x) * 3u;
+            const int r = im.rgb[o], g = im.rgb[o + 1], b = im.rgb[o + 2];
+            // Hangar empty-far defect: flat light sky-blue (horizon/zenith).
+            // Globe water is dark navy; land is olive — neither matches.
+            const bool sky_px = b >= 130 && b >= g - 8 && g >= r - 4 && (b - r) >= 24 &&
+                                (r + g + b) >= 360;
+            if (sky_px)
+                ++sky;
+            ++n;
+        }
+    }
+    return n > 0 ? static_cast<float>(sky) / static_cast<float>(n) : 1.f;
+}
+
+bool far_field_is_empty_sky(const RgbImage& im) {
+    if (im.w < 32 || im.h < 32)
+        return true;
+    // Strip just above the airport on a 2.99 nm 3° 04R shot (horizon
+    // sits near mid-frame; behind the field is this band).
+    const float far = sky_like_fraction(im, 0.36f, 0.74f, 0.34f, 0.50f);
+    long sr = 0, sg = 0, sb = 0, n = 0;
+    const int x0 = static_cast<int>(0.36f * im.w), x1 = static_cast<int>(0.74f * im.w);
+    const int y0 = static_cast<int>(0.34f * im.h), y1 = static_cast<int>(0.50f * im.h);
+    for (int y = y0; y < std::max(y0 + 1, y1) && y < im.h; ++y) {
+        for (int x = x0; x < std::max(x0 + 1, x1) && x < im.w; ++x) {
+            const std::size_t o = static_cast<std::size_t>(y * im.w + x) * 3u;
+            sr += im.rgb[o];
+            sg += im.rgb[o + 1];
+            sb += im.rgb[o + 2];
+            ++n;
+        }
+    }
+    if (n < 8)
+        return true;
+    const double mr = static_cast<double>(sr) / n, mg = static_cast<double>(sg) / n,
+                 mb = static_cast<double>(sb) / n;
+    double var = 0;
+    for (int y = y0; y < std::max(y0 + 1, y1) && y < im.h; ++y) {
+        for (int x = x0; x < std::max(x0 + 1, x1) && x < im.w; ++x) {
+            const std::size_t o = static_cast<std::size_t>(y * im.w + x) * 3u;
+            const double dr = im.rgb[o] - mr, dg = im.rgb[o + 1] - mg, db = im.rgb[o + 2] - mb;
+            var += dr * dr + dg * dg + db * db;
+        }
+    }
+    const double stdev = std::sqrt(var / static_cast<double>(n));
+    return far > 0.82f && stdev < 22.0;
+}
+
 bool pixels_near_gradient(const RgbImage& im, int tol) {
     const auto expect = make_gradient_rgb(im.w, im.h);
     if (im.rgb.size() != expect.rgb.size())

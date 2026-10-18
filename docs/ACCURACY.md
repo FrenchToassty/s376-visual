@@ -152,7 +152,7 @@ outside lod0.
 rm -rf cache/KJFK
 ./build/s376-cache fetch KJFK --out cache/KJFK --dem 3dep --imagery nys
 ./build/s376-cache fetch KEWR --out cache/KEWR --dem 3dep --imagery nys
-# defaults: native NYS 0.15 m on 8 km + 12 nm finals, 50 km outer, 3DEP 1 m
+# defaults: native NYS 0.15 m on 8 km + 12 nm finals, 40 nm / 74 km outer, 3DEP 1 m
 ./build/s376-doctor --cache-dir cache/KJFK --no-bench
 # expect [pass] faa-kjfk, [pass] faa-coverage, [pass] imagery-align
 ```

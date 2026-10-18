@@ -6,6 +6,8 @@ constexpr double kPi = 3.14159265358979323846;
 constexpr double kDeg = kPi / 180.0;
 constexpr double kFtToM = 0.3048;
 constexpr double kMToFt = 1.0 / kFtToM;
+constexpr double kNmToM = 1852.0;
+constexpr double kMToNm = 1.0 / kNmToM;
 constexpr double kWgsA = 6378137.0;
 constexpr double kWgsB = 6356752.314245;
 

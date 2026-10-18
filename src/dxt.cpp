@@ -518,6 +518,35 @@ std::vector<std::uint8_t> transcode_bc7_to_bc1(const std::uint8_t* blocks, int w
     return out;
 }
 
+void ensure_bc1_mips(CompressedImage& img) {
+    if (img.fmt != BlockFmt::Bc1 || img.blocks.empty())
+        return;
+    if (img.mips > 1 || img.w < 4 || img.h < 4)
+        return;
+    auto rgb = decode_bc1(img.blocks.data(), img.w, img.h);
+    if (rgb.empty())
+        return;
+    std::vector<std::uint8_t> all;
+    int w = img.w, h = img.h;
+    auto lvl = encode_bc1(rgb.data(), w, h);
+    all.insert(all.end(), lvl.begin(), lvl.end());
+    int mips = 1;
+    auto cur = std::move(rgb);
+    while (w > 1 || h > 1) {
+        int ow = 0, oh = 0;
+        cur = downsample2(cur.data(), w, h, ow, oh);
+        w = ow;
+        h = oh;
+        lvl = encode_bc1(cur.data(), w, h);
+        all.insert(all.end(), lvl.begin(), lvl.end());
+        ++mips;
+        if (w <= 1 && h <= 1)
+            break;
+    }
+    img.blocks = std::move(all);
+    img.mips = mips;
+}
+
 void make_osg_safe(CompressedImage& img) {
     if (img.fmt != BlockFmt::Bc7 || img.blocks.empty())
         return;

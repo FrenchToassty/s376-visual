@@ -101,6 +101,29 @@ struct CacheTileRef {
     std::uint64_t dem_bytes = 0;
 };
 
+// Far-field contract: lod1/lod2 must stay resident out to this disk so
+// a 2.99 nm 04R shot still has Jamaica Bay / Rockaway / Atlantic / Queens
+// behind the airport instead of empty sky. 40 nm = 74.08 km.
+constexpr double kFarFieldNm = 40.0;
+constexpr double kFarFieldKm = 40.0 * 1.852;
+
+struct TilePageWant {
+    const CacheTileRef* t = nullptr;
+    double km = 0;
+    double score = 0;
+    bool reserve_coarse = false;
+};
+
+// Score tiles for the pager. Reserved coarse (lod≥1 inside 40 nm) must
+// page before extra lod0 so a 2 GB RAM budget cannot starve the far field.
+void score_tiles_for_view(const std::vector<CacheTileRef>& index, double elat, double elon,
+                          double tlat, double tlon, double hdg_true, bool have_eye,
+                          bool coarse_only, std::vector<TilePageWant>& want);
+
+// Public-source KJFK subset in Joey's hangar layout (ATTRIBUTION.txt,
+// coverage.toml, elev.*, imagery.*, lod0/lod1/lod2, region.toml).
+bool write_kjfk_farfield_subset(const std::string& dir);
+
 // Index lodN/ and lodN/tY_X without loading rasters.
 std::vector<CacheTileRef> scan_cache_tiles(const std::string& dir);
 double tile_center_lat(const CacheTileRef& t);

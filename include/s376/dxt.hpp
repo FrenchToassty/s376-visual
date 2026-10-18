@@ -59,5 +59,8 @@ struct CompressedImage {
 bool read_dds(const std::string& path, CompressedImage& out);
 // In-place: every mip becomes BC1 so OSG can glCompressedTexImage2D.
 void make_osg_safe(CompressedImage& img);
+// Build a BC1 mip chain when the DDS has only the top level. Needed so
+// aniso/trilinear works — glGenerateMipmap(DXT1) is GL_INVALID_ENUM.
+void ensure_bc1_mips(CompressedImage& img);
 
 } // namespace s376::dxt

@@ -45,9 +45,12 @@ enum class LightKind {
 // OSM footprint goes into solids.bin / SolidBvh, independent of LOD.
 constexpr std::size_t kMaxOsmTaxiways = 800;
 constexpr std::size_t kMaxOsmAprons = 200;
-constexpr std::size_t kMaxOsmBuildings = 8000;
+constexpr std::size_t kMaxOsmBuildings = 12000;
 constexpr std::size_t kMaxOsmRoads = 400;
+// Airfield campus (≤ ~2.2 km of ARP): full-detail walls.
 constexpr int kMeshBuildingsNear = 800;
+// Neighbourhood ring (0.8–16 km): Queens / Brooklyn / Rockaway houses.
+// Official + landmark buildings are always meshed and do not count here.
 constexpr int kMeshBuildingsFar = 2500;
 // OSM `height`, else `building:levels` × this, else the default. Metres AGL.
 constexpr float kOsmLevelHeightM = 3.5f;

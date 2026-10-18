@@ -1775,43 +1775,34 @@ AirportMesh build_airport_mesh(const Airport& a, bool buildings, bool markings) 
             }
         }
     }
+    auto bldg_km = [&](std::size_t k, double& clat, double& clon) {
+        clat = 0;
+        clon = 0;
+        if (a.buildings[k].ring.empty())
+            return 1e9;
+        for (const auto& p : a.buildings[k].ring) {
+            clat += p.first;
+            clon += p.second;
+        }
+        clat /= static_cast<double>(a.buildings[k].ring.size());
+        clon /= static_cast<double>(a.buildings[k].ring.size());
+        const double dlat = (clat - a.arp_lat) * 111.32;
+        const double dlon = (clon - a.arp_lon) * 111.32 *
+                            std::max(0.2, std::cos(geo::deg2rad(a.arp_lat)));
+        return std::sqrt(dlat * dlat + dlon * dlon);
+    };
     std::vector<std::size_t> order;
     order.reserve(a.buildings.size());
     for (std::size_t i = 0; i < a.buildings.size(); ++i)
         order.push_back(i);
     std::sort(order.begin(), order.end(), [&](std::size_t i, std::size_t j) {
-        auto dist2 = [&](std::size_t k) {
-            if (a.buildings[k].ring.empty())
-                return 1e18;
-            double clat = 0, clon = 0;
-            for (const auto& p : a.buildings[k].ring) {
-                clat += p.first;
-                clon += p.second;
-            }
-            clat /= static_cast<double>(a.buildings[k].ring.size());
-            clon /= static_cast<double>(a.buildings[k].ring.size());
-            const double dlat = clat - a.arp_lat;
-            const double dlon = clon - a.arp_lon;
-            return dlat * dlat + dlon * dlon;
-        };
-        return dist2(i) < dist2(j);
+        double ci = 0, coi = 0, cj = 0, coj = 0;
+        return bldg_km(i, ci, coi) < bldg_km(j, cj, coj);
     });
-    int nb = 0;
-    for (std::size_t idx : order) {
-        if (!buildings || nb >= kMeshBuildingsFar)
-            break;
-        const auto& b = a.buildings[idx];
-        if (b.ring.size() < 3)
-            continue;
-        double clat = 0, clon = 0;
-        for (const auto& p : b.ring) {
-            clat += p.first;
-            clon += p.second;
-        }
-        clat /= static_cast<double>(b.ring.size());
-        clon /= static_cast<double>(b.ring.size());
+    int n_campus = 0, n_city = 0;
+    auto emit = [&](const Building& b, double clat, double clon, bool far) {
         if (on_official_pavement(a, clat, clon))
-            continue;
+            return false;
         float h = b.height_m;
         if (b.kind == BuildingKind::Osm)
             h = std::min(h, 80.f);
@@ -1821,7 +1812,6 @@ AirportMesh build_airport_mesh(const Airport& a, bool buildings, bool markings) 
         geo::Ecef e, n, u;
         geo::ecef_to_enu_axes(clat, clon, e, n, u);
         const geo::Ecef roof_c = geo::lla_to_ecef(clat, clon, z1);
-        const bool far = nb >= kMeshBuildingsNear;
         const std::size_t step = far ? std::max<std::size_t>(1, b.ring.size() / 4) : 1;
         for (std::size_t i = 0; i < b.ring.size(); i += step) {
             const auto& p0 = b.ring[i];
@@ -1838,7 +1828,38 @@ AirportMesh build_airport_mesh(const Airport& a, bool buildings, bool markings) 
             add_tri(mesh, A, C, D, nn, wr, wg, wb, 3.f);
             add_tri(mesh, roof_c, D, C, u, rr, rg, rb, 4.f);
         }
-        ++nb;
+        return true;
+    };
+    if (buildings) {
+        // Official / landmark always (terminals, hangars — few).
+        for (std::size_t idx : order) {
+            const auto& b = a.buildings[idx];
+            if (b.kind == BuildingKind::Osm || b.ring.size() < 3)
+                continue;
+            double clat = 0, clon = 0;
+            (void)bldg_km(idx, clat, clon);
+            emit(b, clat, clon, false);
+        }
+        // OSM campus around the ARP, then Queens/Brooklyn/Rockaway ring.
+        // Sorting only by ARP used to fill the 2500 cap with airfield sheds.
+        for (std::size_t idx : order) {
+            const auto& b = a.buildings[idx];
+            if (b.kind != BuildingKind::Osm || b.ring.size() < 3)
+                continue;
+            double clat = 0, clon = 0;
+            const double km = bldg_km(idx, clat, clon);
+            if (km <= 2.2) {
+                if (n_campus >= kMeshBuildingsNear)
+                    continue;
+                if (emit(b, clat, clon, false))
+                    ++n_campus;
+            } else if (km >= 0.8 && km <= 16.0) {
+                if (n_city >= kMeshBuildingsFar)
+                    continue;
+                if (emit(b, clat, clon, true))
+                    ++n_city;
+            }
+        }
     }
     for (const auto& t : a.trees) {
         if (on_official_pavement(a, t.lat, t.lon))

@@ -219,6 +219,51 @@ void test_terrain() {
     }
     CHECK(s376::dem_file_complete(cdir + "/elev.s376dem"));
     {
+        const auto far = (tmp / "kjfk-farfield").string();
+        CHECK(s376::write_kjfk_farfield_subset(far));
+        CHECK(std::filesystem::exists(far + "/ATTRIBUTION.txt"));
+        CHECK(std::filesystem::exists(far + "/coverage.toml"));
+        CHECK(std::filesystem::exists(far + "/region.toml"));
+        CHECK(std::filesystem::exists(far + "/lod0/t0_0/elev.s376dem"));
+        CHECK(std::filesystem::exists(far + "/lod1/t0_0/elev.s376dem"));
+        CHECK(std::filesystem::exists(far + "/lod2/t0_0/elev.s376dem"));
+        const auto packed = s376::scan_cache_tiles(far);
+        int n0 = 0, n1 = 0, n2 = 0;
+        for (const auto& t : packed) {
+            if (t.lod == 0)
+                ++n0;
+            else if (t.lod == 1)
+                ++n1;
+            else if (t.lod == 2)
+                ++n2;
+        }
+        CHECK(n0 >= 1 && n1 >= 1 && n2 >= 1);
+        // 2.99 nm 04R: eye ~5.5 km SW of the threshold. lod2 must be reserved.
+        std::vector<s376::TilePageWant> want;
+        s376::score_tiles_for_view(packed, 40.612, -73.805, 40.640, -73.779, 36.0, true, false,
+                                   want);
+        bool reserved_lod2 = false, reserved_lod1 = false;
+        double lod2_span_km = 0;
+        for (const auto& s : want) {
+            if (!s.reserve_coarse || !s.t)
+                continue;
+            if (s.t->lod == 2) {
+                reserved_lod2 = true;
+                lod2_span_km = (s.t->north - s.t->south) * 111.32;
+            }
+            if (s.t->lod == 1)
+                reserved_lod1 = true;
+        }
+        CHECK(reserved_lod1);
+        CHECK(reserved_lod2);
+        CHECK(lod2_span_km + 1.0 >= 70.0); // 40 nm disk, Jamaica Bay / Rockaway / Queens
+        CHECK(s376::kFarFieldNm >= 40.0);
+        CHECK(s376::kFarFieldKm + 0.01 >= 40.0 * 1.852);
+        s376::dxt::CompressedImage mips{};
+        CHECK(s376::dxt::read_dds(far + "/lod2/t0_0/imagery.dds", mips));
+        CHECK(mips.mips > 1);
+    }
+    {
         const auto trunc = (tmp / "trunc.s376dem").string();
         {
             std::ifstream in(cdir + "/elev.s376dem", std::ios::binary);

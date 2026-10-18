@@ -29,6 +29,7 @@ void usage() {
            "                       [--near-km N] [--mid-km N] [--approach-nm N] [--max-export N]\n"
            "                       [--season summer|winter]\n"
            "  s376-cache synth-ksea [--out DIR] [--size N] [--lods]\n"
+           "  s376-cache synth-kjfk-farfield [--out DIR]\n"
            "  s376-cache from-geotiff DEM.tif [--imagery FILE] [--out DIR] [--lods]\n"
            "  s376-cache import-raster DIR [--out cache/ICAO] [--icao ICAO] [--dry-run]\n"
            "  s376-cache pack-lods --from DIR --out DIR\n"
@@ -102,7 +103,7 @@ int main(int argc, char** argv) {
     std::string dem_kind = "auto";
     std::string img_kind = "auto";
     int size = 128;
-    double radius_km = 50;
+    double radius_km = s376::kFarFieldKm;
     double near_m = 0;
     double near_dem_m = 0;
     double mid_m = 0;
@@ -382,6 +383,20 @@ int main(int argc, char** argv) {
             s376::write_airport_geojson(s376::ksea_public(), out + "/osm.geojson");
             std::cout << "synth pack is a laptop stand-in. Real fetch may exceed Raster's\n"
                       << "857 GB CERTS farm; disk is not a constraint — quality wins.\n";
+            s376::log::shutdown();
+            return 0;
+        }
+        if (cmd == "synth-kjfk-farfield") {
+            if (out == "cache/ksea")
+                out = "/tmp/kjfk-farfield";
+            if (!s376::write_kjfk_farfield_subset(out)) {
+                std::cerr << "synth-kjfk-farfield failed for " << out << "\n";
+                s376::log::shutdown();
+                return 1;
+            }
+            std::cout << "wrote " << out
+                      << "  Joey layout (ATTRIBUTION, coverage.toml, lod0/lod1/lod2, "
+                         "region.toml)  public land_coverage, 40 nm lod2\n";
             s376::log::shutdown();
             return 0;
         }

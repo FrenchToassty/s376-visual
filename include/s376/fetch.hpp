@@ -45,7 +45,10 @@ struct AirportRef {
 
 struct FetchRequest {
     std::string icao = "KSEA";
-    double radius_km = 50; // outer / far-lod box. Disk is free; pager holds RAM.
+    // Outer / far-lod box. 40 nm (74.08 km) so Jamaica Bay, Rockaway,
+    // the Atlantic and Queens/Brooklyn stay in lod1/lod2. Disk is free;
+    // the pager holds RAM.
+    double radius_km = 40.0 * 1.852;
     std::string dem = "auto";      // auto | glo30 | 3dep
     std::string imagery = "auto";  // auto | nys | hro | naip | s2 | sanmateo | kingco | hillshade
     std::string out_dir;

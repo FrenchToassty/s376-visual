@@ -107,12 +107,14 @@ varying vec3 vN;
 varying vec2 vUV;
 varying vec2 vWorld;
 varying float vEyeDist;
+varying float vWaterMask;
 varying vec3 vView;
 varying vec3 vPos;
 void main() {
     vN = gl_Normal;
     vUV = gl_MultiTexCoord0.xy;
     vWorld = gl_MultiTexCoord1.xy;
+    vWaterMask = gl_MultiTexCoord1.z;
     vPos = gl_Vertex.xyz;
     vec4 eye = gl_ModelViewMatrix * gl_Vertex;
     vEyeDist = length(eye.xyz);
@@ -147,6 +149,7 @@ varying vec3 vN;
 varying vec2 vUV;
 varying vec2 vWorld;
 varying float vEyeDist;
+varying float vWaterMask;
 varying vec3 vView;
 varying vec3 vPos;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -195,7 +198,7 @@ void main() {
     float chroma = albedo.b - max(albedo.r, albedo.g) * 0.85;
     float darkWater = (1.0 - smoothstep(0.04, 0.12, luma)) * smoothstep(0.04, 0.14, chroma);
     if (uWater > 0.5)
-        wet = max(wet, darkWater);
+        wet = max(wet, max(darkWater, clamp(vWaterMask, 0.0, 1.0)));
     vec2 wu = (dot(vWorld, vWorld) > 1.0) ? vWorld : vUV;
     float gness = clamp((albedo.g - albedo.r) * 4.0, 0.0, 1.0);
     if (wet < 0.55) {
@@ -384,6 +387,13 @@ void main() {
     float h = uFogDensity + uHaze * (0.12 + 0.45 * g);
     float f = exp(-h * h * vEyeDist * vEyeDist);
     col = mix(uFogColor, col, clamp(f, 0.0, 1.0));
+    // Distant hangar/jetbridge walls become hairline cards. Lift them
+    // into aerial haze so they are not floating black slivers.
+    if (mat > 2.5 && mat < 4.5 && vEyeDist > 2800.0) {
+        float k = clamp((vEyeDist - 2800.0) / 7000.0, 0.0, 0.62);
+        col = mix(col, uFogColor, k);
+        col = max(col, uFogColor * 0.28);
+    }
     gl_FragColor = vec4(grade(col * uExposure, uFilmic), 1.0);
 }
 )";
@@ -591,6 +601,7 @@ uniform float uTanHalfH;
 uniform float uTanHalfV;
 uniform float uFilmic;
 uniform float uAtmosphere;
+uniform vec2 uViewport;
 varying vec2 vNdc;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 vec3 aces(vec3 x) {
@@ -608,7 +619,10 @@ void main() {
     vec3 camUp = normalize(uCamUp);
     if (dot(camUp, camUp) < 1e-8)
         camUp = normalize(cross(right, fwd));
-    vec3 d = normalize(fwd + right * (vNdc.x * uTanHalfH) + camUp * (vNdc.y * uTanHalfV));
+    vec2 ndc = vNdc;
+    if (uViewport.x > 8.0 && uViewport.y > 8.0)
+        ndc = (gl_FragCoord.xy / uViewport) * 2.0 - 1.0;
+    vec3 d = normalize(fwd + right * (ndc.x * uTanHalfH) + camUp * (ndc.y * uTanHalfV));
     float h = clamp(dot(d, up), -1.0, 1.0);
     vec3 sun = normalize(uSunDir);
     float m = max(dot(d, sun), 0.0);
@@ -616,9 +630,10 @@ void main() {
     vec3 zenith = vec3(0.10, 0.38, 0.92);
     vec3 horiz = vec3(0.55, 0.72, 0.95);
     vec3 ground = vec3(0.28, 0.38, 0.52);
-    vec3 simple = mix(horiz, zenith, pow(clamp(h, 0.0, 1.0), 0.55));
+    float elev = smoothstep(0.0, 1.0, pow(clamp(h, 0.0, 1.0), 0.62));
+    vec3 simple = mix(horiz, zenith, elev);
     if (h < 0.0)
-        simple = mix(horiz, ground, clamp(-h * 2.0, 0.0, 1.0));
+        simple = mix(horiz, ground, smoothstep(0.0, 1.0, clamp(-h * 2.0, 0.0, 1.0)));
     simple += vec3(1.0, 0.96, 0.82) * smoothstep(0.9994, 0.99985, m) * 0.55;
     simple += vec3(1.0, 0.90, 0.70) * pow(m, 512.0) * 0.18;
     float hz = pow(1.0 - abs(h), 1.25);
@@ -640,7 +655,7 @@ void main() {
     if (h < 0.0)
         pbr = mix(pbr, ground * (0.25 + 0.75 * max(sunH, 0.0)), clamp(-h * 2.2, 0.0, 1.0));
     pbr = mix(pbr, uFogColor, 0.12 * hz);
-    vec3 sky = mix(simple, pbr, step(0.5, uAtmosphere));
+    vec3 sky = mix(simple, pbr, clamp(uAtmosphere, 0.0, 1.0));
     // 0 at +6° sun, 1 by −8° — 3 AM is navy, not a leftover dusk glow.
     float night = smoothstep(0.10, -0.14, sunH);
     vec3 moon = normalize(-sun + 0.15 * up);
@@ -843,6 +858,8 @@ void configure_terrain_tex(osg::Texture2D* tex, osg::Image* img) {
         tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR_MIPMAP_LINEAR);
         tex->setUseHardwareMipMapGeneration(true);
     }
+    // 16× when the GPU reports it; 980 Ti / 5060 Ti do. Floor 8×.
+    tex->setMaxAnisotropy(16.f);
 }
 
 void attach_lit_tex(osg::StateSet* ss, osg::Texture2D* tex) {
@@ -906,6 +923,7 @@ struct ShaderEnv {
     osg::ref_ptr<osg::Uniform> shadows;
     osg::ref_ptr<osg::Uniform> origin;
     osg::ref_ptr<osg::Uniform> shadow_matrix;
+    osg::ref_ptr<osg::Uniform> viewport;
 };
 
 constexpr unsigned kCastShadow = 0x2u;
@@ -942,6 +960,7 @@ void attach_env_uniforms(osg::StateSet* ss, ShaderEnv& env) {
     env.origin = new osg::Uniform("uOrigin", osg::Vec3(0.f, 0.f, 0.f));
     env.shadow_matrix = new osg::Uniform(osg::Uniform::FLOAT_MAT4, "uShadowMatrix");
     env.shadow_matrix->set(osg::Matrixf());
+    env.viewport = new osg::Uniform("uViewport", osg::Vec2(1920.f, 1200.f));
     ss->addUniform(env.sun_dir);
     ss->addUniform(env.ambient);
     ss->addUniform(env.diffuse);
@@ -967,6 +986,7 @@ void attach_env_uniforms(osg::StateSet* ss, ShaderEnv& env) {
     ss->addUniform(env.shadows);
     ss->addUniform(env.origin);
     ss->addUniform(env.shadow_matrix);
+    ss->addUniform(env.viewport);
     ss->addUniform(new osg::Uniform("sShadow", 2));
     strip_ff(ss);
 }
@@ -1033,10 +1053,10 @@ osg::Node* make_sky_dome() {
     auto* geode = new osg::Geode;
     auto* geom = new osg::Geometry;
     auto* verts = new osg::Vec3Array;
-    verts->push_back(osg::Vec3(-1.15f, -1.15f, 0.f));
-    verts->push_back(osg::Vec3(1.15f, -1.15f, 0.f));
-    verts->push_back(osg::Vec3(1.15f, 1.15f, 0.f));
-    verts->push_back(osg::Vec3(-1.15f, 1.15f, 0.f));
+    verts->push_back(osg::Vec3(-1.f, -1.f, 0.f));
+    verts->push_back(osg::Vec3(1.f, -1.f, 0.f));
+    verts->push_back(osg::Vec3(1.f, 1.f, 0.f));
+    verts->push_back(osg::Vec3(-1.f, 1.f, 0.f));
     auto* idx = new osg::DrawElementsUInt(GL_TRIANGLES);
     idx->push_back(0);
     idx->push_back(1);
@@ -1106,7 +1126,7 @@ osg::Node* make_procedural_globe(float aniso = 16.f) {
         const double lat = 90.0 - 180.0 * j / nlat;
         for (int i = 0; i <= nlon; ++i) {
             const double lon = -180.0 + 360.0 * i / nlon;
-            const geo::Ecef p = geo::lla_to_ecef(lat, lon, 0);
+            const geo::Ecef p = geo::lla_to_ecef(lat, lon, -80.0);
             verts->push_back(ecef_to_osg(p));
             geo::Ecef e, n, u;
             geo::ecef_to_enu_axes(lat, lon, e, n, u);
@@ -1140,7 +1160,7 @@ osg::Node* make_procedural_globe(float aniso = 16.f) {
     tex->setWrap(osg::Texture::WRAP_S, osg::Texture::REPEAT);
     tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR_MIPMAP_LINEAR);
     tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
-    tex->setMaxAnisotropy(std::max(1.f, aniso));
+    tex->setMaxAnisotropy(std::max(8.f, aniso));
     tex->setLODBias(-0.35f);
     attach_lit_tex(geom->getOrCreateStateSet(), tex);
     geode->addDrawable(geom);
@@ -1179,6 +1199,8 @@ osg::Image* image_from_compressed_dds(const std::string& path) {
     // GL_INVALID_ENUM. Transcode our mode-6 BC7 to DXT1 (block-by-block).
     dxt::make_osg_safe(c);
     align_dxt_for_osg(c);
+    if (!prefer_rgb_textures())
+        dxt::ensure_bc1_mips(c);
     // llvmpipe / softpipe have no S3TC. Decode so the ortho actually binds.
     if (prefer_rgb_textures()) {
         auto rgb = dxt::decode_bc1(c.blocks.data(), c.w, c.h);
@@ -1239,7 +1261,7 @@ osg::Node* make_dem_patch(const CacheRegion& cache, float aniso = 16.f) {
     auto* verts = new osg::Vec3Array;
     auto* norms = new osg::Vec3Array;
     auto* uvs = new osg::Vec2Array;
-    auto* wuvs = new osg::Vec2Array;
+    auto* wuvs = new osg::Vec3Array;
     const int w = dem.w, h = dem.h;
     const int nvert = w * h;
     std::vector<double> zs(static_cast<std::size_t>(nvert));
@@ -1310,7 +1332,8 @@ osg::Node* make_dem_patch(const CacheRegion& cache, float aniso = 16.f) {
             // inset, which painted a different colour on each side of a join).
             uvs->push_back(osg::Vec2(static_cast<float>(x) / static_cast<float>(std::max(1, w - 1)),
                                      static_cast<float>(y) / static_cast<float>(std::max(1, h - 1))));
-            wuvs->push_back(osg::Vec2(static_cast<float>(lon), static_cast<float>(lat)));
+            wuvs->push_back(osg::Vec3(static_cast<float>(lon), static_cast<float>(lat),
+                                      water[static_cast<std::size_t>(i)] ? 1.f : 0.f));
         }
     }
     auto* idx = new osg::DrawElementsUInt(GL_TRIANGLES);
@@ -1372,7 +1395,7 @@ osg::Node* make_dem_patch(const CacheRegion& cache, float aniso = 16.f) {
     osg::Image* img = image_from_dds_or_rgb(cache);
     auto* tex = new osg::Texture2D(img);
     configure_terrain_tex(tex, img);
-    tex->setMaxAnisotropy(std::max(1.f, aniso));
+    tex->setMaxAnisotropy(std::max(8.f, aniso));
     tex->setLODBias(-0.35f);
     attach_lit_tex(geom->getOrCreateStateSet(), tex);
     geode->addDrawable(geom);
@@ -1414,7 +1437,7 @@ osg::Node* make_local_ground(double lat0, double lon0, double radius_km, float a
     auto* verts = new osg::Vec3Array;
     auto* norms = new osg::Vec3Array;
     auto* uvs = new osg::Vec2Array;
-    auto* wuvs = new osg::Vec2Array;
+    auto* wuvs = new osg::Vec3Array;
     verts->reserve(static_cast<std::size_t>((n + 1) * (n + 1)));
     for (int j = 0; j <= n; ++j) {
         const double v = static_cast<double>(j) / n;
@@ -1433,7 +1456,8 @@ osg::Node* make_local_ground(double lat0, double lon0, double radius_km, float a
             norms->push_back(osg::Vec3(static_cast<float>(up.x), static_cast<float>(up.y),
                                        static_cast<float>(up.z)));
             uvs->push_back(osg::Vec2(static_cast<float>(u), static_cast<float>(1.0 - v)));
-            wuvs->push_back(osg::Vec2(static_cast<float>(lon), static_cast<float>(lat)));
+            wuvs->push_back(osg::Vec3(static_cast<float>(lon), static_cast<float>(lat),
+                                      cover < 0.35f ? 1.f : 0.f));
         }
     }
     auto* idx = new osg::DrawElementsUInt(GL_TRIANGLES);
@@ -1457,7 +1481,7 @@ osg::Node* make_local_ground(double lat0, double lon0, double radius_km, float a
     geom->addPrimitiveSet(idx);
     auto* tex = new osg::Texture2D(img);
     configure_terrain_tex(tex, img);
-    tex->setMaxAnisotropy(std::max(1.f, aniso));
+    tex->setMaxAnisotropy(std::max(8.f, aniso));
     tex->setLODBias(-0.4f);
     attach_lit_tex(geom->getOrCreateStateSet(), tex);
     geode->addDrawable(geom);
@@ -2477,8 +2501,16 @@ class OsgRenderer final : public Renderer {
                 page_tiles(true); // coarse lod first; lod0 pages in on frame()
             }
         }
-        if (globe && tile_index_.empty())
+        if (globe) {
+            no_shadow(globe.get());
+            if (auto* ss = globe->getOrCreateStateSet())
+                ss->setRenderBinDetails(-2, "RenderBin");
             casters_->addChild(globe);
+            if (!tile_index_.empty())
+                S376_LOG_INFO("render",
+                              "globe under packed tiles — lod1/lod2 page out to %.0f nm",
+                              kFarFieldNm);
+        }
         if (!used_earth_ && tile_index_.empty()) {
             const float an = static_cast<float>(cfg.render.aniso);
             for (const auto& apt : all_public_airports()) {
@@ -2488,7 +2520,7 @@ class OsgRenderer final : public Renderer {
                 }
             }
         } else if (!used_earth_ && !tile_index_.empty()) {
-            S376_LOG_INFO("render", "skip local-ground patches — packed tiles cover the field");
+            S376_LOG_INFO("render", "skip local-ground patches — packed tiles + globe cover the field");
         }
         {
             Airport merged;
@@ -2729,6 +2761,18 @@ class OsgRenderer final : public Renderer {
                 cam->setNearFarRatio(0.0001);
                 cam->setComputeNearFarMode(osg::CullSettings::DO_NOT_COMPUTE_NEAR_FAR);
                 cam->setViewport(0, 0, win_w, win_h);
+                if (auto* gc = cam->getGraphicsContext()) {
+                    if (const osg::GraphicsContext::Traits* tr = gc->getTraits()) {
+                        if (tr->width >= 8 && tr->height >= 8 &&
+                            (tr->width != win_w || tr->height != win_h)) {
+                            S376_LOG_WARN("render",
+                                          "drawable %dx%d != channel %dx%d — viewport follows "
+                                          "drawable (sky band); shots use the channel FBO",
+                                          tr->width, tr->height, win_w, win_h);
+                            cam->setViewport(0, 0, tr->width, tr->height);
+                        }
+                    }
+                }
                 if (channels_.size() == 1 && ch.flip_vertical)
                     cam->setPostDrawCallback(new OutputMirrorCallback);
                 if (auto* vp = cam->getViewport()) {
@@ -2963,12 +3007,14 @@ class OsgRenderer final : public Renderer {
                       ws, win.rgb.size() >= 3 ? win.rgb[0] : -1,
                       win.rgb.size() >= 3 ? win.rgb[1] : -1, win.rgb.size() >= 3 ? win.rgb[2] : -1,
                       win.w, win.h);
-        // llvmpipe FBO often misses the ECEF terrain (sky-only). Prefer the
-        // window whenever it has more than a solid clear.
-        if (ws >= 2 && win.w >= 8 && win.h >= 8)
+        // Prefer a window read only when it is the channel size. A 1080p
+        // drawable with a 1200-row read is the 10% sky band on Mint.
+        if (ws >= 2 && win.w == w && win.h == h)
             im = std::move(win);
         else if (fs >= 2 && fbo.w == w && fbo.h == h)
             im = std::move(fbo);
+        else if (ws >= 2 && win.w >= 8 && win.h >= 8)
+            im = std::move(win);
         if (im.w == w && im.h == h && im.rgb.size() >= static_cast<std::size_t>(w * h * 3))
             return true;
         osg::Vec4 clear(0.35f, 0.50f, 0.72f, 1);
@@ -3137,6 +3183,13 @@ class OsgRenderer final : public Renderer {
             osg::ref_ptr<osg::Node> node = make_dem_patch(cache, static_cast<float>(cfg_.render.aniso));
             if (!node)
                 return false;
+            if (auto* ss = node->getOrCreateStateSet()) {
+                // lod0 wins the overlap; keep lod1/lod2 for the 40 nm far field.
+                ss->setRenderBinDetails(t.lod == 0 ? 3 : 1, "RenderBin");
+                if (t.lod == 0)
+                    ss->setAttributeAndModes(new osg::PolygonOffset(-4.f, -4.f),
+                                             osg::StateAttribute::ON);
+            }
             tiles_root_->addChild(node);
             ResidentTile r;
             r.path = t.path;
@@ -3186,103 +3239,116 @@ class OsgRenderer final : public Renderer {
             hdg_true = last_host_.eye.true_heading_deg();
             const double alt_m = last_host_.eye.alt_ft * geo::kFtToM;
             const double look_m =
-                std::max(400.0, std::min(12000.0, alt_m / std::tan(3.0 * geo::kDeg)));
+                std::max(400.0, std::min(kFarFieldKm * 1000.0,
+                                         alt_m / std::tan(3.0 * geo::kDeg)));
             offset_m(elat, elon, hdg_true, look_m, tlat, tlon);
         }
-        struct Scored {
-            const CacheTileRef* t;
-            double score;
-        };
-        std::vector<Scored> want;
-        for (const auto& t : tile_index_) {
-            if (coarse_only && t.lod == 0)
-                continue;
-            const auto km_to = [&](double lat, double lon) {
-                const double dlat = (tile_center_lat(t) - lat) * 111.32;
-                const double dlon = (tile_center_lon(t) - lon) * 111.32 *
-                                    std::max(0.2, std::cos(geo::deg2rad(lat)));
-                return std::sqrt(dlat * dlat + dlon * dlon);
-            };
-            const double km = std::min(km_to(elat, elon), km_to(tlat, tlon));
-            if (t.lod == 0 && last_host_.have_eyepoint) {
-                const double dlat = (tile_center_lat(t) - last_host_.eye.lat_deg) * 111.32;
-                const double dlon = (tile_center_lon(t) - last_host_.eye.lon_deg) * 111.32 *
-                                    std::max(0.2, std::cos(geo::deg2rad(last_host_.eye.lat_deg)));
-                const double brg = std::atan2(dlon, dlat) * (180.0 / 3.14159265358979323846);
-                double dh = brg - hdg_true;
-                while (dh > 180.0)
-                    dh -= 360.0;
-                while (dh < -180.0)
-                    dh += 360.0;
-                // Keep the pad under the eye; drop far tiles well outside the frustum.
-                if (km > 18.0 && std::fabs(dh) > 90.0)
-                    continue;
-            }
-            // Lower score pages first. lod0 near the eye must win over leftover coarse.
-            const double w = (t.lod == 0) ? (km < 4.0 ? 0.12 : 0.35)
-                                          : (t.lod == 1) ? 0.70 : 1.40;
-            want.push_back({&t, km * w});
-        }
-        std::sort(want.begin(), want.end(),
-                  [](const Scored& a, const Scored& b) { return a.score < b.score; });
+        std::vector<TilePageWant> want;
+        score_tiles_for_view(tile_index_, elat, elon, tlat, tlon, hdg_true,
+                             last_host_.have_eyepoint, coarse_only, want);
         int loaded = 0;
-        const int kMaxNewPerFrame = coarse_only ? 24 : 12;
-        for (const auto& s : want) {
-            if (loaded >= kMaxNewPerFrame)
-                break;
-            if (tile_resident(s.t->path) || bad_tiles_.count(s.t->path))
-                continue;
-            const auto cpu = estimate_tile_cpu_bytes(*s.t, mesh_n_);
-            if (s.t->lod == 0 &&
-                (resident_cpu_ + cpu > ram_budget_ || resident_vram_ + s.t->dds_bytes > vram_budget_)) {
-                // Evict farthest lod0 if that makes room.
-                int far = -1;
-                double far_s = -1;
-                for (std::size_t i = 0; i < resident_.size(); ++i) {
-                    for (const auto& t : tile_index_) {
-                        if (t.path != resident_[i].path || t.lod != 0)
-                            continue;
-                        const double dlat = (tile_center_lat(t) - elat) * 111.32;
-                        const double dlon = (tile_center_lon(t) - elon) * 111.32 *
-                                            std::max(0.2, std::cos(geo::deg2rad(elat)));
-                        const double km = std::sqrt(dlat * dlat + dlon * dlon);
-                        if (km > far_s) {
-                            far_s = km;
-                            far = static_cast<int>(i);
-                        }
-                    }
-                }
-                if (far >= 0 && far_s > s.score + 2.0)
-                    evict_tile(static_cast<std::size_t>(far));
-                if (resident_cpu_ + cpu > ram_budget_ ||
-                    resident_vram_ + s.t->dds_bytes > vram_budget_)
+        const int kMaxNewPerFrame = coarse_only ? 32 : 16;
+
+        auto evict_farthest_lod0 = [&](double min_km) -> bool {
+            int far = -1;
+            double far_s = -1;
+            for (std::size_t i = 0; i < resident_.size(); ++i) {
+                if (resident_[i].lod != 0)
                     continue;
+                const double dlat = (0.5 * (resident_[i].south + resident_[i].north) - elat) * 111.32;
+                const double dlon = (0.5 * (resident_[i].west + resident_[i].east) - elon) * 111.32 *
+                                    std::max(0.2, std::cos(geo::deg2rad(elat)));
+                const double km = std::sqrt(dlat * dlat + dlon * dlon);
+                if (km > far_s) {
+                    far_s = km;
+                    far = static_cast<int>(i);
+                }
             }
-            if (load_one_tile(*s.t))
+            if (far >= 0 && far_s > min_km) {
+                evict_tile(static_cast<std::size_t>(far));
+                return true;
+            }
+            return false;
+        };
+
+        auto try_load = [&](const TilePageWant& s) -> bool {
+            if (loaded >= kMaxNewPerFrame || !s.t)
+                return false;
+            if (tile_resident(s.t->path) || bad_tiles_.count(s.t->path))
+                return false;
+            const auto cpu = estimate_tile_cpu_bytes(*s.t, mesh_n_);
+            auto over = [&]() {
+                return resident_cpu_ + cpu > ram_budget_ ||
+                       resident_vram_ + s.t->dds_bytes > vram_budget_;
+            };
+            if (over()) {
+                // Reserved lod1/lod2 win over leftover lod0. Never evict
+                // coarse inside 40 nm to make room for another 1 m tile.
+                if (s.reserve_coarse) {
+                    while (over() && evict_farthest_lod0(2.0)) {
+                    }
+                } else if (s.t->lod == 0) {
+                    evict_farthest_lod0(s.km + 2.0);
+                }
+                if (over())
+                    return false;
+            }
+            if (load_one_tile(*s.t)) {
                 ++loaded;
+                return true;
+            }
+            return false;
+        };
+
+        for (const auto& s : want) {
+            if (s.reserve_coarse)
+                try_load(s);
         }
-        // Drop coarse tiles that a resident lod0 now covers so the 1 m
-        // (soon 0.3 m) ortho is what the near camera samples.
+        for (const auto& s : want) {
+            if (!s.reserve_coarse)
+                try_load(s);
+        }
+        // Only drop a coarse tile when lod0 fully covers it. Overlap-only
+        // eviction deleted the 50 km lod2 the moment the airport 1 m
+        // tiles loaded — that is Joey's empty far field.
         if (!coarse_only) {
             for (int i = static_cast<int>(resident_.size()) - 1; i >= 0; --i) {
-                if (resident_[static_cast<std::size_t>(i)].lod < 2)
+                if (resident_[static_cast<std::size_t>(i)].lod < 1)
                     continue;
                 const auto& c = resident_[static_cast<std::size_t>(i)];
-                bool covered = false;
+                double cover_w = 0, cover_s = 0, cover_e = 0, cover_n = 0;
+                bool any = false;
                 for (const auto& r : resident_) {
                     if (r.lod != 0)
                         continue;
-                    if (r.west < c.east && r.east > c.west && r.south < c.north &&
-                        r.north > c.south) {
-                        covered = true;
-                        break;
+                    if (r.west >= c.east || r.east <= c.west || r.south >= c.north ||
+                        r.north <= c.south)
+                        continue;
+                    if (!any) {
+                        cover_w = r.west;
+                        cover_s = r.south;
+                        cover_e = r.east;
+                        cover_n = r.north;
+                        any = true;
+                    } else {
+                        cover_w = std::min(cover_w, r.west);
+                        cover_s = std::min(cover_s, r.south);
+                        cover_e = std::max(cover_e, r.east);
+                        cover_n = std::max(cover_n, r.north);
                     }
                 }
-                if (covered)
+                const double pad = 0.002;
+                if (any && cover_w <= c.west + pad && cover_s <= c.south + pad &&
+                    cover_e >= c.east - pad && cover_n >= c.north - pad)
                     evict_tile(static_cast<std::size_t>(i));
             }
-            int need = 0, have = 0;
+            int need = 0, have = 0, coarse_need = 0, coarse_have = 0;
             for (const auto& s : want) {
+                if (s.reserve_coarse) {
+                    ++coarse_need;
+                    if (tile_resident(s.t->path))
+                        ++coarse_have;
+                }
                 if (s.t->lod != 0 || s.score > 8.0)
                     continue;
                 ++need;
@@ -3291,7 +3357,9 @@ class OsgRenderer final : public Renderer {
                 if (need >= 16)
                     break;
             }
-            tiles_ready_ = (need == 0) || (have >= std::min(need, 8));
+            const bool near_ok = (need == 0) || (have >= std::min(need, 8));
+            const bool far_ok = (coarse_need == 0) || (coarse_have >= coarse_need);
+            tiles_ready_ = near_ok && far_ok;
         }
     }
 
@@ -3380,6 +3448,18 @@ class OsgRenderer final : public Renderer {
             haze = 1.1e-6f + 2.4e-6f * alt_k;
         if (env_u_.haze)
             env_u_.haze->set(haze);
+        if (env_u_.viewport && !views_.empty()) {
+            float vw = 1920.f, vh = 1200.f;
+            if (auto* cam = views_.front()->getCamera()) {
+                if (const osg::Viewport* vp = cam->getViewport()) {
+                    if (vp->width() > 8 && vp->height() > 8) {
+                        vw = static_cast<float>(vp->width());
+                        vh = static_cast<float>(vp->height());
+                    }
+                }
+            }
+            env_u_.viewport->set(osg::Vec2(vw, vh));
+        }
         if (env_u_.fog_color)
             env_u_.fog_color->set(osg::Vec3(0.42f + 0.06f * alt_k, 0.60f + 0.06f * alt_k,
                                             0.86f + 0.04f * alt_k));

@@ -478,7 +478,8 @@ void write_cache(const CacheRegion& r, const std::string& dir) {
     ensure_parent(dir + "/elev.s376dem");
     r.dem.save(dir + "/elev.s376dem");
     if (!r.imagery.rgb.empty())
-        dxt::write_dds_bc1(dir + "/imagery.dds", r.imagery.rgb.data(), r.imagery.w, r.imagery.h);
+        dxt::write_dds_bc1(dir + "/imagery.dds", r.imagery.rgb.data(), r.imagery.w, r.imagery.h,
+                           true);
     std::ofstream t(dir + "/region.toml");
     t << "name = \"" << r.name << "\"\n";
     t << "west = " << r.dem.west << "\n";
@@ -684,6 +685,136 @@ std::vector<CacheTileRef> scan_cache_tiles(const std::string& dir) {
     if (!any_leaf)
         add(dir, 1);
     return out;
+}
+
+void score_tiles_for_view(const std::vector<CacheTileRef>& index, double elat, double elon,
+                          double tlat, double tlon, double hdg_true, bool have_eye,
+                          bool coarse_only, std::vector<TilePageWant>& want) {
+    want.clear();
+    want.reserve(index.size());
+    for (const auto& t : index) {
+        if (coarse_only && t.lod == 0)
+            continue;
+        const auto km_to = [&](double lat, double lon) {
+            const double dlat = (tile_center_lat(t) - lat) * 111.32;
+            const double dlon = (tile_center_lon(t) - lon) * 111.32 *
+                                std::max(0.2, std::cos(geo::deg2rad(lat)));
+            return std::sqrt(dlat * dlat + dlon * dlon);
+        };
+        const double km = std::min(km_to(elat, elon), km_to(tlat, tlon));
+        if (t.lod == 0 && have_eye) {
+            const double dlat = (tile_center_lat(t) - elat) * 111.32;
+            const double dlon = (tile_center_lon(t) - elon) * 111.32 *
+                                std::max(0.2, std::cos(geo::deg2rad(elat)));
+            const double brg = std::atan2(dlon, dlat) * (180.0 / 3.14159265358979323846);
+            double dh = brg - hdg_true;
+            while (dh > 180.0)
+                dh -= 360.0;
+            while (dh < -180.0)
+                dh += 360.0;
+            if (km > 18.0 && std::fabs(dh) > 90.0)
+                continue;
+        }
+        if (t.lod >= 1 && km > kFarFieldKm + 8.0)
+            continue;
+        const bool reserve = t.lod >= 1 && km <= kFarFieldKm;
+        const double w = reserve ? (t.lod == 1 ? 0.18 : 0.22)
+                                 : (t.lod == 0 ? (km < 4.0 ? 0.12 : 0.35) : 1.40);
+        TilePageWant s;
+        s.t = &t;
+        s.km = km;
+        s.score = km * w;
+        s.reserve_coarse = reserve;
+        want.push_back(s);
+    }
+    std::sort(want.begin(), want.end(),
+              [](const TilePageWant& a, const TilePageWant& b) { return a.score < b.score; });
+}
+
+bool write_kjfk_farfield_subset(const std::string& dir) {
+    if (dir.empty())
+        return false;
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    // Joey hangar layout: root + lod0/lod1/lod2 leaves. Public land_coverage
+    // paints Jamaica Bay / Rockaway / Queens so a 2.99 nm shot has a far field.
+    const double arp_lat = 40.639925;
+    const double arp_lon = -73.778694;
+    struct LodBox {
+        int lod;
+        double r_km;
+        int n;
+    };
+    const LodBox lods[] = {{0, 4.0, 32}, {1, 28.0, 48}, {2, kFarFieldKm, 64}};
+    auto paint = [&](DemGrid& dem, ImageRgb& img) {
+        img.w = dem.w;
+        img.h = dem.h;
+        img.rgb.assign(static_cast<std::size_t>(dem.w * dem.h * 3), 0);
+        for (int y = 0; y < dem.h; ++y) {
+            const double lat =
+                dem.north - (dem.north - dem.south) * y / std::max(1, dem.h - 1);
+            for (int x = 0; x < dem.w; ++x) {
+                const double lon =
+                    dem.west + (dem.east - dem.west) * x / std::max(1, dem.w - 1);
+                const float cover = geo::land_coverage(lat, lon);
+                const bool water = cover < 0.35f;
+                dem.z_m[static_cast<std::size_t>(y * dem.w + x)] = water ? 0.f : 4.f;
+                const int o = (y * img.w + x) * 3;
+                if (water) {
+                    img.rgb[static_cast<std::size_t>(o + 0)] = 18;
+                    img.rgb[static_cast<std::size_t>(o + 1)] = 55;
+                    img.rgb[static_cast<std::size_t>(o + 2)] = 110;
+                } else {
+                    img.rgb[static_cast<std::size_t>(o + 0)] = 78;
+                    img.rgb[static_cast<std::size_t>(o + 1)] = 98;
+                    img.rgb[static_cast<std::size_t>(o + 2)] = 52;
+                }
+            }
+        }
+    };
+    CacheRegion root;
+    root.name = "KJFK";
+    for (const auto& L : lods) {
+        const double rlat = L.r_km / 111.32;
+        const double rlon = rlat / std::max(0.2, std::cos(geo::deg2rad(arp_lat)));
+        CacheRegion c;
+        c.name = "KJFK";
+        c.dem.w = L.n;
+        c.dem.h = L.n;
+        c.dem.west = arp_lon - rlon;
+        c.dem.east = arp_lon + rlon;
+        c.dem.south = arp_lat - rlat;
+        c.dem.north = arp_lat + rlat;
+        c.dem.z_m.assign(static_cast<std::size_t>(L.n * L.n), 0.f);
+        paint(c.dem, c.imagery);
+        const std::string leaf = dir + "/lod" + std::to_string(L.lod) + "/t0_0";
+        write_cache(c, leaf);
+        if (L.lod == 2)
+            root = std::move(c);
+    }
+    write_cache(root, dir);
+    {
+        std::ofstream a(dir + "/ATTRIBUTION.txt");
+        a << "s376-visual KJFK far-field test subset\n";
+        a << "land_coverage (public GLOBE-style land/water) + GLO-30-like DEM\n";
+        a << "Not the hangar 12 GB 1 m pack. Same directory layout.\n";
+    }
+    {
+        std::ofstream c(dir + "/coverage.toml");
+        c << "icao = \"KJFK\"\n";
+        c << "covers_faa = true\n";
+        c << "lod0_west = " << (arp_lon - 4.0 / 111.32 / 0.76) << "\n";
+        c << "lod0_south = " << (arp_lat - 4.0 / 111.32) << "\n";
+        c << "lod0_east = " << (arp_lon + 4.0 / 111.32 / 0.76) << "\n";
+        c << "lod0_north = " << (arp_lat + 4.0 / 111.32) << "\n";
+        c << "lod2_radius_km = " << kFarFieldKm << "\n";
+    }
+    return fs::exists(dir + "/lod0/t0_0/elev.s376dem") &&
+           fs::exists(dir + "/lod1/t0_0/elev.s376dem") &&
+           fs::exists(dir + "/lod2/t0_0/elev.s376dem") &&
+           fs::exists(dir + "/ATTRIBUTION.txt") && fs::exists(dir + "/coverage.toml") &&
+           fs::exists(dir + "/region.toml");
 }
 
 #ifndef _WIN32

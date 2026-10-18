@@ -35,6 +35,15 @@ bool pixels_near_solid(const RgbImage& im, std::uint8_t r, std::uint8_t g, std::
                        int tol = 2);
 bool pixels_near_gradient(const RgbImage& im, int tol = 2);
 
+// Joey 2.99 nm 04R defect: the strip just above the airport (behind the
+// field) is a flat sky-blue void instead of Jamaica Bay / Rockaway /
+// land. True when that band is uniform sky. A whole-frame clear (llvmpipe
+// FBO miss) also returns true — callers should treat an all-sky lower
+// third as a skipped GL readback, not this defect.
+bool far_field_is_empty_sky(const RgbImage& im);
+// Sky-like fraction in a top-down RGB box, y0/y1 as 0..1 from the top.
+float sky_like_fraction(const RgbImage& im, float x0, float x1, float y0, float y1);
+
 // CPU self-test: write a gradient, read it back, check pixels. No GL.
 bool self_test_shot_files(const std::string& dir, std::string& err);
 

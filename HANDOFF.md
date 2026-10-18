@@ -28,7 +28,50 @@ from tests/CI. `scripts/check-no-rsi.sh` fails the build if
 
 ## Current state (2026-10-18, this increment)
 
-**Night streets / 04R HIRL (on PR #1):** Three defects from
+**Hangar REAL DATA frames are top priority** (Joey Mint, 5060 Ti,
+commit b9b4574, 12 GB 1 m `cache/KJFK`, `--quality gtx980ti`, front
+`mid_left`, `--tod 12`). Joey: “looks like gaza.” Five defects from
+`refs/real-front-299nm-tod12.png` and `real-front-06nm-tod12.png`.
+Night/HIRL work stays landed; do not reopen. Official geometry/lights
+unchanged. Hangar 1 m pack still not on this box — public-source
+`write_kjfk_farfield_subset` matches Joey’s layout (ATTRIBUTION,
+coverage.toml, elev.*, imagery.*, lod0/lod1/lod2, region.toml).
+
+1. **Far field is no longer empty sky.** Packed tiles used to skip the
+   globe and then **evict any lod1/lod2 that overlapped lod0**. A 50 km
+   lod2 covering the airport disappeared the moment 1 m tiles paged in,
+   so Jamaica Bay / Rockaway / Atlantic / Queens were sky-blue. Globe
+   now always sits 80 m under the tiles. Pager **reserves** lod1/lod2
+   out to **40 nm (74 km)** and only evicts a coarse tile when lod0
+   *fully* covers it. Fetch default outer radius is 74 km. Regression:
+   `far_field_is_empty_sky` + `write_kjfk_farfield_subset` + optional
+   GL 2.99 nm shot (`DISPLAY` set).
+2. **Sky band (~10% from the top).** 1920×1200 channel on a 1080p Mint
+   window: `glReadPixels` of 1200 rows past a 1080 drawable. Viewport
+   follows the drawable; screenshots prefer the channel-size FBO.
+   Sky shader is a smooth zenith→horizon mix (`gl_FragCoord` NDC).
+3. **Floating black slivers** left of the airport were hangar/jetbridge
+   cards silhouetted against the missing far ground, plus distant walls
+   drawn as hairline planes. Far terrain + aerial lift on mat 3/4 past
+   2.8 km.
+4. **Near-field smear / no Queens buildings.** BC1 mip chain is
+   generated when the DDS has none (aniso 16, floor 8). lod0 still
+   wins near the eye. OSM mesh is no longer “nearest 2500 to ARP”
+   (that filled with airfield sheds): official always, campus 800,
+   0.8–16 km city ring 2500. `kMaxOsmBuildings` 12 k.
+5. **0.6 nm olive water slab.** `make_dem_patch` water flag is now
+   `vWaterMask` (texcoord1.z). 1 m NYS bay is olive so chroma-only
+   wet never fired; the cover mask drives the water shader.
+
+**980 Ti GPU:** globe **+0.05** absorbed in the 6.00 ms base. Total
+stays **12.20 ms** shadows-off.
+
+Before (Joey hangar): `refs/real-front-299nm-tod12.png`,
+`refs/real-front-06nm-tod12.png`. After: recapture on this box with
+the public subset (`/tmp/kjfk_04r_2.99nm_farfield_after.png`,
+`/tmp/kjfk_04r_0.6nm_farfield_after.png`).
+
+**Previous increment (still on PR #1):** Night streets / 04R HIRL from
 `kjfk_04r_0.6nm_night.png` / `_dusk.png`. Official runway/taxi
 coordinates unchanged. Hangar 1 m pack still not on this box
 (`/tmp/kjfk-tiny` ~8 m). Mint on a phone hotspot — do not wait.

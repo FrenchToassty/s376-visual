@@ -1,10 +1,14 @@
+#include "s376/airport.hpp"
 #include "s376/config.hpp"
 #include "s376/diagnostics.hpp"
 #include "s376/image.hpp"
+#include "s376/render.hpp"
 #include "s376/state.hpp"
+#include "s376/terrain.hpp"
 
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -90,6 +94,81 @@ void test_image() {
     CHECK(mux.find("frame-%06d.png") != std::string::npos);
     CHECK(mux.find("'out.mp4'") != std::string::npos);
     CHECK(s376::shell_single_quote("a'b").find("'\\''") != std::string::npos);
+
+    {
+        auto sky = s376::make_solid_rgb(64, 40, 140, 184, 242);
+        CHECK(s376::far_field_is_empty_sky(sky));
+        CHECK(s376::sky_like_fraction(sky, 0.36f, 0.74f, 0.34f, 0.50f) > 0.9f);
+        auto land = s376::make_solid_rgb(64, 40, 78, 98, 52);
+        CHECK(!s376::far_field_is_empty_sky(land));
+        auto water = s376::make_solid_rgb(64, 40, 18, 55, 110);
+        CHECK(!s376::far_field_is_empty_sky(water));
+        auto mixed = s376::make_solid_rgb(64, 40, 140, 184, 242);
+        // Paint the far-field band (y 34–50%) as water so the detector
+        // must see terrain, not sky, behind the airport.
+        for (int y = 13; y < 21; ++y) {
+            for (int x = 0; x < 64; ++x) {
+                const std::size_t o = static_cast<std::size_t>(y * 64 + x) * 3u;
+                mixed.rgb[o] = 18;
+                mixed.rgb[o + 1] = 55;
+                mixed.rgb[o + 2] = 110;
+            }
+        }
+        CHECK(!s376::far_field_is_empty_sky(mixed));
+    }
+#ifdef S376_HAS_OSG
+    if (std::getenv("DISPLAY")) {
+        const auto pack = (std::filesystem::temp_directory_path() / "s376-farfield-gl").string();
+        std::filesystem::remove_all(pack);
+        if (s376::write_kjfk_farfield_subset(pack)) {
+            auto cfg = s376::default_config();
+            cfg.render.cache_dir = pack;
+            cfg.render.fxaa = false;
+            cfg.render.msaa = 0;
+            cfg.render.shadows = false;
+            cfg.render.ram_mb = 256;
+            cfg.render.vram_mb = 256;
+            s376::ChannelConfig ch;
+            ch.name = "front";
+            ch.width = 320;
+            ch.height = 200;
+            ch.hfov_deg = 50;
+            ch.vfov_deg = 32.5;
+            auto rend = s376::make_renderer("osg");
+            if (rend && rend->begin(cfg, {ch})) {
+                const auto apt = s376::airport_by_icao("KJFK");
+                s376::ShotPose pose;
+                CHECK(s376::runway_shot_pose(apt, "04R", 2.99, pose));
+                s376::HostState host;
+                host.have_eyepoint = true;
+                host.eye.csn = 1;
+                host.eye.minor_csn = -1;
+                host.eye.lat_deg = pose.lat;
+                host.eye.lon_deg = pose.lon;
+                host.eye.alt_ft = pose.alt_ft;
+                host.eye.heading_deg = static_cast<float>(-pose.hdg_true_deg);
+                host.eye.pitch_deg = static_cast<float>(pose.pitch_deg);
+                host.have_env = true;
+                host.env.tod_select = -1;
+                host.env.tod_hours = 12.f;
+                host.env.visible_range_ft = 528000.f;
+                host.env.month = 6;
+                host.env.day = 21;
+                for (int i = 0; i < 24; ++i)
+                    rend->frame(host);
+                s376::RgbImage im;
+                if (rend->capture_rgb(im) && im.w >= 32 && im.h >= 32) {
+                    const float lower = s376::sky_like_fraction(im, 0.1f, 0.9f, 0.70f, 0.98f);
+                    if (lower < 0.85f) // not a whole-frame FBO miss
+                        CHECK(!s376::far_field_is_empty_sky(im));
+                    (void)s376::write_shot_images("/tmp/kjfk_farfield_regtest.png", im);
+                }
+                rend->end();
+            }
+        }
+        std::filesystem::remove_all(pack);
+    }
+#endif
 
     s376::RecordWriter rec;
     CHECK(rec.open(tmp + "/clip.mp4", 8, 6, 30, true));
