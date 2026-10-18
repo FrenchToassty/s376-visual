@@ -21,8 +21,9 @@ account may stop mid-run — treat this file as the source of truth.
   refused.
 - `s376-doctor`: 0 fail, 1 warn (osgEarth not packaged on Ubuntu 24.04).
   GDAL 3.8.4 PASSes.
-- GitHub Actions `ci / linux` on this branch: **green** on the three-channel
-  commit; this terrain commit adds `libgdal-dev` + an `s376-cache` smoke.
+- GitHub Actions `ci / linux` on `d3f6dfc` (HAT + KSEA + cache): **green**
+  (ubuntu-24.04, 1984 tests, doctor, headless demo, sim-LAN refusal,
+  `s376-cache` smoke). Optional osgEarth job is `workflow_dispatch` only.
 
 ## Milestone: real HAT / HOT (2026-10-18)
 
