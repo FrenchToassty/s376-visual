@@ -42,6 +42,7 @@ set(S376_CORE_SRC
     src/scenery.cpp
     src/parity.cpp
     src/repo_guard.cpp
+    src/traffic.cpp
 )
 
 if(S376_WITH_GDAL)
@@ -149,6 +150,7 @@ add_executable(s376-tests
     tests/test_accuracy.cpp
     tests/test_parity.cpp
     tests/test_repo_guard.cpp
+    tests/test_traffic.cpp
 )
 target_link_libraries(s376-tests PRIVATE s376_core)
 

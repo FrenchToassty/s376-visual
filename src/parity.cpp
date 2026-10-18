@@ -45,7 +45,8 @@ const ParityItem kItems[] = {
     {"routes", "12 moving-model routes", ParityStatus::Partial, "public",
      "Paths stored; host CSN movers still a gap"},
     {"marshaller", "Marshallers", ParityStatus::Partial, "public", "Gate poses; host CSN ignored"},
-    {"traffic", "Road traffic", ParityStatus::Gap, "public", "Two road paths; no movers yet"},
+    {"traffic", "Road traffic", ParityStatus::Ok, "OSM",
+     "GPU-batched cars on motorway/trunk/primary/secondary; Van Wyck, Belt, JFK terminals, NJTP"},
     {"summer", "Summer imagery", ParityStatus::Partial, "public", "NYS Latest / NAIP via s376-cache"},
     {"winter", "Winter imagery", ParityStatus::Partial, "public",
      "s376-cache fetch --season winter → cache/<ICAO>/winter"},
@@ -143,6 +144,17 @@ ParityCounts count_parity(const Airport& a) {
         if (rw.tdz_le || rw.tdz_he)
             c.tdz = true;
     }
+    c.roads = static_cast<int>(a.roads.size());
+    for (const auto& r : a.roads) {
+        if (r.name.find("Van Wyck") != std::string::npos)
+            c.has_van_wyck = true;
+        if (r.name.find("Belt") != std::string::npos)
+            c.has_belt = true;
+        if (r.name.find("Turnpike") != std::string::npos)
+            c.has_njtp = true;
+        if (r.name.find("JFK Terminal") != std::string::npos)
+            c.has_jfk_terminal_rd = true;
+    }
     return c;
 }
 
@@ -155,7 +167,10 @@ std::string format_parity_counts(const ParityCounts& c) {
       << " night=" << c.night_points << "@" << c.night_spacing_m << "m"
       << " tower=" << (c.has_tower ? 1 : 0) << " beacon=" << (c.has_beacon ? 1 : 0)
       << " T5=" << (c.has_t5 ? 1 : 0) << " C1-6=" << (c.has_c1_c6 ? 1 : 0)
-      << " U1-3=" << (c.has_u1_u3 ? 1 : 0) << " CC=" << (c.has_cc ? 1 : 0) << "\n";
+      << " U1-3=" << (c.has_u1_u3 ? 1 : 0) << " CC=" << (c.has_cc ? 1 : 0)
+      << " roads=" << c.roads << " VanWyck=" << (c.has_van_wyck ? 1 : 0)
+      << " Belt=" << (c.has_belt ? 1 : 0) << " NJTP=" << (c.has_njtp ? 1 : 0)
+      << " JFKrd=" << (c.has_jfk_terminal_rd ? 1 : 0) << "\n";
     return o.str();
 }
 

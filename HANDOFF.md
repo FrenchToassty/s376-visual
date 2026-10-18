@@ -22,12 +22,17 @@ from tests/CI. `scripts/check-no-rsi.sh` fails the build if
 
 ## Current state (2026-10-18, this increment)
 
-Accuracy core is landed (`702adb3`): KJFK / KEWR from both FAA ends,
-ALSF-2 / MALSR / RLLS / PAPI / EMAS / TDZ, accuracy suite (end 3 m,
-heading 0.1°, threshold 3 m, ALS/PAPI exact, imagery 1 m, elev 1 m),
-cache fetch refuses a pack whose lod0 misses the ARP or any end.
+**Road traffic** is in: GPU-batched low-poly cars on OSM-class roads
+(motorway/trunk/primary/secondary, class-weighted). Seeded Van Wyck,
+Belt Parkway, JFK terminal / access roads, NJ Turnpike, US-1/9.
+Density follows TOD (rush = 1.0, night = 0.22). Headlights/tails at
+night. 7 km body cull / 11 km lamps. Cap **280** cars (980 Ti, one
+VBO). `s376-cache osm` now pulls those highway classes into osm.bin v2.
 
-This increment adds the **2023 KJFK_KEWR scenery checklist** and the
+Accuracy core (`702adb3`) and the scenery checklist / raster-parity
+guard (`700659c`) are landed.
+
+Previous increment added the **2023 KJFK_KEWR scenery checklist** and the
 local-only Raster comparer:
 
 - `docs/PARITY.md` — full feature list (own words) + per-item status
@@ -39,12 +44,9 @@ local-only Raster comparer:
   Raster data
 - `scripts/check-no-rsi.sh` + `src/repo_guard.cpp` — CI guard
 
-This increment: **14195** unit tests passed, 0 failed. Doctor
-`faa-kjfk` 63 / `faa-kewr` 48, mesh-build 5.54 ms / 31146 verts /
-24440 lights, RSS peak 38.4 MiB (`--no-bench`). `s376-raster-parity
---ours --icao KJFK` prints the checklist (5766 lights, C1–C6, U1–U3,
-T5, 12 routes, night 2200@15 m, CC=0). `scripts/check-no-rsi.sh` is
-clean.
+This increment: **14231** unit tests passed, 0 failed. Doctor
+`faa-kjfk` 63 / `faa-kewr` 48, RSS peak 38.5 MiB. Parity: KJFK
+roads=4 VanWyck/Belt/JFKrd; KEWR roads=3 NJTP. Road traffic **ok**.
 
 ---
 
@@ -167,7 +169,7 @@ OpenGL, 60 Hz at one channel (1920×1080, 50×32.5). `render.quality =
 | 1 | **Hangar re-fetch KJFK** | `rm -rf cache/KJFK` then fetch `--imagery nys`. Confirm `faa-coverage`. |
 | 2 | **Hangar 12k re-test** | After re-fetch: ortho, no top band, zero `invalid enumerant`, blue sky, pavement runways. Paste doctor RSS + shot path. |
 | 3 | Host CSN movers | Type-100 CSN ≠ 1 counted, body ignored. 12 routes + marshaller poses are stored only. |
-| 4 | Road traffic cars | Two road paths; no vehicles. |
+| 4 | Road traffic cars | **Landed.** 280-car GPU batch; OSM highways when baked. |
 | 5 | Full ~30 k OSM buildings | Bake cap 8 k; Raster pad had ~30 k. |
 | 6 | Winter imagery vintage | `--season winter` writes `cache/<ICAO>/winter`; still the same NYS/NAIP URL. |
 | 7 | NY region pager | `data/regions/ny.toml` exists; KEWR tiles load only when nearby — not wired. |
@@ -185,8 +187,8 @@ OpenGL, 60 Hz at one channel (1920×1080, 50×32.5). `render.quality =
 
 1. **Hangar re-fetch + 12k screenshot** (items 1–2). Blocking for
    anyone looking at the picture. Keep CI green while it runs.
-2. **Host CSN movers / marshallers / road traffic** (3–4) — Raster
-   had 12 moving-model routes.
+2. **Host CSN movers / marshallers** (3) — Raster had 12 moving-model
+   routes. Road cars are done.
 3. **Raise OSM building cap toward 30 k** with the existing
    near/far mesh split (5). Stay inside the 980 Ti RSS/VRAM caps.
 4. **Winter vintage URL + NY pager** (6–7).
@@ -197,6 +199,19 @@ FAA numbers always win. Do not invent packet types. Do not copy
 Raster photos or `nxHostPacket.h`.
 
 ---
+
+## Milestone: road traffic (Van Wyck / Belt / JFK / NJTP) (2026-10-18)
+
+Owner: original sim shows small cars on roads (MSFS-style).
+
+- `src/traffic.cpp`: class-weighted cars on motorway/trunk/primary/
+  secondary. TOD density, night head/tail lamps, 7 km cull.
+- Public alignments: Van Wyck, Belt Parkway, JFK Terminal + Access,
+  NJ Turnpike, US-1/9 (OSM/public geography, not Raster extracts).
+- GPU: one batched VBO, ≤ 280 cars, GLSL 120 lit body + unlit lamps.
+  Fits the 980 Ti channel budget.
+- `s376-cache osm` Overpass now asks for those highway classes.
+  osm.bin version 2 stores roads; v1 caches still load.
 
 ## Milestone: KJFK/KEWR scenery parity + local Raster comparer (2026-10-18)
 

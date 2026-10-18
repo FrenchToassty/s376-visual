@@ -1,6 +1,7 @@
 #include "s376/airport.hpp"
 #include "s376/faa.hpp"
 #include "s376/lights.hpp"
+#include "s376/traffic.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -891,6 +892,10 @@ std::string overpass_aeroway_query(double south, double west, double north, doub
       << north << "," << east << ");way[\"building\"](" << south << "," << west << "," << north
       << "," << east << ");way[\"natural\"=\"water\"](" << south << "," << west << "," << north
       << "," << east << ");way[\"natural\"=\"coastline\"](" << south << "," << west << "," << north
+      << "," << east << ");way[\"highway\"=\"motorway\"](" << south << "," << west << "," << north
+      << "," << east << ");way[\"highway\"=\"trunk\"](" << south << "," << west << "," << north
+      << "," << east << ");way[\"highway\"=\"primary\"](" << south << "," << west << "," << north
+      << "," << east << ");way[\"highway\"=\"secondary\"](" << south << "," << west << "," << north
       << "," << east << "););out geom;";
     return o.str();
 }
@@ -926,6 +931,8 @@ int merge_osm_json(Airport& a, const std::string& json) {
             window != std::string::npos && g > window ? json.substr(window, g - window) : "";
         if (tags.find("\"building\"") != std::string::npos)
             kind = "building";
+        else if (osm_tags_are_road(tags))
+            kind = "road";
         else if (tags.find("apron") != std::string::npos)
             kind = "apron";
         else if (tags.find("\"water\"") != std::string::npos ||
@@ -992,6 +999,13 @@ int merge_osm_json(Airport& a, const std::string& json) {
                 ap.name = "osm-apron";
                 ap.ring = std::move(pts);
                 a.aprons.push_back(std::move(ap));
+            } else if (kind == "road") {
+                Road rd;
+                rd.name = "osm";
+                rd.cls = parse_osm_highway(tags);
+                rd.path = std::move(pts);
+                finalize_road(rd);
+                a.roads.push_back(std::move(rd));
             } else {
                 Taxiway t;
                 t.name = "osm";
@@ -1064,22 +1078,27 @@ int merge_osm_file_stream(Airport& a, const std::string& path, std::uint64_t max
             const auto chunk = carry.substr(start, end - start + 1);
             const bool is_bldg = chunk.find("\"building\"") != std::string::npos;
             const bool is_apron = chunk.find("apron") != std::string::npos;
+            const bool is_road = osm_tags_are_road(chunk);
             // Same caps as write_osm_bin — a 400 MB Overpass dump must not
             // grow unbounded Airport vectors at bake time.
             if (is_bldg && a.buildings.size() >= kMaxOsmBuildings) {
                 pos = end + 1;
                 continue;
             }
-            if (is_apron && !is_bldg && a.aprons.size() >= kMaxOsmAprons) {
+            if (is_road && !is_bldg && a.roads.size() >= kMaxOsmRoads) {
                 pos = end + 1;
                 continue;
             }
-            if (!is_bldg && !is_apron && a.taxiways.size() >= kMaxOsmTaxiways) {
+            if (is_apron && !is_bldg && !is_road && a.aprons.size() >= kMaxOsmAprons) {
+                pos = end + 1;
+                continue;
+            }
+            if (!is_bldg && !is_apron && !is_road && a.taxiways.size() >= kMaxOsmTaxiways) {
                 pos = end + 1;
                 continue;
             }
             if (a.taxiways.size() >= kMaxOsmTaxiways && a.aprons.size() >= kMaxOsmAprons &&
-                a.buildings.size() >= kMaxOsmBuildings)
+                a.buildings.size() >= kMaxOsmBuildings && a.roads.size() >= kMaxOsmRoads)
                 return added;
             added += merge_osm_json(a, chunk);
             pos = end + 1;
@@ -1156,10 +1175,11 @@ bool write_osm_bin(const Airport& a, const std::string& path) {
     if (!o)
         return false;
     o.write("S376OSM1", 8);
-    write_u32(o, 1);
+    write_u32(o, 2);
     const auto nt = std::min<std::size_t>(a.taxiways.size(), kMaxOsmTaxiways);
     const auto na = std::min<std::size_t>(a.aprons.size(), kMaxOsmAprons);
     const auto nb = std::min<std::size_t>(a.buildings.size(), kMaxOsmBuildings);
+    const auto nr = std::min<std::size_t>(a.roads.size(), kMaxOsmRoads);
     write_u32(o, static_cast<std::uint32_t>(nt));
     write_u32(o, static_cast<std::uint32_t>(na));
     write_u32(o, static_cast<std::uint32_t>(nb));
@@ -1169,6 +1189,17 @@ bool write_osm_bin(const Airport& a, const std::string& path) {
         write_poly(o, a.aprons[i].name, 0.f, a.aprons[i].ring);
     for (std::size_t i = 0; i < nb; ++i)
         write_poly(o, a.buildings[i].name, a.buildings[i].height_m, a.buildings[i].ring);
+    write_u32(o, static_cast<std::uint32_t>(nr));
+    for (std::size_t i = 0; i < nr; ++i) {
+        float cls = 3.f;
+        if (a.roads[i].cls == RoadClass::Motorway)
+            cls = 0.f;
+        else if (a.roads[i].cls == RoadClass::Trunk)
+            cls = 1.f;
+        else if (a.roads[i].cls == RoadClass::Primary)
+            cls = 2.f;
+        write_poly(o, a.roads[i].name, cls, a.roads[i].path);
+    }
     return static_cast<bool>(o);
 }
 
@@ -1181,7 +1212,8 @@ int read_osm_bin(Airport& a, const std::string& path) {
     if (!i || std::memcmp(mag, "S376OSM1", 8) != 0)
         return 0;
     std::uint32_t ver = 0, nt = 0, na = 0, nb = 0;
-    if (!read_u32(i, ver) || ver != 1 || !read_u32(i, nt) || !read_u32(i, na) || !read_u32(i, nb))
+    if (!read_u32(i, ver) || (ver != 1 && ver != 2) || !read_u32(i, nt) || !read_u32(i, na) ||
+        !read_u32(i, nb))
         return 0;
     int added = 0;
     for (std::uint32_t n = 0; n < nt; ++n) {
@@ -1207,6 +1239,28 @@ int read_osm_bin(Airport& a, const std::string& path) {
             break;
         a.buildings.push_back(std::move(b));
         ++added;
+    }
+    if (ver >= 2) {
+        std::uint32_t nr = 0;
+        if (read_u32(i, nr) && nr <= static_cast<std::uint32_t>(kMaxOsmRoads)) {
+            for (std::uint32_t n = 0; n < nr; ++n) {
+                Road r;
+                float cls = 3.f;
+                if (!read_poly(i, r.name, cls, r.path))
+                    break;
+                if (cls < 0.5f)
+                    r.cls = RoadClass::Motorway;
+                else if (cls < 1.5f)
+                    r.cls = RoadClass::Trunk;
+                else if (cls < 2.5f)
+                    r.cls = RoadClass::Primary;
+                else
+                    r.cls = RoadClass::Secondary;
+                finalize_road(r);
+                a.roads.push_back(std::move(r));
+                ++added;
+            }
+        }
     }
     return added;
 }

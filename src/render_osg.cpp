@@ -1,6 +1,7 @@
 #include "s376/airport.hpp"
 #include "s376/dxt.hpp"
 #include "s376/geo.hpp"
+#include "s376/traffic.hpp"
 #include "s376/image.hpp"
 #include "s376/log.hpp"
 #include "s376/render.hpp"
@@ -1083,6 +1084,94 @@ void mesh_end(MeshGpu& g) {
     g.geom->dirtyBound();
 }
 
+struct TrafficGpu {
+    TrafficWorld world;
+    osg::ref_ptr<osg::Geometry> body;
+    osg::ref_ptr<osg::Vec3Array> bverts;
+    osg::ref_ptr<osg::Vec3Array> bnorms;
+    osg::ref_ptr<osg::Vec4Array> bcols;
+    osg::ref_ptr<osg::DrawArrays> bdraw;
+    osg::ref_ptr<osg::Geometry> lamps;
+    osg::ref_ptr<osg::Vec3Array> lverts;
+    osg::ref_ptr<osg::Vec4Array> lcols;
+    osg::ref_ptr<osg::DrawArrays> ldraw;
+};
+
+TrafficGpu make_traffic_gpu() {
+    TrafficGpu g;
+    g.body = new osg::Geometry;
+    g.bverts = new osg::Vec3Array;
+    g.bnorms = new osg::Vec3Array;
+    g.bcols = new osg::Vec4Array;
+    g.bdraw = new osg::DrawArrays(GL_TRIANGLES, 0, 0);
+    g.body->setVertexArray(g.bverts);
+    g.body->setNormalArray(g.bnorms, osg::Array::BIND_PER_VERTEX);
+    g.body->setColorArray(g.bcols, osg::Array::BIND_PER_VERTEX);
+    g.body->addPrimitiveSet(g.bdraw);
+    g.body->setUseDisplayList(false);
+    g.body->setUseVertexBufferObjects(true);
+    attach_lit_color(g.body->getOrCreateStateSet());
+    g.lamps = new osg::Geometry;
+    g.lverts = new osg::Vec3Array;
+    g.lcols = new osg::Vec4Array;
+    g.ldraw = new osg::DrawArrays(GL_TRIANGLES, 0, 0);
+    g.lamps->setVertexArray(g.lverts);
+    g.lamps->setColorArray(g.lcols, osg::Array::BIND_PER_VERTEX);
+    g.lamps->addPrimitiveSet(g.ldraw);
+    g.lamps->setUseDisplayList(false);
+    g.lamps->setUseVertexBufferObjects(true);
+    auto* lss = g.lamps->getOrCreateStateSet();
+    lss->setMode(GL_BLEND, osg::StateAttribute::ON);
+    lss->setAttributeAndModes(new osg::BlendFunc(GL_SRC_ALPHA, GL_ONE));
+    lss->setAttributeAndModes(new osg::Depth(osg::Depth::LEQUAL, 0, 1, false));
+    attach_unlit_color(lss);
+    lss->setRenderBinDetails(22, "DepthSortedBin");
+    return g;
+}
+
+void upload_traffic(TrafficGpu& g, const TrafficMesh& mesh) {
+    g.bverts->clear();
+    g.bnorms->clear();
+    g.bcols->clear();
+    g.bverts->reserve(mesh.body.size());
+    for (const auto& v : mesh.body) {
+        g.bverts->push_back(ecef_to_osg(v.p));
+        g.bnorms->push_back(osg::Vec3(static_cast<float>(v.n.x), static_cast<float>(v.n.y),
+                                     static_cast<float>(v.n.z)));
+        g.bcols->push_back(osg::Vec4(v.r, v.g, v.b, v.mat));
+    }
+    g.bdraw->setCount(static_cast<GLint>(g.bverts->size()));
+    g.bverts->dirty();
+    g.bnorms->dirty();
+    g.bcols->dirty();
+    g.body->dirtyBound();
+    g.lverts->clear();
+    g.lcols->clear();
+    g.lverts->reserve(mesh.lamps.size());
+    for (const auto& v : mesh.lamps) {
+        g.lverts->push_back(ecef_to_osg(v.p));
+        g.lcols->push_back(osg::Vec4(v.r, v.g, v.b, 1.f));
+    }
+    g.ldraw->setCount(static_cast<GLint>(g.lverts->size()));
+    g.lverts->dirty();
+    g.lcols->dirty();
+    g.lamps->dirtyBound();
+}
+
+void update_traffic(TrafficGpu& g, const HostState& host, float dt) {
+    const float tod = host.have_env ? host.env.tod_hours : 14.5f;
+    double lat = 40.64, lon = -73.78, alt = 0;
+    if (host.have_eyepoint) {
+        lat = host.eye.lat_deg;
+        lon = host.eye.lon_deg;
+        alt = host.eye.alt_ft * geo::kFtToM;
+    }
+    step_traffic(g.world, dt, tod, lat, lon, alt);
+    TrafficMesh mesh;
+    build_traffic_mesh(g.world, tod, mesh);
+    upload_traffic(g, mesh);
+}
+
 void add_tri(MeshGpu& g, const osg::Vec3& a, const osg::Vec3& b, const osg::Vec3& c,
              const osg::Vec4& col) {
     g.verts->push_back(a);
@@ -1566,6 +1655,22 @@ class OsgRenderer final : public Renderer {
                 geode->addDrawable(storm_gpu_.geom);
                 root->addChild(geode);
             }
+            traffic_gpu_ = make_traffic_gpu();
+            {
+                std::vector<Airport> apts = all_public_airports();
+                for (auto& apt : apts)
+                    try_load_osm(apt, cfg.render.cache_dir);
+                traffic_gpu_.world = build_traffic(apts, kMaxTrafficCars);
+                S376_LOG_INFO("render", "road traffic  %zu roads  %zu cars  (980 Ti batch)",
+                              traffic_gpu_.world.roads.size(), traffic_gpu_.world.cars.size());
+            }
+            if (traffic_gpu_.body) {
+                auto* geode = new osg::Geode;
+                geode->addDrawable(traffic_gpu_.body);
+                if (traffic_gpu_.lamps)
+                    geode->addDrawable(traffic_gpu_.lamps);
+                root->addChild(geode);
+            }
         }
         attach_env_uniforms(root->getOrCreateStateSet(), env_u_);
         if (cfg.render.atmosphere) {
@@ -1664,6 +1769,7 @@ class OsgRenderer final : public Renderer {
         update_precip(precip_gpu_, host, dt);
         update_clouds(cloud_gpu_, host, cloud_drift_m_);
         update_storms(storm_gpu_, host, storm_flash_);
+        update_traffic(traffic_gpu_, host, dt);
         viewer_->frame();
     }
 
@@ -2077,6 +2183,7 @@ class OsgRenderer final : public Renderer {
     PrecipGpu precip_gpu_;
     MeshGpu cloud_gpu_;
     MeshGpu storm_gpu_;
+    TrafficGpu traffic_gpu_;
     int last_lightning_ = 0;
     int flash_left_ = 0;
     int last_storm_bolt_[xt4::kMaxActiveStorms] = {};

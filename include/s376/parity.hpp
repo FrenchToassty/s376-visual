@@ -49,6 +49,11 @@ struct ParityCounts {
     bool papi = false;
     bool reil = false;
     bool tdz = false;
+    int roads = 0;
+    bool has_van_wyck = false;
+    bool has_belt = false;
+    bool has_njtp = false;
+    bool has_jfk_terminal_rd = false;
 };
 
 struct RasterScan {

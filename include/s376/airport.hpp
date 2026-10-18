@@ -46,6 +46,7 @@ enum class LightKind {
 constexpr std::size_t kMaxOsmTaxiways = 800;
 constexpr std::size_t kMaxOsmAprons = 200;
 constexpr std::size_t kMaxOsmBuildings = 8000;
+constexpr std::size_t kMaxOsmRoads = 400;
 constexpr int kMeshBuildingsNear = 800;
 constexpr int kMeshBuildingsFar = 2500;
 
@@ -107,6 +108,16 @@ struct Taxiway {
     std::string name;
     std::vector<std::pair<double, double>> path; // lat, lon
     double width_m = 23;
+};
+
+enum class RoadClass { Motorway, Trunk, Primary, Secondary };
+
+struct Road {
+    std::string name;
+    RoadClass cls = RoadClass::Secondary;
+    std::vector<std::pair<double, double>> path; // lat, lon
+    std::vector<double> seg_len_m;
+    double length_m = 0;
 };
 
 struct Apron {
@@ -208,6 +219,7 @@ struct Airport {
     std::vector<DockingGuide> docking;
     std::vector<SceneRoute> routes;
     std::vector<Marshaller> marshallers;
+    std::vector<Road> roads;
     NightLayer night;
     double tower_lat = 0;
     double tower_lon = 0;

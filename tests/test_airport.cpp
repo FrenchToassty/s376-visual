@@ -199,6 +199,7 @@ void test_airport() {
             saw_t5 = true;
     CHECK(saw_c1 && saw_u1 && !saw_cc && saw_t5);
     CHECK(jfk.has_beacon && jfk.tower_h_m > 10.f);
+    CHECK(jfk.roads.size() >= 4);
     CHECK(jfk.routes.size() >= 12);
     CHECK(jfk.night.spacing_m == 15);
     check_runway_length(jfk.runways[0]);
@@ -324,6 +325,8 @@ void test_airport() {
     CHECK(q.find("building") != std::string::npos);
     CHECK(q.find("natural") != std::string::npos);
     CHECK(q.find("water") != std::string::npos);
+    CHECK(q.find("highway") != std::string::npos);
+    CHECK(q.find("motorway") != std::string::npos);
     CHECK(!s376::curl_glob_safe(q));
     const auto cmd = s376::http_get_command(url, "/tmp/s376-osm-test.json");
     CHECK(cmd.find(" -g ") != std::string::npos);
@@ -348,6 +351,12 @@ void test_airport() {
         "{\"lat\":37.6185,\"lon\":-122.383},{\"lat\":37.618,\"lon\":-122.383}]}"
         "]}";
     CHECK(s376::merge_osm_json(osm, sample) == 3);
+    const char* hwy =
+        "{\"type\":\"way\",\"tags\":{\"highway\":\"motorway\",\"name\":\"Van Wyck\"},\"geometry\":["
+        "{\"lat\":40.66,\"lon\":-73.80},{\"lat\":40.65,\"lon\":-73.795}]}";
+    CHECK(s376::merge_osm_json(osm, hwy) == 1);
+    CHECK(!osm.roads.empty());
+    CHECK(osm.roads.back().cls == s376::RoadClass::Motorway);
     CHECK(osm.taxiways.size() == taxis0 + 1);
     CHECK(osm.aprons.size() == aprons0 + 1);
     CHECK(!osm.buildings.empty());

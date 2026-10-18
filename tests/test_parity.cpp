@@ -46,6 +46,7 @@ void test_parity() {
     CHECK(c.night_spacing_m == 15);
     CHECK(c.night_points > 50);
     CHECK(c.alsf2 && c.malsr && c.rlls && c.papi && c.tdz);
+    CHECK(c.roads >= 4 && c.has_van_wyck && c.has_belt && c.has_jfk_terminal_rd);
     const auto text = s376::format_parity_counts(c);
     CHECK(text.find("KJFK") != std::string::npos);
     CHECK(text.find("CC=0") != std::string::npos);
@@ -55,6 +56,7 @@ void test_parity() {
     CHECK(e.has_tower && e.has_beacon);
     CHECK(e.alsf2 && e.malsr && e.papi);
     CHECK(e.routes >= 4);
+    CHECK(e.has_njtp);
 
     CHECK(!s376::looks_like_s376_repo("/tmp"));
     auto scan = s376::scan_local_raster_tree("/tmp/s376-no-such-raster");

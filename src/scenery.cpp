@@ -1,5 +1,6 @@
 #include "s376/airport.hpp"
 #include "s376/geo.hpp"
+#include "s376/traffic.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -206,6 +207,7 @@ void add_kjfk_public_scenery(Airport& a) {
     plant_trees(a);
     fill_night_layer(a);
     add_shared_routes(a);
+    add_public_ny_roads(a);
 }
 
 void add_kewr_public_scenery(Airport& a) {
@@ -224,6 +226,7 @@ void add_kewr_public_scenery(Airport& a) {
     plant_trees(a);
     fill_night_layer(a);
     add_shared_routes(a);
+    add_public_ny_roads(a);
 }
 
 void add_scenery_lights(Airport& a) {
