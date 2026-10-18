@@ -268,6 +268,40 @@ void ImageRgb::save_geotiff(const std::string& path, const DemGrid& georef) cons
     }
     GDALClose(ds);
 }
+
+bool peek_georef(const std::string& path, double& west, double& south, double& east, double& north,
+                 int& w, int& h, int& bands) {
+    GDALAllRegister();
+    GDALDataset* ds = static_cast<GDALDataset*>(GDALOpen(path.c_str(), GA_ReadOnly));
+    if (!ds)
+        return false;
+    w = ds->GetRasterXSize();
+    h = ds->GetRasterYSize();
+    bands = ds->GetRasterCount();
+    double gt[6] = {};
+    const bool ok = ds->GetGeoTransform(gt) == CE_None && w > 0 && h > 0;
+    if (ok) {
+        west = gt[0];
+        north = gt[3];
+        east = gt[0] + gt[1] * w;
+        south = gt[3] + gt[5] * h;
+        if (south > north)
+            std::swap(south, north);
+        if (west > east)
+            std::swap(west, east);
+    }
+    GDALClose(ds);
+    return ok && east > west && north > south;
+}
+
+GeorefRgb load_georef_rgb(const std::string& path) {
+    GeorefRgb g;
+    int w = 0, h = 0, bands = 0;
+    if (!peek_georef(path, g.west, g.south, g.east, g.north, w, h, bands))
+        throw std::runtime_error(path + " is not a georeferenced raster GDAL can read");
+    g.img = ImageRgb::load_jpeg_or_png(path);
+    return g;
+}
 #else
 bool gdal_available() {
     return false;
@@ -284,6 +318,14 @@ void DemGrid::save_geotiff(const std::string&) const {
 
 void ImageRgb::save_geotiff(const std::string&, const DemGrid&) const {
     throw std::runtime_error("GDAL was not built in");
+}
+
+bool peek_georef(const std::string&, double&, double&, double&, double&, int&, int&, int&) {
+    return false;
+}
+
+GeorefRgb load_georef_rgb(const std::string& path) {
+    throw std::runtime_error("GDAL was not built in; cannot read " + path);
 }
 #endif
 

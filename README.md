@@ -196,6 +196,18 @@ the same.
 `from-geotiff` needs GDAL (`libgdal-dev`). Without GDAL the portable
 `.s376dem` path and `synth-ksea` still work.
 
+When a public ortho is weaker than the Raster pad (SKRG, VNKT), convert
+Joey's own airport folder on his machine only:
+
+```bash
+./build/s376-cache import-raster /path/to/Raster/VNKT --out cache/VNKT
+```
+
+That command is read-only on the source tree. It imports georeferenced
+GeoTIFF/JPEG2000/JPEG+world only. Proprietary pack files are not
+decoded; the tool fails and says what it needs. Never commit the source
+or `cache/`. See [docs/SOURCES.md](docs/SOURCES.md).
+
 ## osgEarth from source (Linux Mint 22 / Ubuntu 24.04)
 
 Ubuntu 24.04 **does not** package osgEarth. The every-PR CI job therefore

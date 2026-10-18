@@ -40,7 +40,7 @@ Plus two generic “anywhere” pads later, for host airport-select fallback.
 | European AIP | National AIS (NATS, DFS, ENAIRE, …) and [EUROCONTROL](https://www.eurocontrol.int/) where the product is open | Same, for EGLL / EDDF / LEBL |
 | Taxiways, aprons, buildings, parking | [OpenStreetMap](https://www.openstreetmap.org/) via Overpass (`aeroway=*`) | Polygons and lines. ODbL attribution |
 | Terminal / hangar massing | OSM `building` + a later simple extrude. Optional public CityGML | Boxy is fine for v1 |
-| Imagery under the airport | NAIP (CONUS) or Sentinel-2 (everywhere) — see [SOURCES.md](SOURCES.md) | Draped, not modelled |
+| Imagery under the airport | Best free public source per ICAO, else Raster-local — see [SOURCES.md](SOURCES.md) | Draped, not modelled |
 | Elevation under the airport | Copernicus GLO-30, then a local airport flatten | Conform runways to a plane |
 
 ## Lighting — from standards, not from RSI binaries

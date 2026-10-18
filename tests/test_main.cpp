@@ -44,6 +44,7 @@ void test_terrain();
 void test_airport();
 void test_hat();
 void test_fetch();
+void test_imagery();
 void test_diagnostics();
 void test_image();
 void test_display();
@@ -68,6 +69,7 @@ int main() {
     test_airport();
     test_hat();
     test_fetch();
+    test_imagery();
     test_diagnostics();
     test_image();
     test_display();

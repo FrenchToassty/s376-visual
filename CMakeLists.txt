@@ -33,6 +33,7 @@ set(S376_CORE_SRC
     src/dxt.cpp
     src/airport.cpp
     src/fetch.cpp
+    src/imagery.cpp
     src/image.cpp
     src/display.cpp
     src/lights.cpp
@@ -208,6 +209,7 @@ add_executable(s376-tests
     tests/test_airport.cpp
     tests/test_hat.cpp
     tests/test_fetch.cpp
+    tests/test_imagery.cpp
     tests/test_diagnostics.cpp
     tests/test_image.cpp
     tests/test_display.cpp

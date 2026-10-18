@@ -4,6 +4,7 @@
 #include "s376/dxt.hpp"
 #include "s376/faa.hpp"
 #include "s376/geo.hpp"
+#include "s376/imagery.hpp"
 #include "s376/log.hpp"
 #include "s376/safety.hpp"
 
@@ -286,10 +287,29 @@ double native_imagery_m(const std::string& kind) {
         return 0.30;
     if (kind == "naip")
         return 0.60;
+    if (kind == "njogis")
+        return 0.30;
+    if (kind == "massgis" || kind == "sanmateo" || kind == "clark" || kind == "ocpa" ||
+        kind == "miami" || kind == "ideca")
+        return 0.15;
+    if (kind == "loudoun")
+        return 0.30;
+    if (kind == "lacounty")
+        return 0.10;
+    if (kind == "kingco")
+        return 0.08;
+    if (kind == "hessen")
+        return 0.20;
+    if (kind == "ea-vap" || kind == "icgc")
+        return 0.25;
+    if (kind == "igm")
+        return 0.30;
     if (kind == "s2")
         return 10.0;
     if (kind == "hillshade")
         return 20.0;
+    if (kind == "none" || kind == "raster-local")
+        return 0;
     return 0.60;
 }
 
@@ -309,8 +329,16 @@ void pick_sources(const AirportRef& apt, const FetchRequest& req, std::string& d
     img = req.imagery;
     if (dem == "auto")
         dem = apt.conus ? "3dep" : "glo30";
-    if (img == "auto")
-        img = !apt.conus ? "s2" : (imagery_covers_nys(apt.lat, apt.lon) ? "nys" : "naip");
+    if (img == "auto") {
+        if (const auto* src = airport_imagery(apt.icao)) {
+            if (src->policy == ImageryPolicy::RasterLocal)
+                img = "raster-local";
+            else
+                img = src->public_kind;
+        } else {
+            img = !apt.conus ? "s2" : (imagery_covers_nys(apt.lat, apt.lon) ? "nys" : "naip");
+        }
+    }
 }
 
 } // namespace
@@ -323,7 +351,7 @@ FetchRequest resolved_fetch(const FetchRequest& in) {
     const double ni = native_imagery_m(img);
     const double nd = native_dem_m(dem);
     if (r.near_m <= 0)
-        r.near_m = ni;
+        r.near_m = ni > 0 ? ni : 1.0;
     if (r.near_dem_m <= 0)
         r.near_dem_m = nd;
     if (r.mid_m <= 0)
@@ -420,8 +448,17 @@ AirportRef lookup_airport_ref(const std::string& icao) {
         {"KJFK", "John F Kennedy International", 40.639928, -73.778692, 13, true},
         {"KEWR", "Newark Liberty International", 40.6925, -74.168667, 18, true},
         {"KBOS", "Boston Logan International", 42.3656, -71.0096, 20, true},
+        {"KIAD", "Washington Dulles International", 38.9531, -77.4565, 313, true},
+        {"KMCO", "Orlando International", 28.4294, -81.3089, 96, true},
+        {"KMIA", "Miami International", 25.7959, -80.2870, 8, true},
+        {"KRNO", "Reno-Tahoe International", 39.4991, -119.7681, 4415, true},
         {"EGLL", "London Heathrow", 51.4700, -0.4543, 83, false},
         {"EDDF", "Frankfurt Main", 50.0379, 8.5622, 364, false},
+        {"LEBL", "Barcelona El Prat", 41.2971, 2.0785, 12, false},
+        {"SEQM", "Quito Mariscal Sucre", -0.1253, -78.3578, 7801, false},
+        {"SKBO", "Bogotá El Dorado", 4.7016, -74.1469, 8360, false},
+        {"SKRG", "Rionegro / Medellín", 6.1645, -75.4231, 7025, false},
+        {"VNKT", "Kathmandu Tribhuvan", 27.6966, 85.3591, 4390, false},
     };
     for (const auto& a : kAll) {
         if (a.icao == id)
@@ -482,7 +519,18 @@ std::string imagery_export_url(const std::string& kind, const GeoBox& b, int w, 
              "ImageServer/exportImage?bbox="
           << b.west << "," << b.south << "," << b.east << "," << b.north
           << "&bboxSR=4326&imageSR=4326&size=" << w << "," << h << "&format=tiff&f=image";
-    } else {
+    } else if (kind == "sanmateo") {
+        o << "https://gis.smcgov.org/image/rest/services/SanMateoCounty_Imagery2022/"
+             "ImageServer/exportImage?bbox="
+          << b.west << "," << b.south << "," << b.east << "," << b.north
+          << "&bboxSR=4326&imageSR=4326&size=" << w << "," << h << "&format=jpg&f=image";
+    } else if (kind == "kingco") {
+        o << "https://gismaps.kingcounty.gov/arcgis/rest/services/BaseMaps/KingCo_Aerial_2023/"
+             "MapServer/export?bbox="
+          << b.west << "," << b.south << "," << b.east << "," << b.north
+          << "&bboxSR=4326&imageSR=4326&size=" << w << "," << h
+          << "&format=jpg&f=image&transparent=false";
+    } else if (kind == "naip") {
         o << "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/"
              "ImageServer/exportImage?bbox="
           << b.west << "," << b.south << "," << b.east << "," << b.north
@@ -635,11 +683,15 @@ FetchPlan plan_fetch(const FetchRequest& in) {
     } else {
         throw std::runtime_error("dem must be auto|glo30|3dep");
     }
-    if (img == "naip" || img == "nys" || img == "hro") {
+    if (img == "naip" || img == "nys" || img == "hro" || img == "sanmateo" || img == "kingco") {
         if (img == "nys")
             attr << "Imagery: NYS GIS Program Office ortho (public; ~0.5–1 ft/px, NYC/LI).\n";
         else if (img == "hro")
             attr << "Imagery: USGS NAIP Plus / HRO (US public domain) over NAIP.\n";
+        else if (img == "sanmateo")
+            attr << "Imagery: San Mateo County 2022 ImageServer (county GIS).\n";
+        else if (img == "kingco")
+            attr << "Imagery: King County KingCo_Aerial_2023 (county GIS).\n";
         else
             attr << "Imagery: USDA NAIP via USGS National Map ImageServer (US public domain).\n";
         if (p.tiles.empty()) {
@@ -655,8 +707,18 @@ FetchPlan plan_fetch(const FetchRequest& in) {
         p.urls.push_back(s2_tile_url(12, 0, 0));
     } else if (img == "hillshade") {
         attr << "Imagery: local hillshade (no download).\n";
+    } else if (img == "raster-local") {
+        attr << "Imagery: no public source as sharp as Raster. "
+                "s376-cache import-raster <airport-dir> --out cache/"
+             << apt.icao << "\n";
+    } else if (const auto* src = airport_imagery(apt.icao)) {
+        attr << "Imagery: " << src->public_label << " (" << src->license << "). "
+             << "Not a live ImageServer pull. Download the public rasters, then "
+                "s376-cache import-raster DIR --out cache/"
+             << apt.icao << "\n";
     } else {
-        throw std::runtime_error("imagery must be auto|nys|hro|naip|s2|hillshade");
+        throw std::runtime_error(
+            "imagery must be auto|nys|hro|naip|s2|hillshade|sanmateo|kingco or a catalog kind");
     }
     attr << "Do not commit the downloaded rasters. See docs/SOURCES.md.\n";
     p.attribution = attr.str();
@@ -814,6 +876,17 @@ std::uint64_t fetch_and_pack(const FetchRequest& in, FetchPlan* plan_out) {
     }
     if (req.dry_run || req.plan_only)
         return 0;
+    if (plan.img_kind == "raster-local" || !imagery_kind_is_live_pull(plan.img_kind)) {
+        std::ostringstream o;
+        o << apt.icao << " imagery '" << plan.img_kind
+          << "' is not a live public pull as sharp as Raster.\n";
+        if (const auto* src = airport_imagery(apt.icao))
+            o << src->public_label << " — " << src->notes << "\n";
+        o << "s376-cache import-raster <airport-dir> --out cache/" << apt.icao
+          << "\n"
+          << format_import_needed();
+        throw std::runtime_error(o.str());
+    }
 
     ensure_dir(out);
     std::ofstream attr(out + "/ATTRIBUTION.txt");
@@ -833,8 +906,9 @@ std::uint64_t fetch_and_pack(const FetchRequest& in, FetchPlan* plan_out) {
         }
     };
 
-    const bool tiled_img =
-        plan.img_kind == "naip" || plan.img_kind == "nys" || plan.img_kind == "hro";
+    const bool tiled_img = plan.img_kind == "naip" || plan.img_kind == "nys" ||
+                           plan.img_kind == "hro" || plan.img_kind == "sanmateo" ||
+                           plan.img_kind == "kingco";
 
     std::size_t packed_tiles = 0;
     std::size_t missing = 0;

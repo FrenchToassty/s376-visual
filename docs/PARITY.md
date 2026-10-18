@@ -91,7 +91,7 @@ type, PAPI side). Tracked in code (`s376::scenery_parity_items`) and
 | 12 moving-model routes | yes | **partial** | Paths stored; host CSN movers **gap** |
 | Marshallers | yes | **partial** | Gate poses; host CSN ignored |
 | Road traffic | yes | **ok** | Instanced cars on OSM motorway/trunk/primary/secondary (class-weighted). Van Wyck, Belt Parkway, JFK terminal roads, NJ Turnpike seeded. TOD density, night lamps, 7 km cull, 280-car 980 Ti batch |
-| Summer imagery | CERTS | **partial** | NYS Latest / NAIP (`s376-cache fetch`) |
+| Summer imagery | CERTS | **partial** | Per-airport public table; Raster-local via `import-raster` |
 | Winter imagery | second season | **partial** | `s376-cache fetch --season winter` → `cache/<ICAO>/winter` |
 | 15 m night lights | layer | **partial** | Spacing recorded 15 m; GPU subsample 60 m |
 | Full KEWR | yes | **partial** | FAA both ends + scenery stand-ins |

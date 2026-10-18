@@ -158,7 +158,8 @@ bool is_allowed_data_host(const std::string& host) {
         "amazonaws.com",       "nationalmap.gov", "usgs.gov",          "arcgis.com",
         "eox.at",              "s2maps-tiles.eu", "overpass-api.de",   "openstreetmap.fr",
         "openstreetmap.org",   "ourairports.com", "ambientcg.com",     "polyhaven.com",
-        "polyhaven.org",       "its.ny.gov",      "ny.gov",            nullptr};
+        "polyhaven.org",       "its.ny.gov",      "ny.gov",            "smcgov.org",
+        "kingcounty.gov",      "nj.gov",          "mass.gov",          nullptr};
     for (int i = 0; kOk[i]; ++i) {
         const std::string suf = kOk[i];
         if (host == suf)

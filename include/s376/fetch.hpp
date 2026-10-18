@@ -47,7 +47,7 @@ struct FetchRequest {
     std::string icao = "KSEA";
     double radius_km = 50; // outer / far-lod box. Disk is free; pager holds RAM.
     std::string dem = "auto";      // auto | glo30 | 3dep
-    std::string imagery = "auto";  // auto | nys | hro | naip | s2 | hillshade
+    std::string imagery = "auto";  // auto | nys | hro | naip | s2 | sanmateo | kingco | hillshade
     std::string out_dir;
     std::string season = "summer"; // summer | winter (second pack under out/winter)
     bool dry_run = false;

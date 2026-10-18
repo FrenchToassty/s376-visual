@@ -99,8 +99,11 @@ source finer than native unless the operator set a positive
 | USGS 3DEP | 1 m | **1 / 2 / 8 m** | US public domain |
 | Copernicus GLO-30 | 30 m | **30 / 60 / 240 m** | Copernicus open |
 
-`--imagery auto` picks NYS for airports inside NY (KJFK / KEWR), NAIP
-for other CONUS, Sentinel-2 elsewhere. No Google / Bing / Esri scrape.
+`--imagery auto` uses the per-airport table in [SOURCES.md](SOURCES.md)
+(NYS at KJFK, King County at KSEA, San Mateo at KSFO, NAIP at KRNO, …).
+If the free source is weaker than Raster (SKRG, VNKT), fetch refuses
+and `s376-cache import-raster` reads Joey's local airport folder.
+No Google / Bing / Esri scrape.
 
 The pack may be larger than Raster's 857 GB. The pager still evicts
 when `ram_mb` / `vram_mb` would exceed the preset (2 GiB / 5 GiB on

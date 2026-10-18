@@ -2,6 +2,7 @@
 #include "s376/diagnostics.hpp"
 #include "s376/dxt.hpp"
 #include "s376/fetch.hpp"
+#include "s376/imagery.hpp"
 #include "s376/log.hpp"
 #include "s376/safety.hpp"
 #include "s376/terrain.hpp"
@@ -21,13 +22,15 @@ void usage() {
         << " — offline DEM / imagery packer (no RSI tiles)\n"
            "usage:\n"
            "  s376-cache fetch ICAO [--radius-km N] [--out DIR] [--dem auto|glo30|3dep]\n"
-           "                       [--imagery auto|nys|hro|naip|s2|hillshade] [--dry-run] [--plan]\n"
+           "                       [--imagery auto|nys|hro|naip|s2|sanmateo|kingco|hillshade]\n"
+           "                       [--dry-run] [--plan]\n"
            "                       [--near-m M] [--near-dem-m M] [--mid-m M] [--mid-dem-m M]\n"
            "                       [--far-m M] [--far-dem-m M]\n"
            "                       [--near-km N] [--mid-km N] [--approach-nm N] [--max-export N]\n"
            "                       [--season summer|winter]\n"
            "  s376-cache synth-ksea [--out DIR] [--size N] [--lods]\n"
            "  s376-cache from-geotiff DEM.tif [--imagery FILE] [--out DIR] [--lods]\n"
+           "  s376-cache import-raster DIR [--out cache/ICAO] [--icao ICAO] [--dry-run]\n"
            "  s376-cache pack-lods --from DIR --out DIR\n"
            "  s376-cache osm ICAO [--out DIR] [--radius-km N] [--dry-run]\n"
            "  s376-cache bake-osm DIR   stream-parse DIR/osm.json → DIR/osm.bin\n"
@@ -45,7 +48,11 @@ void usage() {
            "Downloaded rasters stay under cache/ (gitignored).\n"
            "osm pulls Overpass aeroway=taxiway|apron + building=* (ODbL) into DIR/osm.json.\n"
            "geojson writes a FeatureCollection for the osgEarth airport layer.\n"
-           "Never points at 10.1.95.0/24 or 192.168.173.0/24.\n";
+           "import-raster reads Joey's own Raster airport folder (local, read-only)\n"
+           "and writes our cache. It only imports georeferenced GeoTIFF/JPEG2000/\n"
+           "JPEG+world/PNG+world. Proprietary pack files are skipped and the tool\n"
+           "fails clearly if nothing decodable is on disk. Never commit the source\n"
+           "or the packed cache. Never points at 10.1.95.0/24 or 192.168.173.0/24.\n";
 }
 
 bool looks_like_hostport(const std::string& s) {
@@ -163,12 +170,16 @@ int main(int argc, char** argv) {
             usage();
             s376::log::shutdown();
             return 0;
-        }         else if (a[0] != '-' && icao.empty() &&
+        } else if (a == "--icao")
+            icao = need("--icao");
+        else if (a[0] != '-' && icao.empty() &&
                    (cmd == "fetch" || cmd == "osm" || cmd == "bake-osm" || cmd == "geojson" ||
-                    cmd == "info" ||
-                    cmd == "from-geotiff" || cmd == "pack-lods")) {
+                    cmd == "info" || cmd == "from-geotiff" || cmd == "pack-lods" ||
+                    cmd == "import-raster")) {
             if (cmd == "fetch" || cmd == "osm" || cmd == "geojson")
                 icao = a;
+            else if (cmd == "import-raster")
+                from_dir = a;
             else
                 dem_path = a;
         } else {
@@ -239,6 +250,35 @@ int main(int argc, char** argv) {
             std::cout << plan.attribution;
             std::cout << "wrote " << out << "  " << bytes << " bytes  "
                       << s376::count_cache_tiles(out) << " tiles (BC1/BC7 + s376dem + mips)\n";
+            s376::log::shutdown();
+            return 0;
+        }
+        if (cmd == "import-raster") {
+            if (from_dir.empty()) {
+                std::cerr << "import-raster needs a local airport directory\n";
+                s376::log::shutdown();
+                return 2;
+            }
+            refuse_lan_path("import-raster src", from_dir);
+            s376::ImportRequest ireq;
+            ireq.src_dir = from_dir;
+            ireq.out_dir = (out == "cache/ksea") ? "" : out;
+            ireq.icao = icao;
+            ireq.dry_run = dry;
+            s376::ImportScan scan;
+            if (dry) {
+                scan = s376::scan_import_dir(from_dir);
+                if (scan.icao.empty() && !icao.empty())
+                    scan.icao = icao;
+                std::cout << s376::format_import_scan(scan);
+                std::cout << s376::format_import_needed() << "\n";
+                s376::log::shutdown();
+                return scan.decodable > 0 && scan.error.empty() ? 0 : 1;
+            }
+            const auto n = s376::import_raster(ireq, &scan);
+            std::cout << s376::format_import_scan(scan);
+            std::cout << "wrote " << (ireq.out_dir.empty() ? ("cache/" + scan.icao) : ireq.out_dir)
+                      << "  " << n << " bytes  (local import; do not commit)\n";
             s376::log::shutdown();
             return 0;
         }

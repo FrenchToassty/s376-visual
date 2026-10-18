@@ -81,6 +81,8 @@ void test_fetch() {
     CHECK(s376::safety::is_allowed_data_host("orthos.its.ny.gov"));
     CHECK(s376::safety::is_allowed_data_host("its.ny.gov"));
     CHECK(s376::safety::is_allowed_data_host("imagery.nationalmap.gov"));
+    CHECK(s376::safety::is_allowed_data_host("gis.smcgov.org"));
+    CHECK(s376::safety::is_allowed_data_host("gismaps.kingcounty.gov"));
     CHECK(!s376::safety::is_allowed_data_host("10.1.95.1"));
     CHECK(s376::imagery_covers_nys(40.64, -73.78));
     CHECK(!s376::imagery_covers_nys(47.45, -122.31));
@@ -114,20 +116,20 @@ void test_fetch() {
     req.season = "summer";
     const auto resolved_ksea = s376::resolved_fetch(req);
     CHECK(resolved_ksea.dem == "3dep");
-    CHECK(resolved_ksea.imagery == "naip");
-    CHECK_NEAR(resolved_ksea.near_m, 0.60, 1e-6);
+    CHECK(resolved_ksea.imagery == "kingco");
+    CHECK_NEAR(resolved_ksea.near_m, 0.08, 1e-6);
     CHECK_NEAR(resolved_ksea.near_dem_m, 1.0, 1e-6);
-    CHECK_NEAR(resolved_ksea.mid_m, 2.40, 1e-6);
-    CHECK_NEAR(resolved_ksea.far_m, 9.60, 1e-6);
+    CHECK_NEAR(resolved_ksea.mid_m, 0.32, 1e-6);
+    CHECK_NEAR(resolved_ksea.far_m, 1.28, 1e-6);
     CHECK_NEAR(resolved_ksea.near_radius_km, 8.0, 1e-6);
     CHECK_NEAR(resolved_ksea.approach_nm, 12.0, 1e-6);
     auto plan = s376::plan_fetch(req);
     CHECK(plan.dem_kind == "3dep");
-    CHECK(plan.img_kind == "naip");
+    CHECK(plan.img_kind == "kingco");
     CHECK(plan.lods.size() >= 2);
     CHECK(plan.lods[0].bc7);
     CHECK(plan.lods[0].tiled);
-    CHECK_NEAR(plan.lods[0].img_m, 0.60, 1e-6);
+    CHECK_NEAR(plan.lods[0].img_m, 0.08, 1e-6);
     CHECK_NEAR(plan.lods[0].dem_m, 1.0, 1e-6);
     CHECK(!plan.urls.empty());
     CHECK(plan.estimate.img_tiles >= 4);
@@ -169,7 +171,7 @@ void test_fetch() {
     req.icao = "EGLL";
     plan = s376::plan_fetch(req);
     CHECK(plan.dem_kind == "glo30");
-    CHECK(plan.img_kind == "s2");
+    CHECK(plan.img_kind == "ea-vap");
 
     req.icao = "KJFK";
     req.imagery = "auto";

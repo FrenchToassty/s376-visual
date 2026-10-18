@@ -45,6 +45,19 @@ struct ImageRgb {
     void save_geotiff(const std::string& path, const DemGrid& georef) const;
 };
 
+struct GeorefRgb {
+    ImageRgb img;
+    double west = 0;
+    double south = 0;
+    double east = 0;
+    double north = 0;
+    bool ok() const { return !img.rgb.empty() && east > west && north > south; }
+};
+
+GeorefRgb load_georef_rgb(const std::string& path);
+bool peek_georef(const std::string& path, double& west, double& south, double& east, double& north,
+                 int& w, int& h, int& bands);
+
 class HeightSource {
   public:
     virtual ~HeightSource() = default;

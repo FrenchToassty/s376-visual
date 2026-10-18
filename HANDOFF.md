@@ -27,22 +27,31 @@ from tests/CI. `scripts/check-no-rsi.sh` fails the build if
 
 ## Current state (2026-10-18, this increment)
 
-**Fetch resume + 2048 px exports + `--plan`.** Hangar KJFK fetch at
-702adb3 (`--max-export 4000`, 3829×3660) got USGS/NYS **500/504**,
-left a 1.1 GB partial pack, and `faa-coverage` / `faa-elev` failed.
-Fixes: ImageServer cap **2048**; exponential backoff + jitter (8
-tries); per-tile resume (skip completed `lodN/tY_X` and valid raw);
-one dense grid per LOD (iy=0 south, same bbox for DEM+imagery — the
-sparse `t1_0` holes were failed downloads / mismatched grids, not a
-planned skip); `--plan` prints every tile bbox and checks ARP+ends
-**inside a tile** (not the union). Incomplete fetch keeps `raw/` and
-does **not** claim success. `faa-elev` samples lod0 tiles; the
-`3.62712 m` figure was FAA **04L/04R 11.9 ft**, not a copied ARP
-(13 ft) and not the DEM reading.
+**Per-airport imagery + local `import-raster`.** If no free public
+source at least matches Raster's own imagery, fall back to Joey's
+Raster airport folder on his machine — never something worse. Catalog
+in `docs/SOURCES.md` / `airport_imagery()`. SKRG (no verified public
+source) and VNKT (S2 10 m only) are **Raster-local**: `fetch --imagery
+auto` refuses and tells you to import. KRNO is **either** (NAIP ~0.6 m
+roughly matches).
 
-**Hidden visual-only missiles** (same 7-click unlock as Classic).
-Prior increments: `s376-wizard`, Classic NYC skyline, disk-unlimited
-fetch.
+```bash
+./build/s376-cache import-raster /path/to/Raster/VNKT --out cache/VNKT
+./build/s376-cache import-raster DIR --dry-run
+```
+
+Read-only on the source. Imports only georeferenced GeoTIFF / JP2 /
+JPEG+world / PNG+world that GDAL can open. Proprietary pack files are
+counted as opaque; if nothing decodable is on disk the tool fails and
+prints what it needs. Nothing from that folder is copied into git.
+`scripts/check-no-rsi.sh` still applies.
+
+Live fetch kinds added: `sanmateo` (KSFO), `kingco` (KSEA). Other
+public sources in the table are download-then-import until a stable
+ImageServer is wired.
+
+Prior increment: fetch 2048 px / resume / `--plan` / faa-elev.
+Prior: missiles, wizard, Classic skyline.
 
 `s376-wizard` is a Dear ImGui + GLFW console on the Host IO /
 operator PC. It talks to the channel IGs over a local UDP control
@@ -135,9 +144,15 @@ Road traffic (`3e99c97`), accuracy core (`702adb3`), and the scenery
 checklist / raster-parity guard (`700659c`) are landed.
 
 This increment: unit tests passed via `ctest` from the build dir
-(plan/coverage/elev + missiles). Doctor `faa-kjfk` / `faa-kewr`
-unchanged. Hangar re-fetch is still priority 1 — use the resume
-command below (2048 px, do not pass `--max-export 4000`).
+(imagery catalog, import-raster opaque fail + GeoTIFF success,
+SKRG/VNKT raster-local, fetch auto kingco/sanmateo). Doctor
+`faa-kjfk` / `faa-kewr` unchanged. Hangar re-fetch is still
+priority 1 — use the resume command below (2048 px, do not pass
+`--max-export 4000`). For VNKT/SKRG:
+
+```bash
+./build/s376-cache import-raster /path/to/Raster/VNKT --out cache/VNKT
+```
 
 ### Host crash / HAT (type 200)
 
@@ -194,8 +209,9 @@ The hangar KJFK pack was **mislocated** (~20 km SW; no lod0 north of
 on the FAA ARP** with NYS imagery:
 
 ```bash
-# Plan first (no download). Then fetch; re-run to resume missing tiles.
-# Do NOT rm -rf if a previous run left raw/ or lod0/tY_X.
+# One-time: drop the failed 1.1 GB 702adb3 pack (old tile IDs / bboxes).
+# After that, re-run the same fetch to resume — do not rm -rf again.
+rm -rf cache/KJFK
 ./build/s376-cache fetch KJFK --plan --out cache/KJFK --dem 3dep --imagery nys \
   --near-m 1 --near-dem-m 1 --near-km 5 --approach-nm 10 --radius-km 35
 ./build/s376-cache fetch KJFK --out cache/KJFK --dem 3dep --imagery nys \
@@ -281,6 +297,7 @@ OpenGL, 60 Hz at one channel (1920×1080, 50×32.5). `render.quality =
 | 4 | Road traffic cars | **Landed.** 280-car GPU batch; OSM highways when baked. |
 | 5 | Full ~30 k OSM buildings | Bake cap 8 k; Raster pad had ~30 k. |
 | 6 | Winter imagery vintage | `--season winter` writes `cache/<ICAO>/winter`; still the same NYS/NAIP URL. |
+| 6b | Wire remaining public pulls | NJOGIS / MassGIS / Loudoun / Clark / LACO / OCPA / MDC / Hessen / EA / ICGC / IGM / IDECA are catalogued; fetch live today is nys/naip/hro/s2/sanmateo/kingco. |
 | 7 | NY region pager | `data/regions/ny.toml` exists; KEWR tiles load only when nearby — not wired. |
 | 8 | Ownship 109 beams | Decoded; no landing/taxi lobes, no beacon/strobe draw. |
 | 9 | Type 131 display | Decoded; windows always on. |

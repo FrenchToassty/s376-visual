@@ -15,6 +15,49 @@ s376-visual streams or caches standard formats.
 | USGS NAIP Plus / HRO | ImageServer export (`--imagery hro`) | Optional higher-tier over NAIP (US public domain) |
 | osgEarth ReadyMap | TMS, if the public endpoint is still up | Historical osgEarth demo. Treat as optional |
 
+## Per-airport imagery (sharper of public vs Raster-local)
+
+Pick whichever is sharper. Public sources only in this table. When the
+free source is weaker or missing, use a **local** Raster airport folder
+via `s376-cache import-raster` — never commit those files.
+
+| ICAO | Best free public source | Native | Policy |
+|---|---|---|---|
+| KJFK | NYS ITS 2024 orthos / NYC 2024 | 0.15 m | public (`--imagery nys`) |
+| KEWR | NJOGIS 2020 30 cm (`s3://njogis-imagery/2020` COG) | 0.30 m | public; download COGs then `import-raster` |
+| KBOS | MassGIS 2023 15 cm | 0.15 m | public; WMTS / download then `import-raster` |
+| KIAD | Loudoun COLOR_2025 30 cm | 0.30 m | public; download then `import-raster` |
+| KLAS | Clark County cached imagery | ~0.15 m | public; download then `import-raster` |
+| KLAX | LA County 4-inch | 0.10 m | public; download then `import-raster` |
+| KMCO | OCPA Aerials2025 | ~0.15 m | public; download then `import-raster` |
+| KMIA | Miami-Dade MDCImagery | ~0.15 m | public; download then `import-raster` |
+| KSEA | King County KingCo_Aerial_2023 | ~0.08 m (3 in west) | public live pull (`--imagery kingco`) |
+| KSFO | San Mateo 2022 ImageServer 15 cm | 0.15 m | public live pull (`--imagery sanmateo`) |
+| EDDF | Hessen DOP20 (DL-DE/Zero) | 0.20 m | public; download then `import-raster` |
+| EGLL | EA Vertical Aerial Photography (OGL; coverage to check) | ~0.25 m | public; confirm coverage, then `import-raster` |
+| LEBL | ICGC ortofoto 2024 25 cm / IGN PNOA | 0.25 m | public; download then `import-raster` |
+| SEQM | IGM Ecuador WMS | ~0.30 m | public; download then `import-raster` |
+| SKBO | IDECA Bogotá 2025 | ~0.15 m | public; download then `import-raster` |
+| KRNO | USDA NAIP (~0.6 m) — only free source | 0.60 m | either (NAIP roughly matches Raster) |
+| SKRG | *(no verified public source)* | — | **Raster-local** `import-raster` |
+| VNKT | Sentinel-2 10 m only (worse than Raster) | 10 m | **Raster-local** `import-raster` |
+
+```bash
+# Local-only. DIR is on Joey's disk. Nothing is copied into git.
+./build/s376-cache import-raster /path/to/Raster/VNKT --out cache/VNKT
+./build/s376-cache import-raster /path/to/Raster/SKRG --icao SKRG --out cache/SKRG
+./build/s376-cache import-raster DIR --dry-run   # scan only; lists opaque vs decodable
+```
+
+`import-raster` reads GeoTIFF / JPEG2000 / JPEG+world / PNG+world that
+GDAL can open. If the folder only has proprietary airport-pack files,
+it exits non-zero and prints what it saw plus what it needs. It never
+writes into the source directory. Packed output stays under `cache/`
+(gitignored).
+
+Live `s376-cache fetch --imagery auto` uses this table. SKRG / VNKT
+refuse a worse public pull and tell you to `import-raster`.
+
 The default `data/earth/s376.earth` points at Esri World Imagery so a
 machine with osgEarth and a network gets a real-looking globe on the
 first run. Swap the image layer for a local MBTiles tree when you go
