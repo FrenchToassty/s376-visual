@@ -486,6 +486,10 @@ Airport kjfk_public() {
     a.buildings.push_back(box_building("T4", 40.6445, -73.7780, 40.0, 380, 80, 22.f));
     a.buildings.push_back(box_building("T5", 40.6410, -73.7870, 121.0, 280, 70, 18.f));
     a.buildings.push_back(box_building("T8", 40.6468, -73.7895, 121.0, 260, 70, 20.f));
+    a.buildings.push_back(box_building("T1", 40.6438, -73.7908, 121.0, 240, 70, 18.f));
+    a.buildings.push_back(box_building("T7", 40.6488, -73.7832, 40.0, 220, 65, 18.f));
+    a.buildings.push_back(box_building("hangar", 40.6515, -73.7940, 121.0, 180, 70, 16.f));
+    a.buildings.push_back(box_building("cargo", 40.6550, -73.7720, 40.0, 200, 80, 14.f));
     generate_lights(a);
     return a;
 }
@@ -622,11 +626,13 @@ void apply_shot_overrides(ShotPose& p, const ShotOverrides& o) {
         const double elev_ft = a.elev_m * geo::kMToFt;
         const double agl = p.alt_ft - elev_ft;
         if (agl > 400.0) {
-            const double back_nm = std::min(18.0, agl / 800.0);
+            // Cockpit 12k photos: ocean, then Rockaway, then JFK, lots of sky.
+            // ~11 nm stand-off, nearly level (horizon ~mid-low in a 32.5° VFOV).
+            const double back_nm = std::min(11.0, agl / 1100.0);
             offset_m(a.arp_lat, a.arp_lon, wrap360(p.hdg_true_deg + 180.0), back_nm * 1852.0, p.lat,
                      p.lon);
             if (!o.have_pitch)
-                p.pitch_deg = -std::min(12.0, agl / 1400.0);
+                p.pitch_deg = -std::min(2.0, agl / 8000.0);
         }
     }
 }

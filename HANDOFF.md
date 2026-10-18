@@ -28,15 +28,27 @@ deploy); the water/haze path is ALU-only, no extra pass.
   `--bank DEG`, `--hdg DEG`, `--pitch DEG`. ICAO-only + high alt
   stands off opposite heading so the field is ahead.
 
-`10787` unit tests passed. Headless `--at KJFK:04R:8 --alt 3000 --bank 30`
+`10788` unit tests passed. Headless `--at KJFK:04R:8 --alt 3000 --bank 30`
 logs `3000ft  hdg 31.0  pitch -3.0  bank 30.0  8.00nm`. `--at KJFK --alt
-12000 --hdg 036` stands off SW of the ARP looking 036.
+12000 --hdg 036` is `40.4932,-73.9191  12000ft  hdg 36.0  pitch -1.5`
+(south of Rockaway, looking at JFK).
 
-Hangar comparisons (photo is reference only):
+Cockpit photos (captain far_left+mid_left, FO mid_right+far_right) of
+KJFK / Rockaway at MCP ALT 12000 HDG 036 IAS 202 are also reference
+only — `refs/raster-capt-12000-*.jpg`, `refs/raster-fo-12000.jpg`.
+`--at KJFK --alt 12000 --hdg 036` stands ~11 nm SSW of the ARP, pitch
+≈ −1.5° (ocean → barrier → bay → field, lots of sky). Local 40 km
+land/water patches around each airport keep that view sharp without a
+NAIP cache. Extra JFK terminals (T1/T7/hangar/cargo) so 12k has 3D
+mass Raster lacks.
+
+Hangar comparisons (photos are reference only):
 
 ```bash
 ./build/s376-visual --screenshot /tmp/jfk-bank.ppm --at KJFK:04R:8 --alt 3000 --bank 30 --channel mid_left
 ./build/s376-visual --screenshot /tmp/jfk-12k.ppm --at KJFK --alt 12000 --hdg 036 --channel mid_left
+./build/s376-visual --screenshot /tmp/jfk-12k-left.ppm --at KJFK --alt 12000 --hdg 036 --channel far_left
+./build/s376-visual --screenshot /tmp/jfk-12k-right.ppm --at KJFK --alt 12000 --hdg 036 --channel far_right
 ```
 
 ## Milestone: collimated 3-on-4 PCs (2026-10-18)

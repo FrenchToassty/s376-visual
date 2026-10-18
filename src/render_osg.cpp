@@ -109,7 +109,7 @@ vec3 aces(vec3 x) {
 }
 float aerial(float dist, vec3 n) {
     float g = 1.0 - clamp(abs(dot(normalize(n), normalize(uUp))), 0.0, 1.0);
-    float h = uFogDensity + uHaze * (0.30 + 1.10 * g);
+    float h = uFogDensity + uHaze * (0.18 + 2.50 * pow(g, 1.35));
     return exp(-h * h * dist * dist);
 }
 void main() {
@@ -321,7 +321,8 @@ void main() {
         sky = mix(horiz, ground, clamp(-h * 2.0, 0.0, 1.0));
     sky += vec3(1.0, 0.92, 0.75) * pow(m, 32.0) * 0.55;
     sky += vec3(1.0, 0.85, 0.55) * pow(m, 8.0) * 0.12;
-    sky = mix(sky, uFogColor, 0.28 * (1.0 - abs(h)));
+    float hz = pow(1.0 - abs(h), 1.25);
+    sky = mix(sky, uFogColor, 0.48 * hz);
     float night = clamp(-dot(sun, up) * 2.0, 0.0, 1.0);
     vec3 moon = normalize(-sun + 0.15 * up);
     float mm = max(dot(d, moon), 0.0);
@@ -680,6 +681,91 @@ osg::Node* make_dem_patch(const CacheRegion& cache, float aniso = 16.f) {
     tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
     tex->setMaxAnisotropy(std::max(1.f, aniso));
     tex->setLODBias(-0.35f);
+    attach_lit_tex(geom->getOrCreateStateSet(), tex);
+    geode->addDrawable(geom);
+    return geode;
+}
+
+// High-res land/water patch around an airport so 12k/oblique views stay
+// sharp. Same land_coverage as the globe, so the edge is a color match
+// (no hard horizon seam). Land is raised a few metres over the ellipsoid.
+osg::Node* make_local_ground(double lat0, double lon0, double radius_km, float aniso) {
+    const int n = 80;
+    const int tw = 384, th = 384;
+    auto* img = new osg::Image;
+    img->allocateImage(tw, th, 1, GL_RGB, GL_UNSIGNED_BYTE);
+    auto* px = img->data();
+    const double rlat = radius_km / 111.32;
+    const double rlon = rlat / std::max(0.2, std::cos(geo::deg2rad(lat0)));
+    for (int y = 0; y < th; ++y) {
+        const double lat = lat0 + rlat * (1.0 - 2.0 * (y + 0.5) / th);
+        for (int x = 0; x < tw; ++x) {
+            const double lon = lon0 + rlon * (2.0 * (x + 0.5) / tw - 1.0);
+            float cover = 0.f;
+            for (int sy = 0; sy < 2; ++sy)
+                for (int sx = 0; sx < 2; ++sx)
+                    cover += geo::land_coverage(lat + (sy - 0.5) * rlat / th,
+                                                lon + (sx - 0.5) * rlon / tw);
+            cover *= 0.25f;
+            const float wr = 0.07f, wg = 0.16f, wb = 0.38f;
+            const float lr = 0.22f, lg = 0.36f, lb = 0.16f;
+            const int i = (y * tw + x) * 3;
+            px[i] = static_cast<unsigned char>((wr + (lr - wr) * cover) * 255.f);
+            px[i + 1] = static_cast<unsigned char>((wg + (lg - wg) * cover) * 255.f);
+            px[i + 2] = static_cast<unsigned char>((wb + (lb - wb) * cover) * 255.f);
+        }
+    }
+
+    auto* geode = new osg::Geode;
+    auto* geom = new osg::Geometry;
+    auto* verts = new osg::Vec3Array;
+    auto* norms = new osg::Vec3Array;
+    auto* uvs = new osg::Vec2Array;
+    verts->reserve(static_cast<std::size_t>((n + 1) * (n + 1)));
+    for (int j = 0; j <= n; ++j) {
+        const double v = static_cast<double>(j) / n;
+        const double lat = lat0 + rlat * (1.0 - 2.0 * v);
+        for (int i = 0; i <= n; ++i) {
+            const double u = static_cast<double>(i) / n;
+            const double lon = lon0 + rlon * (2.0 * u - 1.0);
+            const float cover = geo::land_coverage(lat, lon);
+            const double edge = std::max(std::fabs(u - 0.5), std::fabs(v - 0.5)) * 2.0;
+            const double fade = edge > 0.82 ? std::max(0.0, 1.0 - (edge - 0.82) / 0.18) : 1.0;
+            const double z = cover * 12.0 * fade;
+            const geo::Ecef p = geo::lla_to_ecef(lat, lon, z);
+            verts->push_back(ecef_to_osg(p));
+            geo::Ecef e, nn, up;
+            geo::ecef_to_enu_axes(lat, lon, e, nn, up);
+            norms->push_back(osg::Vec3(static_cast<float>(up.x), static_cast<float>(up.y),
+                                       static_cast<float>(up.z)));
+            uvs->push_back(osg::Vec2(static_cast<float>(u), static_cast<float>(1.0 - v)));
+        }
+    }
+    auto* idx = new osg::DrawElementsUInt(GL_TRIANGLES);
+    for (int j = 0; j < n; ++j) {
+        for (int i = 0; i < n; ++i) {
+            const unsigned a = static_cast<unsigned>(j * (n + 1) + i);
+            const unsigned b = a + 1;
+            const unsigned c = a + static_cast<unsigned>(n + 1);
+            idx->push_back(a);
+            idx->push_back(c);
+            idx->push_back(b);
+            idx->push_back(b);
+            idx->push_back(c);
+            idx->push_back(c + 1);
+        }
+    }
+    geom->setVertexArray(verts);
+    geom->setNormalArray(norms, osg::Array::BIND_PER_VERTEX);
+    geom->setTexCoordArray(0, uvs);
+    geom->addPrimitiveSet(idx);
+    auto* tex = new osg::Texture2D(img);
+    tex->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
+    tex->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
+    tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR_MIPMAP_LINEAR);
+    tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
+    tex->setMaxAnisotropy(std::max(1.f, aniso));
+    tex->setLODBias(-0.4f);
     attach_lit_tex(geom->getOrCreateStateSet(), tex);
     geode->addDrawable(geom);
     return geode;
@@ -1196,6 +1282,15 @@ class OsgRenderer final : public Renderer {
                 }
             }
         }
+        if (!used_earth_) {
+            const float an = static_cast<float>(cfg.render.aniso);
+            for (const auto& apt : all_public_airports()) {
+                if (auto* g = make_local_ground(apt.arp_lat, apt.arp_lon, 40.0, an)) {
+                    root->addChild(g);
+                    S376_LOG_INFO("render", "%s local ground  40 km", apt.icao.c_str());
+                }
+            }
+        }
         {
             Airport merged;
             for (Airport apt : all_public_airports()) {
@@ -1410,7 +1505,7 @@ class OsgRenderer final : public Renderer {
             alt_k = std::min(1.f, static_cast<float>(host.eye.alt_ft) / 16000.f);
         float haze = 0.f;
         if (cfg_.render.atmosphere)
-            haze = 3.2e-6f + 1.5e-5f * alt_k;
+            haze = 3.2e-6f + 1.8e-5f * alt_k;
         if (env_u_.haze)
             env_u_.haze->set(haze);
         if (env_u_.fog_color)

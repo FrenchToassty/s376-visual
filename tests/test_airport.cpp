@@ -237,8 +237,9 @@ void test_airport() {
         s376::apply_shot_overrides(high, h);
         CHECK_NEAR(high.alt_ft, 12000.0, 1e-6);
         CHECK_NEAR(high.hdg_true_deg, 36.0, 1e-6);
-        CHECK(high.lat < 40.6399); // stood off opposite 036
-        CHECK(high.pitch_deg < 0.0);
+        CHECK(high.lat < 40.58); // south of Rockaway, ocean in the foreground
+        CHECK(high.pitch_deg <= 0.0 && high.pitch_deg > -3.0); // nearly level, lots of sky
+        CHECK(jfk.buildings.size() >= 6);
         bool bad = false;
         try {
             (void)s376::parse_shot_at("XXXX");

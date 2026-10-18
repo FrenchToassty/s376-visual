@@ -80,8 +80,9 @@ or deep it is. Expensive levers are TOML toggles; `render.quality =
 | Asphalt / rubber / grass detail | **partial** — hash+land-class noise. `scripts/fetch-textures.sh` pulls CC0 Poly Haven 1K JPGs into `cache/textures/` (never committed); shader fallback if absent |
 | OSM buildings | **partial** — extruded footprints + schematic terminals. LOD cap 280. Instancing later |
 | Analytic sky + aerial perspective | **partial** — Preetham-like dome, sun disc, moon+stars at night, EXP2 + altitude haze (`uHaze`). Not a full Bruneton LUT |
-| Water / coastlines | **partial** — soft land mask (public geography), Fresnel + stable waves + sun glint. OSM water/coastline queried, not meshed yet |
-| Oblique mip / aniso | **ok** — 2048×1024 globe, trilinear, aniso 16, LOD bias −0.35 |
+| Water / coastlines | **partial** — soft land mask + 40 km local patches at each airport, Fresnel + stable waves + sun glint. OSM water/coastline queried, not meshed yet |
+| Oblique mip / aniso | **ok** — 2048×1024 globe + local patches, trilinear, aniso 16, LOD bias −0.35 |
+| Horizon seam / haze | **partial** — altitude `uHaze` + grazing fade; sky mixes to fog at the horizon. Not a Bruneton LUT |
 | Cloud soft edge / lighting | **partial** — hash edge + sun wrap on the weather-round decks |
 | HDR + ACES | **ok** — filmic in every forward shader; `render.exposure` |
 | SSAO | **partial** — cheap wall darkening; on for both `gtx980ti` (one channel) and `rtx`. No depth post-pass |
