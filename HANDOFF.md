@@ -72,7 +72,7 @@ native). Pager still caps resident 2 GiB / 5 GiB. See
 Road traffic (`3e99c97`), accuracy core (`702adb3`), and the scenery
 checklist / raster-parity guard (`700659c`) are landed.
 
-This increment: **20437** unit tests passed, 0 failed. Doctor
+This increment: **20442** unit tests passed, 0 failed. Doctor
 `faa-kjfk` / `faa-kewr` unchanged. Hangar re-fetch is still priority
 1 — now at **native NYS**, no `--near-m 1`.
 

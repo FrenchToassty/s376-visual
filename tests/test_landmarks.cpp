@@ -133,14 +133,22 @@ void test_landmarks() {
 
     s376::tick_session_view(47.45, -122.31); // reposition to KSEA
     CHECK(s376::session_era() == s376::SkylineEra::Classic);
+    CHECK(s376::session_era_unlocked());
     CHECK(s376::active_skyline_era() == s376::SkylineEra::Current);
     {
         double z = 0;
         CHECK(!s376::session_solids().roof_msl(40.7117, -74.0131, &z));
     }
 
+    // Leave the geofence without a far-airport slew; setting still holds.
+    s376::tick_session_view(40.20, -74.01);
+    CHECK(s376::session_era() == s376::SkylineEra::Classic);
+    CHECK(s376::session_era_unlocked());
+    CHECK(s376::active_skyline_era() == s376::SkylineEra::Current);
+
     s376::tick_session_view(40.71, -74.01); // back to NYC, no reset
     CHECK(s376::session_era() == s376::SkylineEra::Classic);
+    CHECK(s376::session_era_unlocked());
     CHECK(s376::active_skyline_era() == s376::SkylineEra::Classic);
     {
         double z = 0;
