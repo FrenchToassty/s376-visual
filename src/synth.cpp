@@ -120,6 +120,9 @@ std::vector<std::uint8_t> SyntheticFlight::datagram(const SynthPose& s) const {
     pk.push_back(xt4::build_dcs(s.lat_deg, s.lon_deg, s.alt_ft, s.hdg_true_deg,
                                 static_cast<float>(s.pitch_deg), static_cast<float>(s.roll_deg),
                                 s.count, cfg_.float_fmt));
+    if (cfg_.weather)
+        pk.push_back(xt4::build_dcs(47.4200, -122.3078, 4500.0, 0, 0, 0, s.count, cfg_.float_fmt,
+                                   xt4::kStormCsn0, -1, 1));
     if (cfg_.hat_queries)
         pk.push_back(xt4::build_hat_query());
     if (s.count % 20 == 1) {
@@ -135,8 +138,15 @@ std::vector<std::uint8_t> SyntheticFlight::datagram(const SynthPose& s) const {
         else
             pk.push_back(xt4::build_env(14.5f, 10 * 6076.f, 5, 4, 2016, cfg_.float_fmt));
     }
-    if (cfg_.weather && (s.count == 1 || s.count % 100 == 3))
+    if (cfg_.weather && (s.count == 1 || s.count % 100 == 3)) {
         pk.push_back(xt4::build_fog(400.f, 2400.f, cfg_.float_fmt, -1, 0));
+        pk.push_back(xt4::build_cloud(xt4::kTypeLowerCloud, 0, 2500.f, 6000.f, cfg_.float_fmt, -1,
+                                     3, 8000.f, 18.f, 200.f));
+        pk.push_back(xt4::build_cloud(xt4::kTypeUpperCloud, 1, 12000.f, 16000.f, cfg_.float_fmt));
+        pk.push_back(xt4::build_top_cloud(2));
+        pk.push_back(xt4::build_storm(0, true, xt4::kStormCsn0, 1, 7,
+                                     2 + static_cast<int>(s.count / 100)));
+    }
     if (s.count == 1)
         pk.push_back(xt4::build_display(true));
     if (s.count == 1 || s.count % 100 == 2) {

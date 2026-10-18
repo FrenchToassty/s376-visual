@@ -36,7 +36,7 @@ void usage() {
            "  --cache-dir PATH      packed DEM/imagery from s376-cache\n"
            "  --headless            run the host receiver with no GL window\n"
            "  --demo                in-process synth to 127.0.0.1 (no VAX needed)\n"
-           "  --demo-weather        demo plus type-124 rain / type-128 fog\n"
+           "  --demo-weather        demo plus 124/125/126/127/128 weather and a storm cell\n"
            "  --duration SEC        exit after SEC seconds (tests)\n"
            "  -v, --verbose         console DEBUG\n"
            "  --debug               packet dumps + DEBUG\n"

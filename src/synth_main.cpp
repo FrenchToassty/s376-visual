@@ -16,7 +16,7 @@ static void usage() {
            "  --rate HZ          default 20\n"
            "  --encoding ORDER/FMT   le/vax | be/vax | le/ieee | be/ieee\n"
            "  --duration SEC     default 30; negative = until killed\n"
-           "  --weather          type-124 rain + type-128 fog (host weather fields)\n"
+           "  --weather          124/125/126/127/128 weather + type-105 storm cell\n"
            "  -v, --verbose\n";
 }
 

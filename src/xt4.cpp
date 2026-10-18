@@ -135,6 +135,14 @@ int type_slot(int type) {
         return 6;
     case kTypeHat:
         return 7;
+    case kTypeStormSelect:
+        return 8;
+    case kTypeLowerCloud:
+        return 9;
+    case kTypeUpperCloud:
+        return 10;
+    case kTypeTopCloud:
+        return 11;
     default:
         return -1;
     }
@@ -178,8 +186,16 @@ const char* type_name(int type) {
         return "QUERY";
     case kTypeEnv:
         return "ENV";
+    case kTypeLowerCloud:
+        return "LOWER_CLOUD";
+    case kTypeUpperCloud:
+        return "UPPER_CLOUD";
+    case kTypeTopCloud:
+        return "TOP_CLOUD";
     case kTypeFog:
         return "FOG";
+    case kTypeStormSelect:
+        return "STORM";
     case kTypeDisplay:
         return "DISPLAY";
     case kTypeHat:
@@ -379,6 +395,51 @@ Fog decode_fog(const Packet& p, FloatFmt fmt) {
     return f;
 }
 
+CloudLayer decode_cloud(const Packet& p, FloatFmt fmt) {
+    CloudLayer c;
+    const auto* b = p.body();
+    if (!b || p.body_words() < 8)
+        return c;
+    c.region = s16(b[0]);
+    c.select = s16(b[1]);
+    c.scud = s16(b[2]);
+    c.alt_transition = s16(b[3]);
+    c.ceiling_ft = get_f32(b, 4, fmt);
+    c.top_ft = get_f32(b, 6, fmt);
+    if (p.body_words() >= 18) {
+        c.vis_above_ft = get_f32(b, 8, fmt);
+        c.wind_kt = get_f32(b, 10, fmt);
+        c.wind_dir_deg = get_f32(b, 12, fmt);
+        c.lower_trans_ft = get_f32(b, 14, fmt);
+        c.upper_trans_ft = get_f32(b, 16, fmt);
+    }
+    return c;
+}
+
+CloudLayer decode_top_cloud(const Packet& p) {
+    CloudLayer c;
+    const auto* b = p.body();
+    if (!b || p.body_words() < 2)
+        return c;
+    c.region = s16(b[0]);
+    c.select = s16(b[1]);
+    return c;
+}
+
+StormSelect decode_storm(const Packet& p) {
+    StormSelect s;
+    const auto* b = p.body();
+    if (!b || p.body_words() < 6)
+        return s;
+    s.select = s16(b[0]);
+    s.active = b[1] != 0;
+    s.csn = s16(b[2]);
+    s.precip_type = s16(b[3]);
+    s.precip_intensity = s16(b[4]);
+    s.lightning = s16(b[5]);
+    return s;
+}
+
 LightSwitch decode_light_switch(const Packet& p) {
     LightSwitch s;
     const auto* b = p.body();
@@ -566,6 +627,43 @@ std::vector<std::uint16_t> build_fog(float height_ft, float rvr_ft, FloatFmt fmt
     put_f32(body + 4, height_ft, fmt);
     put_f32(body + 6, rvr_ft, fmt);
     return build_packet(kTypeFog, body, 8);
+}
+
+std::vector<std::uint16_t> build_cloud(int type, int select, float ceiling_ft, float top_ft,
+                                       FloatFmt fmt, int region, int scud, float vis_above_ft,
+                                       float wind_kt, float wind_dir) {
+    std::uint16_t body[18] = {};
+    body[0] = static_cast<std::uint16_t>(region);
+    body[1] = static_cast<std::uint16_t>(select);
+    body[2] = static_cast<std::uint16_t>(scud);
+    body[3] = static_cast<std::uint16_t>(-1);
+    put_f32(body + 4, ceiling_ft, fmt);
+    put_f32(body + 6, top_ft, fmt);
+    put_f32(body + 8, vis_above_ft, fmt);
+    put_f32(body + 10, wind_kt, fmt);
+    put_f32(body + 12, wind_dir, fmt);
+    put_f32(body + 14, -1.f, fmt);
+    put_f32(body + 16, -1.f, fmt);
+    return build_packet(type, body, 18);
+}
+
+std::vector<std::uint16_t> build_top_cloud(int select, int region) {
+    std::uint16_t body[2] = {static_cast<std::uint16_t>(region),
+                             static_cast<std::uint16_t>(select)};
+    return build_packet(kTypeTopCloud, body, 2);
+}
+
+std::vector<std::uint16_t> build_storm(int select, bool active, int csn, int precip_type,
+                                       int precip_intensity, int lightning) {
+    std::uint16_t body[6] = {
+        static_cast<std::uint16_t>(select),
+        static_cast<std::uint16_t>(active ? 1 : 0),
+        static_cast<std::uint16_t>(csn),
+        static_cast<std::uint16_t>(precip_type),
+        static_cast<std::uint16_t>(precip_intensity),
+        static_cast<std::uint16_t>(lightning),
+    };
+    return build_packet(kTypeStormSelect, body, 6);
 }
 
 std::vector<std::uint16_t> build_light_switch(int switch_num, int step) {

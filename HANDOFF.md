@@ -8,9 +8,8 @@ account may stop mid-run — treat this file as the source of truth.
 
 ## Verified in this run
 
-- `s376-tests`: **9088 passed, 0 failed** (weather env/fog decode,
-  synth `--weather` precip + lightning-edge + SharedState apply,
-  plus the previous airport / cache / HAT / channel suite).
+- `s376-tests`: **9120 passed, 0 failed** (cloud/storm decode + synth
+  weather apply, plus the previous airport / cache / HAT suite).
 - `s376-doctor`: 0 fail, 1 warn (osgEarth). Reports `cache-ksea` 4.9 KiB,
   SKIP for unpacked KSFO/KLAS, `mesh-build` 0.17 ms / 4096 lights,
   `frame-{front,left,right}` CPU view + GPU share when DISPLAY works.
@@ -18,7 +17,11 @@ account may stop mid-run — treat this file as the source of truth.
   KSEA 16L, env TOD 14.5 / vis 60760 ft.
 - `s376-visual --headless --demo-weather --duration 2`: 40 datagrams,
   env precip=1/6 wind=18@200 lightning=1 vis=4000, fog select=0
-  RVR 2400 / height 400. No invented cloud or storm-cell packets.
+  RVR 2400 / height 400, clouds lower 2500–6000 / upper 12000–16000 /
+  top on, storm0 CSN 28 at 47.42,-122.308 precip 1/7 lightning 2.
+- This agent Xvfb cannot realize a GL window (`GLXBadFBConfig`);
+  cloud/storm draw path compiled and is unit-tested. Hangar box has
+  the real GPU.
 - `s376-visual --demo` under Xvfb: OSG window "front" 1920×1080, 50×32.5 FOV,
   procedural globe, camera on the eyepoint.
 - `s376-synth --dest 10.1.95.1:2300` and `192.168.173.10:2300`: refused.
@@ -59,7 +62,23 @@ not on this agent box).
 - Type 128 RVR still caps vis; fog height thickens EXP2 when last
   HAT is below the deck + 200 ft.
 - `--demo-weather` / `s376-synth --weather` emit those packets only.
-- 3 cloud layers and the 30-cell storm array stay **PARITY gaps**.
+
+## Milestone: cloud layers + storm cells (2026-10-18)
+
+Clean-room types **105 / 125 / 126 / 127** from the hangar reference
+header (read only, **never committed**). Field tables in
+[docs/PROTOCOL.md](docs/PROTOCOL.md).
+
+- Lower/upper: ceiling + top MSL, select −1=off, vis-above, layer wind.
+  Cheap GL 3.3 stacked discs + 8 cards around the eyepoint (GTX 980 Ti
+  budget: a few hundred tris × 3 channels).
+- Top layer: region+select only; 25–28 kft stand-in (original heights
+  lived in the IG catalog).
+- Fog × 2.4 when the eye is inside a deck.
+- Storm select 0–29, ≤3 active, CSN 28–30 pose from type 100.
+  Lightning 1=random, >1=edge. Size is not on the wire — 1.5 nm ×
+  intensity stand-in (PARITY partial).
+- `--demo-weather` now sends IMC decks + one cell south of KSEA.
 
 See [docs/PARITY.md](docs/PARITY.md).
 
@@ -175,9 +194,9 @@ are unit-tested.
 - `s376-doctor` / `--diagnostics` (cache bytes per airport, frame time
   per channel).
 - Minimal OSG renderer: WGS84 globe, host-driven camera, exp2 fog, sun
-  from TOD, precip points + lightning flash from type 124/128. Local
-  DEM patch + BC1 drape. osgEarth earth file is loaded when the lib
-  is present.
+  from TOD, precip points, cheap cloud decks (125–127), storm cells
+  (105 + CSN 28–30), lightning flash. Local DEM patch + BC1 drape.
+  osgEarth earth file is loaded when the lib is present.
 - `s376-cache`: `fetch` / `synth-ksea --lods` / `from-geotiff` / `info`.
   Real 3DEP+NAIP or GLO-30+S2; LOD pyramid with BC1/BC7 mips.
 - Airport rebuild plan: `docs/AIRPORTS.md`. Terrain sources: `docs/SOURCES.md`.
@@ -189,7 +208,7 @@ are unit-tested.
 | Item | Path | What's left |
 |---|---|---|
 | osgEarth tiles | `data/earth/ksea.earth` | File is in. Build osgEarth on the hangar box (`scripts/build-osgearth.sh`) and confirm the cache GeoTIFFs drape |
-| Cloud / storm packets | `docs/PARITY.md` | Type 124/128 weather is drawn. Layer and cell arrays need the hangar header (never commit it) |
+| Cloud / storm packets | `docs/PARITY.md` | 105/125–127 decoded and drawn. Remaining: catalog type table, real cell sizes, top-layer heights |
 | HAT off-DEM | `sample_hat` | Stand-in elev=0 when the point is outside the packed region |
 | More airports | `docs/AIRPORTS.md` | KSEA / KSFO / KLAS / KLAX / KJFK are in. Next: EGLL / EDDF |
 | Off-axis frustum | camera is rotated by heading offset | Shared eyepoint + asymmetric projection later |
@@ -197,14 +216,12 @@ are unit-tested.
 
 ## Next 5 concrete steps (in order)
 
-1. **Cloud / storm packets** — clean-room the hangar header locally
-   (never commit it). Then 3 cloud layers + ≤3 of 30 storm cells.
-   Do not guess type numbers.
-2. **Close remaining PARITY gaps**: 109 beams, 131 display, 128
-   patchy/speed-cue, 124 runway condition, PAPI/taxi.
-3. **Asymmetric / off-axis projection** if ViewAngles overlap is not enough.
-4. **EGLL / EDDF** layouts.
-5. **NLIM / edge blend** — later.
+1. **Close remaining PARITY gaps**: 109 beams, 131 display, 128
+   patchy/speed-cue, 124 runway condition, PAPI/taxi, cloud type
+   catalog, real storm-cell sizes.
+2. **Asymmetric / off-axis projection** if ViewAngles overlap is not enough.
+3. **EGLL / EDDF** layouts.
+4. **NLIM / edge blend** — later.
 
 ## How to build / run / test (Linux Mint 22)
 

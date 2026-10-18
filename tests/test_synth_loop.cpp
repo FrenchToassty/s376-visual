@@ -66,6 +66,11 @@ void test_synth_loop() {
         bool saw_precip = false;
         bool saw_fog = false;
         bool saw_flash = false;
+        bool saw_lower = false;
+        bool saw_upper = false;
+        bool saw_top = false;
+        bool saw_storm = false;
+        bool saw_storm_pose = false;
         int last_bolt = 0;
         for (int i = 0; i < 220; ++i) {
             auto pose = fw.step(0.05);
@@ -84,13 +89,30 @@ void test_synth_loop() {
             }
             if (snap.have_fog && snap.fog.select == 0 && snap.fog.rvr_ft > 2000.f)
                 saw_fog = true;
+            if (snap.have_cloud && snap.clouds[0].on() && snap.clouds[0].ceiling_ft > 2000.f)
+                saw_lower = true;
+            if (snap.have_cloud && snap.clouds[1].on() && snap.clouds[1].top_ft > 15000.f)
+                saw_upper = true;
+            if (snap.have_cloud && snap.clouds[2].on() && snap.clouds[2].select == 2)
+                saw_top = true;
+            if (snap.storms[0].cfg.active && snap.storms[0].cfg.precip_intensity == 7)
+                saw_storm = true;
+            if (snap.storms[0].have_pose && snap.storms[0].pose.lat_deg > 47.4)
+                saw_storm_pose = true;
         }
         CHECK(saw_precip);
         CHECK(saw_fog);
         CHECK(saw_flash);
+        CHECK(saw_lower);
+        CHECK(saw_upper);
+        CHECK(saw_top);
+        CHECK(saw_storm);
+        CHECK(saw_storm_pose);
         const auto loaded = st.load();
         CHECK(loaded.have_env && loaded.env.precip_type == 1);
         CHECK(loaded.have_fog && loaded.fog.select == 0);
+        CHECK(loaded.have_cloud && loaded.clouds[0].on());
+        CHECK(loaded.storms[0].cfg.active);
     }
 
     // Live UDP: bind loopback, send one synth datagram, decode.

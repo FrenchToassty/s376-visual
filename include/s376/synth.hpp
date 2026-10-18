@@ -15,7 +15,7 @@ struct SynthConfig {
     double start_lon = -122.307751;
     double field_elev_ft = 433.0;
     double start_hdg = 180.34;
-    bool weather = false; // --demo-weather: type 124 precip + type 128 fog
+    bool weather = false; // --demo-weather: 124/125/126/127/128 + storm 105
 };
 
 struct SynthPose {

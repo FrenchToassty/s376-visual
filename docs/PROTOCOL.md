@@ -41,16 +41,19 @@ A 20-byte preamble starts every packet:
 | 109 | Ownship lights (beacon, strobe, landing-light mask) | 72 bytes |
 | 112 | Runway / approach light intensity step (0–5) | 24 bytes |
 | 113 | Query (type 200 asks for a HAT reply) | 32 bytes |
+| 105 | Storm-cell select (one of 30; ≤3 active) | 32 bytes |
 | 124 | Environment: time of day, visibility, precip, date | 74 bytes |
+| 125 | Lower cloud layer | 56 bytes |
+| 126 | Upper cloud layer | 56 bytes |
+| 127 | Top cloud layer (on/off + catalog) | 24 bytes |
 | 128 | Fog layer (region, height, RVR) | 36 bytes |
 | 131 | Display control (channel on/off/standby) | 24 bytes |
 | 200 | HAT / IG status reply | 64 bytes as the S376 host reads it |
 
-Other type numbers exist on the wire (clouds, traffic, switches, …).
-Those bodies are **not** invented here. Cloud-layer and storm-cell
-layouts stay undocumented until they are clean-roomed from the hangar
-reference header (never committed). The decoder counts unknown types
-and ignores the body.
+Other type numbers exist on the wire (traffic, switches, …). The
+decoder counts unknown types and ignores the body. Cloud and storm
+layouts below are clean-room field order from the hangar reference
+header (that file is never committed).
 
 ## Eyepoint (type 100)
 
@@ -92,6 +95,44 @@ position is not (0, 0).
 | 14–15 | f32 | Global visibility, feet (cap 600000) |
 | 18–19 | f32 | Surface wind, mph |
 | 20–21 | f32 | Wind direction, degrees |
+
+## Storm cell (type 105)
+
+At most **3** cells are active. The host names a catalog slot 0…29.
+
+| Words | Type | Field |
+|---|---|---|
+| 0 | i16 | Catalog index 0…29 |
+| 1 | i16 | Non-zero = active |
+| 2 | i16 | Positioning CSN. **28 / 29 / 30** are the three active cells. **−1** = use the IG catalog |
+| 3 | i16 | Precipitation type (same codes as type 124) |
+| 4 | i16 | Precipitation intensity 0…10 |
+| 5 | i16 | Lightning. **0** off, **1** random flashes, **>1** flash on change |
+
+Position is a type-100 DCS on that CSN (lat / lon / alt). Cell **size** is
+not on this packet; the original IG used a catalog. We stand in 1.5 nm
+scaled by intensity.
+
+## Cloud layers (types 125 / 126 / 127)
+
+Types 125 (lower) and 126 (upper) share a body. Type 127 is only
+region + select; the original IG took top-layer heights from its catalog.
+
+| Words | Type | Field |
+|---|---|---|
+| 0 | i16 | Region. **−1** is global |
+| 1 | i16 | Catalog / type index. **−1** is off |
+| 2 | i16 | Scud bits (bit 0 ceiling, bit 1 top) |
+| 3 | i16 | Transition-zone flag |
+| 4–5 | f32 | Ceiling (base), feet **MSL** |
+| 6–7 | f32 | Top, feet **MSL** |
+| 8–9 | f32 | Visibility above the layer, feet. **−1** = use global |
+| 10–11 | f32 | Layer wind, knots |
+| 12–13 | f32 | Layer wind direction, degrees |
+| 14–15 | f32 | Lower transition, feet. **−1** = catalog |
+| 16–17 | f32 | Upper transition, feet. **−1** = catalog |
+
+Type 127 body is words 0–1 only.
 
 ## Fog layer (type 128)
 

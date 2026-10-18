@@ -31,6 +31,55 @@ void SharedState::apply(const xt4::Datagram& dg, xt4::Decoder& dec, const std::s
             s_.fog = xt4::decode_fog(p, fmt);
             s_.have_fog = true;
             break;
+        case xt4::kTypeLowerCloud:
+            s_.clouds[0] = xt4::decode_cloud(p, fmt);
+            s_.have_cloud = true;
+            break;
+        case xt4::kTypeUpperCloud:
+            s_.clouds[1] = xt4::decode_cloud(p, fmt);
+            s_.have_cloud = true;
+            break;
+        case xt4::kTypeTopCloud:
+            s_.clouds[2] = xt4::decode_top_cloud(p);
+            s_.have_cloud = true;
+            break;
+        case xt4::kTypeStormSelect: {
+            const auto sel = xt4::decode_storm(p);
+            int slot = -1;
+            if (sel.csn >= xt4::kStormCsn0 &&
+                sel.csn < xt4::kStormCsn0 + xt4::kMaxActiveStorms)
+                slot = sel.csn - xt4::kStormCsn0;
+            if (slot < 0) {
+                for (int i = 0; i < xt4::kMaxActiveStorms; ++i) {
+                    if (s_.storms[static_cast<std::size_t>(i)].cfg.select == sel.select) {
+                        slot = i;
+                        break;
+                    }
+                }
+            }
+            if (slot < 0) {
+                for (int i = 0; i < xt4::kMaxActiveStorms; ++i) {
+                    if (!s_.storms[static_cast<std::size_t>(i)].cfg.active) {
+                        slot = i;
+                        break;
+                    }
+                }
+            }
+            if (slot >= 0)
+                s_.storms[static_cast<std::size_t>(slot)].cfg = sel;
+            break;
+        }
+        case xt4::kTypeDcs: {
+            const xt4::Dcs d = xt4::decode_dcs(p, fmt);
+            if (d.csn >= xt4::kStormCsn0 && d.csn < xt4::kStormCsn0 + xt4::kMaxActiveStorms) {
+                auto& cell = s_.storms[static_cast<std::size_t>(d.csn - xt4::kStormCsn0)];
+                cell.pose = d;
+                cell.have_pose = true;
+                if (cell.cfg.csn == 0)
+                    cell.cfg.csn = d.csn;
+            }
+            break;
+        }
         case xt4::kTypeAcLights:
             s_.lights = xt4::decode_lights(p);
             break;

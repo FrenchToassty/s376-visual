@@ -8,6 +8,7 @@
 #ifdef S376_HAS_OSG
 
 #include <osg/BlendFunc>
+#include <osg/CullFace>
 #include <osg/Depth>
 #include <osg/DisplaySettings>
 #include <osg/Fog>
@@ -357,20 +358,42 @@ PrecipGpu make_precip_gpu() {
     return g;
 }
 
+float storm_radius_m(const xt4::StormCell& cell) {
+    const float k = 0.5f + 0.05f * std::max(0, cell.cfg.precip_intensity);
+    return 2778.f * k; // 1.5 nm stand-in; XT4 sized cells from the IG catalog
+}
+
 void update_precip(PrecipGpu& g, const HostState& host, float dt) {
     if (!g.verts || g.verts->empty())
         return;
-    const bool on =
-        host.have_env && host.env.precip_type > 0 && host.env.precip_intensity > 0 && host.have_eyepoint;
-    const float k = on ? std::min(1.f, host.env.precip_intensity / 10.f) : 0.f;
+    int ptype = host.have_env ? host.env.precip_type : 0;
+    int pint = host.have_env ? host.env.precip_intensity : 0;
+    if (host.have_eyepoint) {
+        for (const auto& cell : host.storms) {
+            if (!cell.cfg.active || !cell.have_pose || cell.cfg.precip_type <= 0)
+                continue;
+            const double dlat = (host.eye.lat_deg - cell.pose.lat_deg) * 111320.0;
+            const double dlon = (host.eye.lon_deg - cell.pose.lon_deg) * 111320.0 *
+                                std::cos(geo::deg2rad(host.eye.lat_deg));
+            const double dist = std::sqrt(dlat * dlat + dlon * dlon);
+            if (dist < storm_radius_m(cell) * 1.2) {
+                if (cell.cfg.precip_intensity > pint) {
+                    pint = cell.cfg.precip_intensity;
+                    ptype = cell.cfg.precip_type;
+                }
+            }
+        }
+    }
+    const bool on = ptype > 0 && pint > 0 && host.have_eyepoint;
+    const float k = on ? std::min(1.f, pint / 10.f) : 0.f;
     if (!on || k <= 0.f) {
         for (unsigned i = 0; i < g.colors->size(); ++i)
             (*g.colors)[i] = osg::Vec4(0, 0, 0, 0);
         g.colors->dirty();
         return;
     }
-    const bool snow = host.env.precip_type == 2;
-    const bool hail = host.env.precip_type == 3;
+    const bool snow = ptype == 2;
+    const bool hail = ptype == 3;
     const float fall = (snow ? 9.f : hail ? 40.f : 32.f) * dt;
     // Wind FROM dir (deg, 0=N): particles drift with the flow.
     const float wrad = static_cast<float>(geo::deg2rad(host.env.wind_dir_deg));
@@ -412,6 +435,191 @@ void update_precip(PrecipGpu& g, const HostState& host, float dt) {
     g.verts->dirty();
     g.colors->dirty();
     g.geom->dirtyBound();
+}
+
+struct MeshGpu {
+    osg::ref_ptr<osg::Geometry> geom;
+    osg::ref_ptr<osg::Vec3Array> verts;
+    osg::ref_ptr<osg::Vec4Array> cols;
+    osg::ref_ptr<osg::DrawArrays> draw;
+};
+
+MeshGpu make_mesh_gpu(int bin) {
+    MeshGpu g;
+    g.geom = new osg::Geometry;
+    g.verts = new osg::Vec3Array;
+    g.cols = new osg::Vec4Array;
+    g.draw = new osg::DrawArrays(GL_TRIANGLES, 0, 0);
+    g.geom->setVertexArray(g.verts);
+    g.geom->setColorArray(g.cols, osg::Array::BIND_PER_VERTEX);
+    g.geom->addPrimitiveSet(g.draw);
+    g.geom->setUseDisplayList(false);
+    g.geom->setUseVertexBufferObjects(true);
+    auto* ss = g.geom->getOrCreateStateSet();
+    ss->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+    ss->setMode(GL_BLEND, osg::StateAttribute::ON);
+    ss->setMode(GL_CULL_FACE, osg::StateAttribute::OFF);
+    ss->setAttributeAndModes(new osg::BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
+    ss->setAttributeAndModes(new osg::Depth(osg::Depth::LEQUAL, 0, 1, false));
+    ss->setRenderBinDetails(bin, "DepthSortedBin");
+    return g;
+}
+
+void mesh_begin(MeshGpu& g) {
+    g.verts->clear();
+    g.cols->clear();
+}
+
+void mesh_end(MeshGpu& g) {
+    g.draw->setCount(static_cast<GLint>(g.verts->size()));
+    g.verts->dirty();
+    g.cols->dirty();
+    g.geom->dirtyBound();
+}
+
+void add_tri(MeshGpu& g, const osg::Vec3& a, const osg::Vec3& b, const osg::Vec3& c,
+             const osg::Vec4& col) {
+    g.verts->push_back(a);
+    g.verts->push_back(b);
+    g.verts->push_back(c);
+    g.cols->push_back(col);
+    g.cols->push_back(col);
+    g.cols->push_back(col);
+}
+
+osg::Vec3 enu_point(const geo::Ecef& o, const geo::Ecef& e, const geo::Ecef& n, const geo::Ecef& u,
+                    double east, double north, double up) {
+    return osg::Vec3(static_cast<float>(o.x + e.x * east + n.x * north + u.x * up),
+                     static_cast<float>(o.y + e.y * east + n.y * north + u.y * up),
+                     static_cast<float>(o.z + e.z * east + n.z * north + u.z * up));
+}
+
+void add_disc(MeshGpu& g, double lat, double lon, double alt_m, float radius_m, int nseg,
+              const osg::Vec4& col) {
+    const geo::Ecef o = geo::lla_to_ecef(lat, lon, alt_m);
+    geo::Ecef e, n, u;
+    geo::ecef_to_enu_axes(lat, lon, e, n, u);
+    const osg::Vec3 ctr = enu_point(o, e, n, u, 0, 0, 0);
+    constexpr float kPi = 3.14159265f;
+    for (int i = 0; i < nseg; ++i) {
+        const float a0 = 2.f * kPi * static_cast<float>(i) / nseg;
+        const float a1 = 2.f * kPi * static_cast<float>(i + 1) / nseg;
+        add_tri(g, ctr,
+                enu_point(o, e, n, u, radius_m * std::cos(a0), radius_m * std::sin(a0), 0),
+                enu_point(o, e, n, u, radius_m * std::cos(a1), radius_m * std::sin(a1), 0), col);
+    }
+}
+
+void add_card(MeshGpu& g, double lat, double lon, double alt0_m, double alt1_m, float east,
+              float north, float half_w, const osg::Vec4& col) {
+    const geo::Ecef o = geo::lla_to_ecef(lat, lon, 0);
+    geo::Ecef e, n, u;
+    geo::ecef_to_enu_axes(lat, lon, e, n, u);
+    // Tangent to the ring so the card faces the eyepoint.
+    float len = std::sqrt(east * east + north * north);
+    if (len < 1.f)
+        len = 1.f;
+    const float te = -north / len * half_w;
+    const float tn = east / len * half_w;
+    const osg::Vec3 a = enu_point(o, e, n, u, east + te, north + tn, alt0_m);
+    const osg::Vec3 b = enu_point(o, e, n, u, east - te, north - tn, alt0_m);
+    const osg::Vec3 c = enu_point(o, e, n, u, east - te, north - tn, alt1_m);
+    const osg::Vec3 d = enu_point(o, e, n, u, east + te, north + tn, alt1_m);
+    add_tri(g, a, b, c, col);
+    add_tri(g, a, c, d, col);
+}
+
+void layer_alts(const xt4::CloudLayer& L, int which, float& lo, float& hi) {
+    lo = L.ceiling_ft;
+    hi = L.top_ft;
+    if (which == 2 && L.on() && hi <= lo) {
+        lo = 25000.f;
+        hi = 28000.f;
+    }
+}
+
+bool eye_in_layer(const HostState& host, const xt4::CloudLayer& L, int which) {
+    if (!L.on() || !host.have_eyepoint)
+        return false;
+    float lo = 0, hi = 0;
+    layer_alts(L, which, lo, hi);
+    return host.eye.alt_ft >= lo && host.eye.alt_ft <= hi && hi > lo;
+}
+
+void update_clouds(MeshGpu& g, const HostState& host, float drift_m) {
+    mesh_begin(g);
+    if (!host.have_cloud || !host.have_eyepoint) {
+        mesh_end(g);
+        return;
+    }
+    const double lat = host.eye.lat_deg;
+    const double lon = host.eye.lon_deg;
+    const osg::Vec4 cols[3] = {
+        osg::Vec4(0.52f, 0.55f, 0.60f, 0.30f),
+        osg::Vec4(0.68f, 0.71f, 0.76f, 0.22f),
+        osg::Vec4(0.84f, 0.86f, 0.90f, 0.12f),
+    };
+    for (int li = 0; li < 3; ++li) {
+        const auto& L = host.clouds[static_cast<std::size_t>(li)];
+        if (!L.on())
+            continue;
+        float lo_ft = 0, hi_ft = 0;
+        layer_alts(L, li, lo_ft, hi_ft);
+        if (hi_ft <= lo_ft)
+            continue;
+        const float lo_m = lo_ft * static_cast<float>(geo::kFtToM);
+        const float hi_m = hi_ft * static_cast<float>(geo::kFtToM);
+        const float mid_m = 0.5f * (lo_m + hi_m);
+        float rad = 9000.f;
+        if (L.scud & 1)
+            rad += 600.f;
+        const float we =
+            (L.wind_kt != 0.f ? L.wind_kt * 0.514f : host.env.wind_speed_mph * 0.447f);
+        const float wrad = static_cast<float>(
+            geo::deg2rad(L.wind_kt != 0.f ? L.wind_dir_deg : host.env.wind_dir_deg));
+        const float ox = std::fmod(drift_m * -std::sin(wrad) * we * 0.04f, 4000.f);
+        const float oy = std::fmod(drift_m * -std::cos(wrad) * we * 0.04f, 4000.f);
+        const double clat = lat + oy / 111320.0;
+        const double clon = lon + ox / (111320.0 * std::max(0.2, std::cos(geo::deg2rad(lat))));
+        osg::Vec4 col = cols[li];
+        if (eye_in_layer(host, L, li))
+            col.a() *= 0.55f;
+        add_disc(g, clat, clon, lo_m, rad, 14, col);
+        add_disc(g, clat, clon, mid_m, rad * 0.92f, 12, col);
+        add_disc(g, clat, clon, hi_m, rad * 0.85f, 12, col);
+        constexpr int kCards = 8;
+        for (int i = 0; i < kCards; ++i) {
+            const float a = 6.2831853f * static_cast<float>(i) / kCards;
+            const float r = rad * 0.55f;
+            add_card(g, clat, clon, lo_m, hi_m, r * std::cos(a), r * std::sin(a), 1400.f,
+                     osg::Vec4(col.r(), col.g(), col.b(), col.a() * 0.7f));
+        }
+    }
+    mesh_end(g);
+}
+
+void update_storms(MeshGpu& g, const HostState& host, float flash) {
+    mesh_begin(g);
+    for (const auto& cell : host.storms) {
+        if (!cell.cfg.active || !cell.have_pose)
+            continue;
+        const double lat = cell.pose.lat_deg;
+        const double lon = cell.pose.lon_deg;
+        const float rad = storm_radius_m(cell);
+        const float base_m = static_cast<float>(std::max(200.0, cell.pose.alt_ft * geo::kFtToM - 800.0));
+        const float top_m = base_m + 7000.f;
+        osg::Vec4 col(0.16f + 0.45f * flash, 0.17f + 0.45f * flash, 0.20f + 0.50f * flash,
+                      0.42f + 0.25f * flash);
+        add_disc(g, lat, lon, base_m, rad, 12, col);
+        add_disc(g, lat, lon, 0.4f * base_m + 0.6f * top_m, rad * 0.75f, 10, col);
+        add_disc(g, lat, lon, top_m, rad * 0.45f, 10, col);
+        for (int i = 0; i < 6; ++i) {
+            const float a = 6.2831853f * static_cast<float>(i) / 6.f;
+            add_card(g, lat, lon, base_m, top_m, rad * 0.4f * std::cos(a),
+                     rad * 0.4f * std::sin(a), rad * 0.35f, col);
+        }
+    }
+    mesh_end(g);
 }
 
 void apply_light_steps(LightGpu& g, const HostState& host) {
@@ -556,6 +764,18 @@ class OsgRenderer final : public Renderer {
                 geode->addDrawable(precip_gpu_.geom);
                 root->addChild(geode);
             }
+            cloud_gpu_ = make_mesh_gpu(12);
+            storm_gpu_ = make_mesh_gpu(13);
+            if (cloud_gpu_.geom) {
+                auto* geode = new osg::Geode;
+                geode->addDrawable(cloud_gpu_.geom);
+                root->addChild(geode);
+            }
+            if (storm_gpu_.geom) {
+                auto* geode = new osg::Geode;
+                geode->addDrawable(storm_gpu_.geom);
+                root->addChild(geode);
+            }
         }
         light_ = new osg::LightSource;
         auto* L = light_->getLight();
@@ -635,7 +855,11 @@ class OsgRenderer final : public Renderer {
             apply_view_camera(views_[i]->getCamera(), channels_[i], host);
         apply_env(host);
         apply_light_steps(lights_gpu_, host);
-        update_precip(precip_gpu_, host, 1.f / 60.f);
+        const float dt = 1.f / 60.f;
+        cloud_drift_m_ += 8.f * dt;
+        update_precip(precip_gpu_, host, dt);
+        update_clouds(cloud_gpu_, host, cloud_drift_m_);
+        update_storms(storm_gpu_, host, storm_flash_);
         viewer_->frame();
     }
 
@@ -654,6 +878,21 @@ class OsgRenderer final : public Renderer {
         if (host.have_fog && host.fog.select >= 0 && host.fog.rvr_ft > 0)
             vis_ft = std::min(vis_ft, host.fog.rvr_ft);
         vis_ft = std::max(200.f, std::min(vis_ft, xt4::kMaxVisibilityFt));
+        bool in_cloud = false;
+        if (host.have_cloud && host.have_eyepoint) {
+            for (int i = 0; i < 3; ++i) {
+                const auto& L = host.clouds[static_cast<std::size_t>(i)];
+                if (!L.on())
+                    continue;
+                float lo = 0, hi = 0;
+                layer_alts(L, i, lo, hi);
+                if (host.eye.alt_ft > hi && L.vis_above_ft > 0)
+                    vis_ft = std::min(vis_ft, L.vis_above_ft);
+                if (host.eye.alt_ft >= lo && host.eye.alt_ft <= hi && hi > lo)
+                    in_cloud = true;
+            }
+        }
+        vis_ft = std::max(200.f, std::min(vis_ft, xt4::kMaxVisibilityFt));
         const float vis_m = vis_ft * static_cast<float>(geo::kFtToM);
         float dens = 1.7f / vis_m;
         if (host.have_env && host.env.precip_type > 0)
@@ -662,6 +901,8 @@ class OsgRenderer final : public Renderer {
         if (host.have_fog && host.fog.select >= 0 && host.have_hat &&
             host.hat_ft < host.fog.height_ft + 200.f)
             dens *= 1.35f;
+        if (in_cloud)
+            dens *= 2.4f;
         fog_->setDensity(dens);
 
         float tod = host.have_env ? host.env.tod_hours : 14.5f;
@@ -700,9 +941,29 @@ class OsgRenderer final : public Renderer {
                 flash_left_ = 4;
             last_lightning_ = host.env.lightning_trigger;
         }
+        for (int i = 0; i < xt4::kMaxActiveStorms; ++i) {
+            const auto& cell = host.storms[static_cast<std::size_t>(i)];
+            if (!cell.cfg.active)
+                continue;
+            if (cell.cfg.lightning > 1 && cell.cfg.lightning != last_storm_bolt_[i]) {
+                flash_left_ = 5;
+                storm_flash_left_ = 5;
+            }
+            last_storm_bolt_[i] = cell.cfg.lightning;
+            if (cell.cfg.lightning == 1 && (storm_tick_ + i * 17) % 97 == 0) {
+                flash_left_ = 3;
+                storm_flash_left_ = 3;
+            }
+        }
+        ++storm_tick_;
         if (flash_left_ > 0) {
             flash = 0.65f;
             --flash_left_;
+        }
+        storm_flash_ = 0.f;
+        if (storm_flash_left_ > 0) {
+            storm_flash_ = 0.85f;
+            --storm_flash_left_;
         }
         L->setDiffuse(osg::Vec4(1.0f, 0.95f, 0.85f, 1) * (0.15f + 0.85f * dayf + flash));
         L->setAmbient(osg::Vec4(0.04f + 0.12f * dayf + flash * 0.4f,
@@ -726,8 +987,15 @@ class OsgRenderer final : public Renderer {
     osg::ref_ptr<osg::Fog> fog_;
     LightGpu lights_gpu_;
     PrecipGpu precip_gpu_;
+    MeshGpu cloud_gpu_;
+    MeshGpu storm_gpu_;
     int last_lightning_ = 0;
     int flash_left_ = 0;
+    int last_storm_bolt_[xt4::kMaxActiveStorms] = {};
+    int storm_flash_left_ = 0;
+    int storm_tick_ = 0;
+    float storm_flash_ = 0.f;
+    float cloud_drift_m_ = 0.f;
     bool used_earth_ = false;
 };
 

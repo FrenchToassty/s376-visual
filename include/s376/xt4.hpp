@@ -18,15 +18,22 @@ constexpr std::uint32_t kFlagVaxHost = 0x0004;
 constexpr std::uint32_t kFlagGouldHost = 0x0002;
 
 constexpr int kTypeDcs = 100;
+constexpr int kTypeStormSelect = 105;
 constexpr int kTypeAcLights = 109;
 constexpr int kTypeLightSwitch = 112;
 constexpr int kTypeQuery = 113;
 constexpr int kTypeEnv = 124;
+constexpr int kTypeLowerCloud = 125;
+constexpr int kTypeUpperCloud = 126;
+constexpr int kTypeTopCloud = 127;
 constexpr int kTypeFog = 128;
 constexpr int kTypeDisplay = 131;
 constexpr int kTypeHat = 200;
 
 constexpr int kEyepointCsn = 1;
+constexpr int kStormCsn0 = 28; // type-100 CSN 28, 29, 30 position active cells
+constexpr int kMaxDefinedStorms = 30;
+constexpr int kMaxActiveStorms = 3;
 constexpr int kMaxLightSwitches = 256;
 constexpr float kMaxVisibilityFt = 600000.f;
 
@@ -108,6 +115,38 @@ struct Fog {
     float rvr_ft = 0;
 };
 
+// Types 125 / 126 (lower / upper). Type 127 is region+select only.
+struct CloudLayer {
+    int region = -1;
+    int select = -1; // −1 off; ≥0 catalog / type index
+    int scud = 0;
+    int alt_transition = -1;
+    float ceiling_ft = 0; // MSL base
+    float top_ft = 0;     // MSL top
+    float vis_above_ft = -1;
+    float wind_kt = 0;
+    float wind_dir_deg = 0;
+    float lower_trans_ft = -1;
+    float upper_trans_ft = -1;
+
+    bool on() const { return select >= 0; }
+};
+
+struct StormSelect {
+    int select = 0; // 0…29 of the IG catalog
+    bool active = false;
+    int csn = kStormCsn0;
+    int precip_type = 0;
+    int precip_intensity = 0;
+    int lightning = 0; // 0 off; 1 random; >1 flash on change
+};
+
+struct StormCell {
+    StormSelect cfg;
+    Dcs pose;
+    bool have_pose = false;
+};
+
 struct LightSwitch {
     int switch_num = 0;
     int step = 0; // 0 off .. 5 max
@@ -172,6 +211,9 @@ Dcs decode_dcs(const Packet& p, FloatFmt fmt);
 Lights decode_lights(const Packet& p);
 Env decode_env(const Packet& p, FloatFmt fmt);
 Fog decode_fog(const Packet& p, FloatFmt fmt);
+CloudLayer decode_cloud(const Packet& p, FloatFmt fmt);
+CloudLayer decode_top_cloud(const Packet& p);
+StormSelect decode_storm(const Packet& p);
 LightSwitch decode_light_switch(const Packet& p);
 DisplayControl decode_display(const Packet& p);
 Query decode_query(const Packet& p);
@@ -192,6 +234,13 @@ std::vector<std::uint16_t> build_env(float tod_hours, float visible_range_ft, in
                                      float wind_mph = 0, float wind_dir = 0);
 std::vector<std::uint16_t> build_fog(float height_ft, float rvr_ft, FloatFmt fmt, int region = -1,
                                      int select = 0);
+std::vector<std::uint16_t> build_cloud(int type, int select, float ceiling_ft, float top_ft,
+                                       FloatFmt fmt, int region = -1, int scud = 3,
+                                       float vis_above_ft = -1.f, float wind_kt = 0,
+                                       float wind_dir = 0);
+std::vector<std::uint16_t> build_top_cloud(int select, int region = -1);
+std::vector<std::uint16_t> build_storm(int select, bool active, int csn, int precip_type,
+                                       int precip_intensity, int lightning);
 std::vector<std::uint16_t> build_light_switch(int switch_num, int step);
 std::vector<std::uint16_t> build_display(bool on);
 std::vector<std::uint16_t> build_hat_query();

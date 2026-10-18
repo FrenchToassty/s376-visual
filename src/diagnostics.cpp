@@ -459,6 +459,26 @@ std::string diagnostics_dump(const AppConfig& cfg, const HostState* host) {
             o << "fog select=" << host->fog.select << " rvr_ft=" << host->fog.rvr_ft
               << " height_ft=" << host->fog.height_ft << "\n";
         }
+        if (host->have_cloud) {
+            o << "cloud";
+            const char* names[3] = {" lower", " upper", " top"};
+            for (int i = 0; i < 3; ++i) {
+                const auto& L = host->clouds[static_cast<std::size_t>(i)];
+                o << names[i] << "=" << L.select << "/" << L.ceiling_ft << "-" << L.top_ft;
+            }
+            o << "\n";
+        }
+        for (int i = 0; i < xt4::kMaxActiveStorms; ++i) {
+            const auto& c = host->storms[static_cast<std::size_t>(i)];
+            if (!c.cfg.active)
+                continue;
+            o << "storm" << i << " sel=" << c.cfg.select << " csn=" << c.cfg.csn
+              << " precip=" << c.cfg.precip_type << "/" << c.cfg.precip_intensity
+              << " lightning=" << c.cfg.lightning;
+            if (c.have_pose)
+                o << " lat=" << c.pose.lat_deg << " lon=" << c.pose.lon_deg;
+            o << "\n";
+        }
         o << "peer=" << host->last_peer << "\n";
     }
     return o.str();

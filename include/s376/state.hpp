@@ -18,6 +18,9 @@ struct HostState {
     std::array<int, xt4::kMaxLightSwitches> light_steps{};
     bool have_env = false;
     bool have_fog = false;
+    bool have_cloud = false;
+    std::array<xt4::CloudLayer, 3> clouds{};
+    std::array<xt4::StormCell, xt4::kMaxActiveStorms> storms{};
     bool have_hat = false;
     float hat_ft = 0;
     float terrain_elev_ft = 0;

@@ -78,6 +78,9 @@ void test_xt4() {
     CHECK(build_env(12.f, 1000.f, 1, 1, 2000, FloatFmt::Vax).size() * 2 == 0x4A);
     CHECK(build_display(true).size() * 2 == 0x18);
     CHECK(build_fog(200.f, 1200.f, FloatFmt::Vax).size() * 2 == 36);
+    CHECK(build_cloud(kTypeLowerCloud, 0, 2000.f, 3000.f, FloatFmt::Vax).size() * 2 == 56);
+    CHECK(build_top_cloud(2).size() * 2 == 24);
+    CHECK(build_storm(0, true, kStormCsn0, 1, 7, 2).size() * 2 == 32);
     CHECK(build_light_switch(3, 5).size() * 2 == 24);
 
     {
@@ -104,6 +107,49 @@ void test_xt4() {
         CHECK(f.select == 0);
         CHECK_NEAR(f.height_ft, 400.0, 1.0);
         CHECK_NEAR(f.rvr_ft, 2400.0, 2.0);
+
+        Packet lc;
+        lc.type = kTypeLowerCloud;
+        lc.words = build_cloud(kTypeLowerCloud, 0, 2500.f, 6000.f, FloatFmt::Ieee, -1, 3, 8000.f,
+                               22.f, 200.f);
+        auto cl = decode_cloud(lc, FloatFmt::Ieee);
+        CHECK(cl.on());
+        CHECK(cl.region == -1);
+        CHECK(cl.select == 0);
+        CHECK(cl.scud == 3);
+        CHECK_NEAR(cl.ceiling_ft, 2500.0, 2.0);
+        CHECK_NEAR(cl.top_ft, 6000.0, 4.0);
+        CHECK_NEAR(cl.vis_above_ft, 8000.0, 8.0);
+        CHECK_NEAR(cl.wind_kt, 22.0, 0.3);
+        CHECK_NEAR(cl.wind_dir_deg, 200.0, 0.5);
+
+        Packet uc;
+        uc.type = kTypeUpperCloud;
+        uc.words = build_cloud(kTypeUpperCloud, 1, 12000.f, 16000.f, FloatFmt::Ieee);
+        auto cu = decode_cloud(uc, FloatFmt::Ieee);
+        CHECK(cu.select == 1);
+        CHECK_NEAR(cu.ceiling_ft, 12000.0, 8.0);
+        CHECK_NEAR(cu.top_ft, 16000.0, 8.0);
+
+        Packet tc;
+        tc.type = kTypeTopCloud;
+        tc.words = build_top_cloud(2, -1);
+        auto ct = decode_top_cloud(tc);
+        CHECK(ct.on());
+        CHECK(ct.select == 2);
+        CHECK(ct.region == -1);
+
+        Packet st;
+        st.type = kTypeStormSelect;
+        st.words = build_storm(4, true, kStormCsn0 + 1, 2, 8, 3);
+        auto sm = decode_storm(st);
+        CHECK(sm.active);
+        CHECK(sm.select == 4);
+        CHECK(sm.csn == kStormCsn0 + 1);
+        CHECK(sm.precip_type == 2);
+        CHECK(sm.precip_intensity == 8);
+        CHECK(sm.lightning == 3);
+        CHECK(sm.select < kMaxDefinedStorms);
     }
 
     struct Enc {
