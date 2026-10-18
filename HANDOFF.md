@@ -10,8 +10,13 @@ Update it at the end of every run.
 
 **Top rule:** beat Raster in every way; **accuracy first**. FAA is the
 truth when it disagrees with Raster. Never trade a surveyed number for
-looks or speed. The GTX 980 Ti 60 Hz channel budget is the only other
-hard constraint. See `docs/ACCURACY.md` and `docs/PARITY.md`.
+looks, speed, or disk. **Disk is not a constraint** — the pack may
+exceed Raster's 857 GB CERTS farm; the owner will fit new SSDs in the
+visual PCs. Quality and accuracy win over storage. The remaining hard
+constraint is the GTX 980 Ti **runtime** RAM/VRAM / 60 Hz channel
+budget (`ram_mb=2048`, `vram_mb=5120`). **Exception:** the Classic
+NYC skyline easter egg is art-directed (see `docs/ACCURACY.md`).
+See also `docs/QUALITY.md` and `docs/PARITY.md`.
 
 Never commit RSI / CAE files, ICD text, NX tiles, Raster photos, or
 `nxHostPacket.h`. Never contact `10.1.95.0/24` or `192.168.173.0/24`
@@ -22,31 +27,69 @@ from tests/CI. `scripts/check-no-rsi.sh` fails the build if
 
 ## Current state (2026-10-18, this increment)
 
-**Road traffic** is in: GPU-batched low-poly cars on OSM-class roads
-(motorway/trunk/primary/secondary, class-weighted). Seeded Van Wyck,
-Belt Parkway, JFK terminal / access roads, NJ Turnpike, US-1/9.
-Density follows TOD (rush = 1.0, night = 0.22). Headlights/tails at
-night. 7 km body cull / 11 km lamps. Cap **280** cars (980 Ti, one
-VBO). `s376-cache osm` now pulls those highway classes into osm.bin v2.
+**Classic NYC skyline easter egg** (hidden, session-only) plus
+**disk-unlimited fetch tiers**.
 
-Accuracy core (`702adb3`) and the scenery checklist / raster-parity
-guard (`700659c`) are landed.
+Unlock: click the on-screen `s376-visual 0.1.0` label **7 times
+within 15 s**. After the 4th click the toast counts down like
+Android: "Click 3 more times to unlock Classic NYC skyline
+(pre-2001)", then 2, then "1 more time", then "Classic skyline
+unlocked". Era: Current vs Classic (pre-2001). Neutral labels.
 
-Previous increment added the **2023 KJFK_KEWR scenery checklist** and the
-local-only Raster comparer:
+Classic is **stylized** Lower Manhattan (hero lighting, aluminum-fin
+facades, night windows, reflections, warning lamps, 1 WTC antenna).
+Accuracy is **not** required for this egg. Classic **draws** only
+inside the NYC geofence (`40.40–40.98 N`, `74.45–73.45 W`);
+everywhere else is the normal Current world. Once unlocked it
+**stays on for the session**. Reposition and leaving NYC do **not**
+clear it — fly back to NYC and Classic is there again. It clears
+only when the host closes and reopens the channels, or a future
+**Refresh channels** control calls `refresh_channels()`. Nothing is
+written to disk.
 
-- `docs/PARITY.md` — full feature list (own words) + per-item status
-- `src/scenery.cpp` — C1–C6 / U1–U3 (CC removed), signs, hold bars,
-  T5, jetbridges, docking, parked, tower+beacon, trees, 12 routes,
-  marshaller poses, 15 m night layer (GPU subsample 60 m / cap 2200)
-- `tools/raster-parity` (`s376-raster-parity`) — reads a **user path**
-  at runtime; heuristic lat/lon doubles only; never copies or embeds
-  Raster data
-- `scripts/check-no-rsi.sh` + `src/repo_guard.cpp` — CI guard
+Collision / HAT uses the **visible** geometry (Classic BVH only
+while Classic is on *and* the eye is in the NYC box). Host crash is
+host-side — see type-200 fields below.
 
-This increment: **14231** unit tests passed, 0 failed. Doctor
-`faa-kjfk` 63 / `faa-kewr` 48, RSS peak 38.5 MiB. Parity: KJFK
-roads=4 VanWyck/Belt/JFKrd; KEWR roads=3 NJTP. Road traffic **ok**.
+**Disk-unlimited fetch tiers.** Owner: disk size is not a constraint;
+the dataset may exceed Raster's 857 GB if quality improves (new SSDs
+in the visual PCs). Quality and accuracy win over storage. **Runtime
+RAM/VRAM on the 980 Ti still apply.**
+
+`s376-cache fetch` metres/px default to **0 = native for the source**:
+
+| LOD | Coverage | Imagery | DEM |
+|---|---|---|---|
+| 0 | 8 km ARP + 12 nm finals | NYS 0.15 / HRO 0.30 / NAIP 0.60 / S2 10 | 3DEP 1 / GLO-30 30 |
+| 1 | 40 km | 4× native | 2× native |
+| 2 | 50 km outer | 16× native | 8× native |
+
+A 4000 px tile at NYS 0.15 m is 600 m on a side (more tiles, not
+blurrier pixels). Operator `--near-m 1` on NYS stays 1 (no force
+native). Pager still caps resident 2 GiB / 5 GiB. See
+`docs/QUALITY.md`.
+
+Road traffic (`3e99c97`), accuracy core (`702adb3`), and the scenery
+checklist / raster-parity guard (`700659c`) are landed.
+
+This increment: **20437** unit tests passed, 0 failed. Doctor
+`faa-kjfk` / `faa-kewr` unchanged. Hangar re-fetch is still priority
+1 — now at **native NYS**, no `--near-m 1`.
+
+### Host crash / HAT (type 200)
+
+The IG does **not** send a crash packet. Crash detection is host-side
+on the existing 64-byte type-200 reply (`docs/PROTOCOL.md`):
+
+| Words | Field | Host action |
+|---|---|---|
+| 10 | Valid | Ignore the sample if 0 |
+| 22–23 | HAT ft (IEEE BE) | Radio altitude above DEM **or** a building roof. **HAT ≤ 0 (or below the host radio-alt threshold) = ownship in/on a solid** — this is what must trip crash |
+| 28–29 | HOT / elev ft | MSL of that solid |
+
+While Classic is on and the eye is in the NYC box, those fields use
+the Classic BVH. Outside NYC, or after `refresh_channels()` / a
+channel restart, they use Current. No GPU readback.
 
 ---
 
@@ -89,9 +132,8 @@ on the FAA ARP** with NYS imagery:
 
 ```bash
 rm -rf cache/KJFK
-./build/s376-cache fetch KJFK --out cache/KJFK --dem 3dep --imagery nys \
-  --near-m 1 --near-dem-m 2 --near-km 5 --approach-nm 10 --radius-km 35 \
-  --max-export 4000
+./build/s376-cache fetch KJFK --out cache/KJFK --dem 3dep --imagery nys
+# native NYS 0.15 m on 8 km + 12 nm finals, 3DEP 1 m, 50 km outer
 ./build/s376-cache bake-osm cache/KJFK   # if osm.json exists; runtime uses osm.bin only
 ./build/s376-doctor --cache-dir cache/KJFK --no-bench
 # expect [pass] faa-kjfk, [pass] faa-coverage (ARP + every end in lod0)
@@ -186,7 +228,8 @@ OpenGL, 60 Hz at one channel (1920×1080, 50×32.5). `render.quality =
 ## Priority order (work this across runs)
 
 1. **Hangar re-fetch + 12k screenshot** (items 1–2). Blocking for
-   anyone looking at the picture. Keep CI green while it runs.
+   anyone looking at the picture. Fetch at **native NYS** (no
+   `--near-m 1`). Keep CI green while it runs.
 2. **Host CSN movers / marshallers** (3) — Raster had 12 moving-model
    routes. Road cars are done.
 3. **Raise OSM building cap toward 30 k** with the existing
@@ -254,12 +297,9 @@ CI accuracy suite; datum/geoid/UTM; Raster-difference list.
 
 ```bash
 rm -rf cache/KJFK
-./build/s376-cache fetch KJFK --out cache/KJFK --dem 3dep --imagery nys \
-  --near-m 1 --near-dem-m 2 --near-km 5 --approach-nm 10 --radius-km 35 \
-  --max-export 4000
-./build/s376-cache fetch KEWR --out cache/KEWR --dem 3dep --imagery nys \
-  --near-m 1 --near-dem-m 2 --near-km 5 --approach-nm 10 --radius-km 35 \
-  --max-export 4000
+./build/s376-cache fetch KJFK --out cache/KJFK --dem 3dep --imagery nys
+./build/s376-cache fetch KEWR --out cache/KEWR --dem 3dep --imagery nys
+# native NYS 0.15 m / 3DEP 1 m; disk is free, pager still caps RAM/VRAM
 ./build/s376-doctor --cache-dir cache/KJFK --no-bench
 # expect [pass] faa-kjfk, [pass] faa-coverage (ARP + every end in lod0)
 ```
@@ -339,8 +379,8 @@ Fix (must also hold on i7-5930K + GTX 980 Ti 6 GB / 16 GB RAM):
 - **Screenshot black bar:** FBO slave does not inherit the master's
   1920×1008 viewport.
 - **NYS/HRO:** `--imagery auto|nys|hro|naip|s2`. KJFK auto = NYS
-  Latest ortho. Default 4000 px / 1 m/px **downsamples** NAIP (~0.6 m)
-  and does not preserve 0.5–1 ft; see `docs/QUALITY.md`.
+  Latest ortho. Defaults now pull **native** NYS 0.15 m / NAIP 0.60 m
+  (disk free; pager still caps RAM/VRAM). See `docs/QUALITY.md`.
 - **Detail atlas:** generated 128² grass/asphalt/dirt/concrete with
   distance fade.
 
@@ -549,19 +589,20 @@ and `osm` POSTs the QL (`--data-urlencode data@file`).
 
 Fetch no longer pulls one 384×384 DEM + 768×768 NAIP (~20 m/px).
 ImageServer exports are tiled at 4000 px with resume (skip existing)
-and `--retry 5`. Default pyramid:
+and `--retry 5`. **Current** default pyramid (disk-unlimited; see
+`docs/QUALITY.md`):
 
-- lod0: 5 km ARP + 10 nm finals, 1 m imagery / 2 m DEM, BC7 tiles
-- lod1: 20 km, 4 m / 8 m, BC1
-- lod2: outer radius, 20 m / 30 m, BC1 (GLO-30 / S2 outside CONUS)
+- lod0: 8 km ARP + 12 nm finals, **native** imagery / DEM, BC7 tiles
+- lod1: 40 km, 4× / 2× native, BC1
+- lod2: 50 km, 16× / 8× native, BC1 (GLO-30 / S2 outside CONUS)
 
-`--dry-run` prints tile counts and a packed-size estimate. KSEA
-defaults: **43 img + 17 DEM tiles, raw~2.0 GiB, packed~607 MiB**.
-`--near-m` / `--near-dem-m` / `--mid-m` / `--far-m` / `--near-km` /
-`--approach-nm` / `--max-export` override the targets. The renderer
-drapes `lodN/tY_X` tiles. `s376-doctor` reports tile counts.
-Resume + BC7 keep the 980 Ti (6 GB) path streamable; drop `--near-m`
-to 2 if VRAM is tight.
+`--dry-run` prints tile counts and a packed-size estimate. Pack size
+is not capped against Raster's 857 GB. `--near-m` / `--near-dem-m` /
+`--mid-m` / `--mid-dem-m` / `--far-m` / `--far-dem-m` / `--near-km` /
+`--mid-km` / `--approach-nm` / `--max-export` override the targets.
+The renderer drapes `lodN/tY_X` tiles. `s376-doctor` reports tile
+counts. Resume + BC7 keep the 980 Ti (6 GB) **resident** path
+streamable; paging, not downsample, is how we stay in 2/5 GiB.
 
 ## Milestone: GL compat + SIGTERM/Esc (2026-10-18)
 
@@ -809,7 +850,7 @@ are unit-tested.
 | More airports | `docs/AIRPORTS.md` | KSEA / KSFO / KLAS / KLAX / KJFK / KBOS are in. Next: EGLL / EDDF |
 | Per-seat FO eye | `eye_right_m` | Config exists, default 0 (collimated shared eye). Uncomment 0.51 m if Joey wants it |
 | Off-axis frustum | camera is rotated by heading offset | Shared eyepoint + asymmetric projection later |
-| High-res fetch on hangar | `s376-cache fetch KSEA` / `KJFK` | Joey's pack sizes are in the OOM milestone. Optional: `--imagery nys --near-m 0.3` for native NYS feet-scale (more tiles; pager still caps RAM) |
+| High-res fetch on hangar | `s376-cache fetch KSEA` / `KJFK` | Defaults are now **native** NYS/NAIP (no `--near-m 1`). Disk free; pager still caps RAM/VRAM |
 | Screenshot on hangar GPU | `--screenshot --at` | FBO+PNG+warmup + viewport inheritance fix landed. Re-run 12k **with bake-osm** and confirm no OOM / no top black bar |
 
 ## Next 5 concrete steps (in order)

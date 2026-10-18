@@ -66,6 +66,10 @@ class HostReceiver {
     std::thread th_;
     std::atomic<bool> run_{false};
     std::shared_ptr<HeightSource> heights_;
+    bool have_prev_eye_ = false;
+    double prev_lat_ = 0;
+    double prev_lon_ = 0;
+    double prev_alt_ft_ = 0;
 };
 
 } // namespace s376

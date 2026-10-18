@@ -1,11 +1,13 @@
 #include "s376/airport.hpp"
 #include "s376/dxt.hpp"
 #include "s376/geo.hpp"
+#include "s376/landmarks.hpp"
 #include "s376/traffic.hpp"
 #include "s376/image.hpp"
 #include "s376/log.hpp"
 #include "s376/render.hpp"
 #include "s376/terrain.hpp"
+#include "s376/version.hpp"
 
 #ifdef S376_HAS_OSG
 
@@ -32,6 +34,8 @@
 #include <osgDB/ReadFile>
 #include <osgDB/WriteFile>
 #include <osgGA/GUIEventAdapter>
+#include <osgGA/GUIEventHandler>
+#include <osgText/Text>
 #include <osgUtil/SceneView>
 #include <osgViewer/CompositeViewer>
 #include <osgViewer/Renderer>
@@ -64,8 +68,10 @@
 #endif
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
+#include <string>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -242,6 +248,79 @@ void main() {
     float f = exp(-h * h * vEyeDist * vEyeDist);
     col = mix(uFogColor, col, clamp(f, 0.0, 1.0));
     gl_FragColor = vec4(aces(col * uExposure), 1.0);
+}
+)";
+
+// Stylized classic (pre-2001) Lower Manhattan — art-directed, not surveyed.
+const char* kLandmarkVS = R"(
+#version 120
+varying vec3 vN;
+varying vec3 vView;
+varying vec2 vUV;
+varying float vEyeDist;
+varying float vMat;
+void main() {
+    vN = gl_Normal;
+    vUV = gl_MultiTexCoord0.xy;
+    vMat = gl_Color.a;
+    vec4 eye = gl_ModelViewMatrix * gl_Vertex;
+    vEyeDist = length(eye.xyz);
+    vView = -eye.xyz;
+    gl_Position = ftransform();
+}
+)";
+
+const char* kLandmarkFS = R"(
+#version 120
+uniform vec3 uSunDir;
+uniform vec3 uAmbient;
+uniform vec3 uDiffuse;
+uniform vec3 uFogColor;
+uniform vec3 uUp;
+uniform float uFogDensity;
+uniform float uHaze;
+uniform float uExposure;
+uniform float uSsao;
+uniform float uNight;
+varying vec3 vN;
+varying vec3 vView;
+varying vec2 vUV;
+varying float vEyeDist;
+varying float vMat;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+vec3 aces(vec3 x) {
+    return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+}
+void main() {
+    vec3 n = normalize(vN);
+    vec3 view = normalize(vView);
+    vec3 sun = normalize(uSunDir);
+    float ndl = max(dot(n, sun), 0.0);
+    float fres = pow(1.0 - clamp(dot(n, view), 0.0, 1.0), 4.0);
+    float fin = smoothstep(0.12, 0.22, abs(fract(vUV.x * 48.0) - 0.5));
+    float win = step(0.18, fract(vUV.x * 22.0)) * step(0.22, fract(vUV.y * 70.0));
+    vec3 alum = vec3(0.72, 0.74, 0.78);
+    vec3 glass = vec3(0.18, 0.28, 0.38);
+    vec3 albedo = mix(alum, glass, win * 0.85);
+    albedo = mix(albedo * 0.55, albedo, fin);
+    if (vMat > 4.5)
+        albedo = vec3(0.55, 0.56, 0.58);
+    if (vMat > 3.5 && vMat < 4.5)
+        albedo = vec3(0.16, 0.17, 0.18);
+    vec3 spec = vec3(0.85, 0.90, 1.0) * pow(max(dot(reflect(-sun, n), view), 0.0), 48.0);
+    vec3 skyref = mix(uFogColor, vec3(0.45, 0.65, 0.95), 0.45) * fres;
+    float glow = win * uNight * (0.35 + 0.65 * hash(floor(vUV * vec2(22.0, 70.0))));
+    vec3 nightwin = vec3(1.0, 0.82, 0.45) * glow * 1.8;
+    float ao = mix(1.0, 0.72 + 0.28 * ndl, uSsao);
+    vec3 col = albedo * (uAmbient * 1.15 + uDiffuse * (0.35 + 0.85 * ndl)) * ao;
+    col += spec * 0.55 + skyref * 0.22 + nightwin;
+    float rim = pow(1.0 - clamp(dot(n, view), 0.0, 1.0), 2.5) * (0.15 + 0.25 * uNight);
+    col += vec3(1.0, 0.92, 0.75) * rim;
+    float g = 1.0 - clamp(abs(dot(n, normalize(uUp))), 0.0, 1.0);
+    float h = uFogDensity + uHaze * (0.10 + 0.40 * g);
+    float f = exp(-h * h * vEyeDist * vEyeDist);
+    col = mix(uFogColor, col, clamp(f, 0.0, 1.0));
+    gl_FragColor = vec4(aces(col * uExposure * 1.08), 1.0);
 }
 )";
 
@@ -485,6 +564,11 @@ void attach_lit_color(osg::StateSet* ss) {
     strip_ff(ss);
 }
 
+void attach_landmark(osg::StateSet* ss) {
+    ss->setAttributeAndModes(make_program(kLandmarkVS, kLandmarkFS), osg::StateAttribute::ON);
+    strip_ff(ss);
+}
+
 void attach_unlit_color(osg::StateSet* ss) {
     ss->setAttributeAndModes(make_program(kUnlitColorVS, kUnlitColorFS), osg::StateAttribute::ON);
     strip_ff(ss);
@@ -510,6 +594,7 @@ struct ShaderEnv {
     osg::ref_ptr<osg::Uniform> up;
     osg::ref_ptr<osg::Uniform> haze;
     osg::ref_ptr<osg::Uniform> water;
+    osg::ref_ptr<osg::Uniform> night;
 };
 
 void attach_env_uniforms(osg::StateSet* ss, ShaderEnv& env) {
@@ -524,6 +609,7 @@ void attach_env_uniforms(osg::StateSet* ss, ShaderEnv& env) {
     env.up = new osg::Uniform("uUp", osg::Vec3(0.f, 0.f, 1.f));
     env.haze = new osg::Uniform("uHaze", 4e-6f);
     env.water = new osg::Uniform("uWater", 1.f);
+    env.night = new osg::Uniform("uNight", 0.f);
     ss->addUniform(env.sun_dir);
     ss->addUniform(env.ambient);
     ss->addUniform(env.diffuse);
@@ -535,6 +621,7 @@ void attach_env_uniforms(osg::StateSet* ss, ShaderEnv& env) {
     ss->addUniform(env.up);
     ss->addUniform(env.haze);
     ss->addUniform(env.water);
+    ss->addUniform(env.night);
     strip_ff(ss);
 }
 
@@ -886,6 +973,33 @@ osg::Node* make_airport_geode(const AirportMesh& mesh) {
     geom->setColorArray(cols, osg::Array::BIND_PER_VERTEX);
     geom->addPrimitiveSet(new osg::DrawArrays(GL_TRIANGLES, 0, static_cast<int>(mesh.verts.size())));
     attach_lit_color(geom->getOrCreateStateSet());
+    geode->addDrawable(geom);
+    return geode;
+}
+
+osg::Node* make_landmark_geode(const AirportMesh& mesh) {
+    if (mesh.verts.size() < 3)
+        return nullptr;
+    auto* geode = new osg::Geode;
+    auto* geom = new osg::Geometry;
+    auto* verts = new osg::Vec3Array;
+    auto* norms = new osg::Vec3Array;
+    auto* cols = new osg::Vec4Array;
+    auto* uvs = new osg::Vec2Array;
+    verts->reserve(mesh.verts.size());
+    for (const auto& v : mesh.verts) {
+        verts->push_back(ecef_to_osg(v.p));
+        norms->push_back(osg::Vec3(static_cast<float>(v.n.x), static_cast<float>(v.n.y),
+                                   static_cast<float>(v.n.z)));
+        cols->push_back(osg::Vec4(v.r, v.g, v.b, v.mat));
+        uvs->push_back(osg::Vec2(v.u, v.v));
+    }
+    geom->setVertexArray(verts);
+    geom->setNormalArray(norms, osg::Array::BIND_PER_VERTEX);
+    geom->setColorArray(cols, osg::Array::BIND_PER_VERTEX);
+    geom->setTexCoordArray(0, uvs);
+    geom->addPrimitiveSet(new osg::DrawArrays(GL_TRIANGLES, 0, static_cast<int>(mesh.verts.size())));
+    attach_landmark(geom->getOrCreateStateSet());
     geode->addDrawable(geom);
     return geode;
 }
@@ -1509,8 +1623,40 @@ osg::ref_ptr<osg::Camera> make_shot_fbo(int w, int h, const osg::Vec4& clear,
     return rtt;
 }
 
+osg::Camera* make_instructor_hud(int w, int h, osgText::Text*& version, osgText::Text*& toast,
+                                 osgText::Text*& era) {
+    auto* cam = new osg::Camera;
+    cam->setProjectionMatrix(osg::Matrix::ortho2D(0, w, 0, h));
+    cam->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
+    cam->setViewMatrix(osg::Matrix::identity());
+    cam->setClearMask(GL_DEPTH_BUFFER_BIT);
+    cam->setRenderOrder(osg::Camera::POST_RENDER);
+    cam->setAllowEventFocus(false);
+    auto* geode = new osg::Geode;
+    auto mk = [&](float x, float y, float sz) {
+        auto* t = new osgText::Text;
+        t->setPosition(osg::Vec3(x, y, 0));
+        t->setCharacterSize(sz);
+        t->setColor(osg::Vec4(0.90f, 0.92f, 0.94f, 0.92f));
+        t->setAxisAlignment(osgText::Text::SCREEN);
+        t->setBackdropType(osgText::Text::OUTLINE);
+        t->setBackdropColor(osg::Vec4(0, 0, 0, 0.65f));
+        geode->addDrawable(t);
+        return t;
+    };
+    version = mk(12.f, 14.f, 16.f);
+    version->setText(std::string("s376-visual ") + s376::version());
+    toast = mk(12.f, 80.f, 18.f);
+    toast->setText("");
+    era = mk(12.f, 46.f, 16.f);
+    era->setText("");
+    cam->addChild(geode);
+    return cam;
+}
+
 class OsgRenderer final : public Renderer {
   public:
+    bool on_hud_click(float x, float y);
     bool begin(const AppConfig& cfg, const std::vector<ChannelConfig>& channels) override {
         cfg_ = cfg;
         channels_ = channels;
@@ -1622,6 +1768,7 @@ class OsgRenderer final : public Renderer {
                                   std::filesystem::file_size(cfg.render.cache_dir + "/osm.json") /
                                       (1024.0 * 1024.0),
                                   cfg.render.cache_dir.c_str());
+                apply_skyline_era(apt.buildings, active_skyline_era());
                 if (auto* mesh = make_airport_geode(build_airport_mesh(
                         apt, cfg.render.buildings, cfg.render.markings))) {
                     root->addChild(mesh);
@@ -1660,6 +1807,8 @@ class OsgRenderer final : public Renderer {
                 std::vector<Airport> apts = all_public_airports();
                 for (auto& apt : apts)
                     try_load_osm(apt, cfg.render.cache_dir);
+                scene_apts_ = apts;
+                rebuild_session_solids(scene_apts_);
                 traffic_gpu_.world = build_traffic(apts, kMaxTrafficCars);
                 S376_LOG_INFO("render", "road traffic  %zu roads  %zu cars  (980 Ti batch)",
                               traffic_gpu_.world.roads.size(), traffic_gpu_.world.cars.size());
@@ -1686,6 +1835,9 @@ class OsgRenderer final : public Renderer {
             env_u_.ssao->set(cfg.render.ssao ? 1.f : 0.f);
         if (env_u_.water)
             env_u_.water->set(cfg.render.water ? 1.f : 0.f);
+        skyline_root_ = new osg::Group;
+        root->addChild(skyline_root_);
+        rebuild_skyline();
         root_ = root;
 
         int nscr = 1, sw = 1920, sh = 1080;
@@ -1727,6 +1879,30 @@ class OsgRenderer final : public Renderer {
             }
             viewer_->addView(view);
             views_.push_back(view);
+            {
+                osgText::Text *ver = nullptr, *toast = nullptr, *era = nullptr;
+                osg::ref_ptr<osg::Camera> hud =
+                    make_instructor_hud(place.w, place.h, ver, toast, era);
+                if (auto* cam = view->getCamera())
+                    cam->addChild(hud);
+                hud_version_ = ver;
+                hud_toast_ = toast;
+                hud_era_ = era;
+                struct HudHandler : public osgGA::GUIEventHandler {
+                    OsgRenderer* ig = nullptr;
+                    explicit HudHandler(OsgRenderer* p) : ig(p) {}
+                    bool handle(const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter&) override {
+                        if (!ig)
+                            return false;
+                        if (ea.getEventType() != osgGA::GUIEventAdapter::PUSH)
+                            return false;
+                        if (ea.getButton() != osgGA::GUIEventAdapter::LEFT_MOUSE_BUTTON)
+                            return false;
+                        return ig->on_hud_click(ea.getX(), ea.getY());
+                    }
+                };
+                view->addEventHandler(new HudHandler(this));
+            }
 
             S376_LOG_INFO("render",
                           "channel %s  %dx%d at %d,%d screen %d  fov %.1fx%.1f  hdg-off %.3f%s",
@@ -1759,6 +1935,11 @@ class OsgRenderer final : public Renderer {
             sky_xf_->setMatrix(osg::Matrix::translate(e.x, e.y, e.z));
         }
         last_host_ = host;
+        if (host.have_eyepoint)
+            tick_session_view(host.eye.lat_deg, host.eye.lon_deg);
+        if (active_skyline_era() != drawn_era_)
+            rebuild_skyline();
+        refresh_hud();
         page_tiles(false);
         for (std::size_t i = 0; i < views_.size() && i < channels_.size(); ++i)
             apply_view_camera(views_[i]->getCamera(), channels_[i], host);
@@ -2157,6 +2338,8 @@ class OsgRenderer final : public Renderer {
             storm_flash_ = 0.85f;
             --storm_flash_left_;
         }
+        if (env_u_.night)
+            env_u_.night->set(1.f - dayf);
         const float dk = 0.15f + 0.85f * dayf + flash;
         if (env_u_.diffuse)
             env_u_.diffuse->set(osg::Vec3(1.0f * dk, 0.95f * dk, 0.85f * dk));
@@ -2171,6 +2354,44 @@ class OsgRenderer final : public Renderer {
             if (auto* cam = view->getCamera())
                 cam->setClearColor(sky);
         }
+    }
+
+    void rebuild_skyline() {
+        drawn_era_ = active_skyline_era();
+        if (!skyline_root_)
+            return;
+        skyline_root_->removeChildren(0, skyline_root_->getNumChildren());
+        const auto mesh = mesh_landmarks(drawn_era_);
+        if (auto* n = make_landmark_geode(mesh))
+            skyline_root_->addChild(n);
+        const auto lamps = landmark_warning_lights(drawn_era_);
+        if (!lamps.empty()) {
+            Airport tmp;
+            tmp.lights = lamps;
+            auto gpu = make_light_gpu(tmp);
+            if (gpu.geom) {
+                auto* geode = new osg::Geode;
+                geode->addDrawable(gpu.geom);
+                skyline_root_->addChild(geode);
+            }
+        }
+        if (!scene_apts_.empty())
+            rebuild_session_solids(scene_apts_);
+        refresh_hud();
+    }
+
+    void refresh_hud() {
+        if (hud_era_) {
+            if (session_era_unlocked()) {
+                const char* e = session_era() == SkylineEra::Classic ? "Classic (pre-2001)"
+                                                                    : "Current";
+                hud_era_->setText(std::string("Era: ") + e);
+            } else {
+                hud_era_->setText("");
+            }
+        }
+        if (hud_toast_)
+            hud_toast_->setText(unlock_.toast);
     }
 
     AppConfig cfg_;
@@ -2211,7 +2432,39 @@ class OsgRenderer final : public Renderer {
     std::uint64_t resident_vram_ = 0;
     int mesh_n_ = 96;
     bool tiles_ready_ = true;
+    osg::ref_ptr<osg::Group> skyline_root_;
+    osg::ref_ptr<osgText::Text> hud_version_;
+    osg::ref_ptr<osgText::Text> hud_toast_;
+    osg::ref_ptr<osgText::Text> hud_era_;
+    EraUnlock unlock_;
+    SkylineEra drawn_era_ = SkylineEra::Current;
+    std::vector<Airport> scene_apts_;
 };
+
+bool OsgRenderer::on_hud_click(float x, float y) {
+    const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::steady_clock::now().time_since_epoch())
+                         .count();
+    const InstructorHit hit = instructor_hit(x, y, session_era_unlocked() || unlock_.unlocked);
+    if (hit == InstructorHit::Version) {
+        unlock_.click(now);
+        if (unlock_.unlocked)
+            set_session_era(session_era(), true);
+        refresh_hud();
+        return true;
+    }
+    if (hit == InstructorHit::EraCurrent) {
+        set_session_era(SkylineEra::Current, true);
+        rebuild_skyline();
+        return true;
+    }
+    if (hit == InstructorHit::EraClassic) {
+        set_session_era(SkylineEra::Classic, true);
+        rebuild_skyline();
+        return true;
+    }
+    return false;
+}
 
 } // namespace
 

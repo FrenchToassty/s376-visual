@@ -94,7 +94,8 @@ std::vector<GeoBox> coverage_boxes(const AirportRef& apt, const FetchRequest& re
 
 std::vector<RasterTile> tile_raster(const GeoBox& box, double m_per_px, int max_px) {
     std::vector<RasterTile> out;
-    const double mpp = std::max(0.25, m_per_px);
+    // Allow native NYS (~0.15 m). Do not clamp up to 0.25 — disk is free.
+    const double mpp = std::max(0.05, m_per_px);
     const int cap = std::max(64, max_px);
     const double lat = 0.5 * (box.south + box.north);
     const double m_lat = 111320.0;
@@ -150,7 +151,76 @@ std::vector<LodSpec> default_lods(double radius_km) {
     return out;
 }
 
-std::vector<LodSpec> fetch_lods(const FetchRequest& req) {
+double native_imagery_m(const std::string& kind) {
+    if (kind == "nys")
+        return 0.15; // ~0.5 ft Latest ortho
+    if (kind == "hro")
+        return 0.30;
+    if (kind == "naip")
+        return 0.60;
+    if (kind == "s2")
+        return 10.0;
+    if (kind == "hillshade")
+        return 20.0;
+    return 0.60;
+}
+
+double native_dem_m(const std::string& kind) {
+    if (kind == "3dep")
+        return 1.0;
+    if (kind == "glo30")
+        return 30.0;
+    return 1.0;
+}
+
+namespace {
+
+void pick_sources(const AirportRef& apt, const FetchRequest& req, std::string& dem,
+                  std::string& img) {
+    dem = req.dem;
+    img = req.imagery;
+    if (dem == "auto")
+        dem = apt.conus ? "3dep" : "glo30";
+    if (img == "auto")
+        img = !apt.conus ? "s2" : (imagery_covers_nys(apt.lat, apt.lon) ? "nys" : "naip");
+}
+
+} // namespace
+
+FetchRequest resolved_fetch(const FetchRequest& in) {
+    FetchRequest r = in;
+    const AirportRef apt = lookup_airport_ref(r.icao);
+    std::string dem, img;
+    pick_sources(apt, r, dem, img);
+    const double ni = native_imagery_m(img);
+    const double nd = native_dem_m(dem);
+    if (r.near_m <= 0)
+        r.near_m = ni;
+    if (r.near_dem_m <= 0)
+        r.near_dem_m = nd;
+    if (r.mid_m <= 0)
+        r.mid_m = std::max(ni * 4.0, r.near_m * 4.0);
+    if (r.mid_dem_m <= 0)
+        r.mid_dem_m = std::max(nd * 2.0, r.near_dem_m * 2.0);
+    if (r.far_m <= 0)
+        r.far_m = std::max(ni * 16.0, r.near_m * 16.0);
+    if (r.far_dem_m <= 0)
+        r.far_dem_m = std::max(nd, r.near_dem_m * 8.0);
+    if (r.near_radius_km <= 0)
+        r.near_radius_km = 8.0;
+    if (r.mid_radius_km <= 0)
+        r.mid_radius_km = 40.0;
+    if (r.approach_nm <= 0)
+        r.approach_nm = 12.0;
+    if (r.radius_km <= 0)
+        r.radius_km = 50.0;
+    r.dem = dem;
+    r.imagery = img;
+    return r;
+}
+
+std::vector<LodSpec> fetch_lods(const FetchRequest& in) {
+    const FetchRequest req = resolved_fetch(in);
     std::vector<LodSpec> out;
     LodSpec near;
     near.level = 0;
@@ -193,8 +263,9 @@ GeoBox lod_coverage(const AirportRef& apt, const FetchRequest& req, const LodSpe
     return box_from_radius(apt.lat, apt.lon, lod.radius_km);
 }
 
-FetchEstimate estimate_fetch(const FetchRequest& req) {
+FetchEstimate estimate_fetch(const FetchRequest& in) {
     FetchEstimate e;
+    const FetchRequest req = resolved_fetch(in);
     const AirportRef apt = lookup_airport_ref(req.icao);
     for (const auto& lod : fetch_lods(req)) {
         const GeoBox box = lod_coverage(apt, req, lod);
@@ -391,18 +462,15 @@ std::size_t count_cache_tiles(const std::string& dir) {
     return n;
 }
 
-FetchPlan plan_fetch(const FetchRequest& req) {
+FetchPlan plan_fetch(const FetchRequest& in) {
+    const FetchRequest req = resolved_fetch(in);
     const AirportRef apt = lookup_airport_ref(req.icao);
     FetchPlan p;
     p.icao = apt.icao;
     p.lods = fetch_lods(req);
     p.estimate = estimate_fetch(req);
-    std::string dem = req.dem;
-    std::string img = req.imagery;
-    if (dem == "auto")
-        dem = apt.conus ? "3dep" : "glo30";
-    if (img == "auto")
-        img = !apt.conus ? "s2" : (imagery_covers_nys(apt.lat, apt.lon) ? "nys" : "naip");
+    const std::string dem = req.dem;
+    const std::string img = req.imagery;
     p.dem_kind = dem;
     p.img_kind = img;
 
@@ -559,7 +627,8 @@ std::uint64_t pack_lods(const CacheRegion& src, const std::string& dir, const st
     return directory_bytes(dir);
 }
 
-std::uint64_t fetch_and_pack(const FetchRequest& req, FetchPlan* plan_out) {
+std::uint64_t fetch_and_pack(const FetchRequest& in, FetchPlan* plan_out) {
+    const FetchRequest req = resolved_fetch(in);
     FetchPlan plan = plan_fetch(req);
     if (plan_out)
         *plan_out = plan;
@@ -743,8 +812,8 @@ std::uint64_t fetch_and_pack(const FetchRequest& req, FetchPlan* plan_out) {
     // Coarse root + lodN/elev for HAT / fallback. High-res tiles already
     // live in lodN/tY_X from the ImageServer loop.
     const auto bytes = pack_lods(region, out, default_lods(req.radius_km), req.mips);
-    // Drop raw GeoTIFFs after a successful pack — they are gitignored anyway
-    // and a 1° GLO-30 COG is tens of MiB.
+    // Drop raw GeoTIFFs after a successful pack (gitignored). Disk is not
+    // capped against Raster's 857 GB CERTS farm — quality wins over storage.
     std::error_code ec;
     std::filesystem::remove_all(raw, ec);
     const auto packed = directory_bytes(out);

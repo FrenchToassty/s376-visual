@@ -1,4 +1,5 @@
 #include "s376/host.hpp"
+#include "s376/landmarks.hpp"
 #include "s376/log.hpp"
 #include "s376/safety.hpp"
 
@@ -222,11 +223,18 @@ void HostReceiver::loop() {
                 float hat = 0.f;
                 bool valid = snap.have_eyepoint;
                 if (valid) {
-                    const HatSample hs = sample_hat(heights_.get(), snap.eye.lat_deg,
-                                                    snap.eye.lon_deg, snap.eye.alt_ft);
+                    tick_session_view(snap.eye.lat_deg, snap.eye.lon_deg);
+                    const HatSample hs = sample_session_hat(
+                        heights_.get(), snap.eye.lat_deg, snap.eye.lon_deg, snap.eye.alt_ft,
+                        have_prev_eye_ ? &prev_lat_ : nullptr, have_prev_eye_ ? &prev_lon_ : nullptr,
+                        have_prev_eye_ ? &prev_alt_ft_ : nullptr);
                     hat = hs.hat_ft;
                     elev = hs.elev_ft;
                     state_.set_hat(hat, elev);
+                    prev_lat_ = snap.eye.lat_deg;
+                    prev_lon_ = snap.eye.lon_deg;
+                    prev_alt_ft_ = snap.eye.alt_ft;
+                    have_prev_eye_ = true;
                 }
                 try {
                     std::string dest = peer;

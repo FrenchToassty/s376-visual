@@ -173,8 +173,8 @@ region once, offline:
 ./build/s376-cache synth-ksea --out cache/ksea --lods
 
 # real, freely licensed data (hangar box with a network)
-# near field ~1 m NAIP / ~2 m 3DEP, tiled at the ImageServer 4000 px cap
-./build/s376-cache fetch KSEA --radius-km 25 --out cache/ksea
+# native NAIP ~0.60 m / 3DEP 1 m on 8 km + 12 nm finals, 50 km outer
+./build/s376-cache fetch KSEA --out cache/ksea
 ./build/s376-cache fetch KSFO --out cache/ksfo
 # preview URLs + packed-size estimate (no download):
 ./build/s376-cache fetch KSEA --dry-run
@@ -186,9 +186,11 @@ region once, offline:
 ```
 
 Output is `elev.s376dem` (portable grid) + `imagery.dds` (BC1/DXT1 GPU
-texture) + `region.toml`. A 1° GLO-30 clip is tens of MiB. RSI CERTS
-for a comparable area was ~857 GB uncompressed; we do not convert those
-tiles. KTX2/Basis can replace the DDS later; the drape slot is the same.
+texture) + `region.toml`. Disk is not a constraint: a finished pack may
+exceed Raster's 857 GB CERTS farm if native ortho and denser terrain
+need it. We do not convert RSI tiles. Runtime RAM/VRAM on the 980 Ti
+still apply. KTX2/Basis can replace the DDS later; the drape slot is
+the same.
 
 `from-geotiff` needs GDAL (`libgdal-dev`). Without GDAL the portable
 `.s376dem` path and `synth-ksea` still work.

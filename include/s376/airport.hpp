@@ -233,7 +233,9 @@ struct MeshVert {
     float r = 0.18f;
     float g = 0.18f;
     float b = 0.19f;
-    float mat = 0; // 0 asphalt, 1 marking, 2 concrete, 3 wall, 4 roof
+    float mat = 0; // 0 asphalt, 1 marking, 2 concrete, 3 wall, 4 roof, 5 spire
+    float u = 0;
+    float v = 0;
 };
 
 struct AirportMesh {

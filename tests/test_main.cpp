@@ -52,6 +52,7 @@ void test_accuracy();
 void test_parity();
 void test_repo_guard();
 void test_traffic();
+void test_landmarks();
 
 int main() {
     test_vaxfloat();
@@ -73,6 +74,7 @@ int main() {
     test_parity();
     test_repo_guard();
     test_traffic();
+    test_landmarks();
     std::cout << g_passes << " passed, " << g_fails << " failed\n";
     return g_fails ? 1 : 0;
 }

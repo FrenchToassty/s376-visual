@@ -95,6 +95,13 @@ void test_fetch() {
     CHECK(hro_url.find("USGSNAIPPlus") != std::string::npos);
     s376::safety::check_data_url(hro_url);
 
+    CHECK_NEAR(s376::native_imagery_m("nys"), 0.15, 1e-9);
+    CHECK_NEAR(s376::native_imagery_m("hro"), 0.30, 1e-9);
+    CHECK_NEAR(s376::native_imagery_m("naip"), 0.60, 1e-9);
+    CHECK_NEAR(s376::native_imagery_m("s2"), 10.0, 1e-9);
+    CHECK_NEAR(s376::native_dem_m("3dep"), 1.0, 1e-9);
+    CHECK_NEAR(s376::native_dem_m("glo30"), 30.0, 1e-9);
+
     s376::FetchRequest req;
     req.icao = "KSEA";
     req.radius_km = 25;
@@ -103,13 +110,23 @@ void test_fetch() {
     req.season = "winter";
     CHECK(req.season == "winter");
     req.season = "summer";
+    const auto resolved_ksea = s376::resolved_fetch(req);
+    CHECK(resolved_ksea.dem == "3dep");
+    CHECK(resolved_ksea.imagery == "naip");
+    CHECK_NEAR(resolved_ksea.near_m, 0.60, 1e-6);
+    CHECK_NEAR(resolved_ksea.near_dem_m, 1.0, 1e-6);
+    CHECK_NEAR(resolved_ksea.mid_m, 2.40, 1e-6);
+    CHECK_NEAR(resolved_ksea.far_m, 9.60, 1e-6);
+    CHECK_NEAR(resolved_ksea.near_radius_km, 8.0, 1e-6);
+    CHECK_NEAR(resolved_ksea.approach_nm, 12.0, 1e-6);
     auto plan = s376::plan_fetch(req);
     CHECK(plan.dem_kind == "3dep");
     CHECK(plan.img_kind == "naip");
     CHECK(plan.lods.size() >= 2);
     CHECK(plan.lods[0].bc7);
     CHECK(plan.lods[0].tiled);
-    CHECK(plan.lods[0].img_m > 0 && plan.lods[0].img_m <= 1.01);
+    CHECK_NEAR(plan.lods[0].img_m, 0.60, 1e-6);
+    CHECK_NEAR(plan.lods[0].dem_m, 1.0, 1e-6);
     CHECK(!plan.urls.empty());
     CHECK(plan.estimate.img_tiles >= 4);
     CHECK(plan.estimate.dem_tiles >= 2);
@@ -146,9 +163,20 @@ void test_fetch() {
 
     req.icao = "KJFK";
     req.imagery = "auto";
+    const auto resolved_jfk = s376::resolved_fetch(req);
+    CHECK(resolved_jfk.imagery == "nys");
+    CHECK_NEAR(resolved_jfk.near_m, 0.15, 1e-6);
+    CHECK_NEAR(resolved_jfk.mid_m, 0.60, 1e-6);
+    CHECK_NEAR(resolved_jfk.far_m, 2.40, 1e-6);
+    s376::FetchRequest override_nys;
+    override_nys.icao = "KJFK";
+    override_nys.near_m = 1.0; // operator downsample stays 1; do not force native
+    CHECK_NEAR(s376::resolved_fetch(override_nys).near_m, 1.0, 1e-6);
     plan = s376::plan_fetch(req);
     CHECK(plan.dem_kind == "3dep");
     CHECK(plan.img_kind == "nys");
+    CHECK_NEAR(plan.lods[0].img_m, 0.15, 1e-6);
+    CHECK_NEAR(plan.lods[0].dem_m, 1.0, 1e-6);
     bool saw_nys = false;
     for (const auto& u : plan.urls) {
         CHECK(s376::curl_glob_safe(u));

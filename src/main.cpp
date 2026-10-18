@@ -2,6 +2,7 @@
 #include "s376/config.hpp"
 #include "s376/diagnostics.hpp"
 #include "s376/host.hpp"
+#include "s376/landmarks.hpp"
 #include "s376/image.hpp"
 #include "s376/log.hpp"
 #include "s376/render.hpp"
@@ -61,6 +62,7 @@ void usage() {
            "  --bank DEG            override shot roll (right-wing-down)\n"
            "  --hdg DEG             override shot true heading\n"
            "  --pitch DEG           override shot pitch\n"
+           "  --era current|classic session-only NYC skyline easter egg (not saved)\n"
            "  --diagnostics         print a dump and exit\n"
            "  --doctor              environment checks and exit\n"
            "  --version             print version\n"
@@ -115,6 +117,7 @@ int main(int argc, char** argv) {
     s376::ShotOverrides shot_over;
     std::string reply_master_override;
     bool no_hat = false;
+    std::string era_override;
 
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -163,6 +166,8 @@ int main(int argc, char** argv) {
             reply_master_override = need(a.c_str());
         else if (a == "--no-hat")
             no_hat = true;
+        else if (a == "--era")
+            era_override = need(a.c_str());
         else if (a == "--screenshot")
             screenshot_path = need(a.c_str());
         else if (a == "--screenshot-wait")
@@ -232,6 +237,15 @@ int main(int argc, char** argv) {
         cfg.host.reply_master = reply_master_override;
     if (no_hat)
         cfg.host.hat_responder = false;
+    if (!era_override.empty()) {
+        try {
+            const auto e = s376::parse_skyline_era(era_override);
+            s376::set_session_era(e, e == s376::SkylineEra::Classic);
+        } catch (const std::exception& ex) {
+            std::cerr << ex.what() << "\n";
+            return 2;
+        }
+    }
     if (channel_name.empty()) {
         if (const char* env_ch = std::getenv("S376_CHANNEL"))
             channel_name = env_ch;

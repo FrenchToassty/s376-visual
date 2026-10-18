@@ -53,6 +53,8 @@ const ParityItem kItems[] = {
     {"night15", "15 m night light layer", ParityStatus::Partial, "public",
      "Spacing recorded 15 m; GPU subsample 60 m / 980 Ti"},
     {"kewr", "Full KEWR", ParityStatus::Partial, "FAA", "Both-end runways + scenery stand-ins"},
+    {"skyline-era", "Classic NYC skyline easter egg", ParityStatus::Ok, "public",
+     "Hidden unlock; stylized pre-2001 Lower Manhattan; NYC geofence; session-only"},
 };
 
 double read_f64(const std::uint8_t* p, bool be) {

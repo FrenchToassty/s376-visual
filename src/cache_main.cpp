@@ -22,8 +22,9 @@ void usage() {
            "usage:\n"
            "  s376-cache fetch ICAO [--radius-km N] [--out DIR] [--dem auto|glo30|3dep]\n"
            "                       [--imagery auto|nys|hro|naip|s2|hillshade] [--dry-run]\n"
-           "                       [--near-m M] [--near-dem-m M] [--mid-m M] [--far-m M]\n"
-           "                       [--near-km N] [--approach-nm N] [--max-export N]\n"
+           "                       [--near-m M] [--near-dem-m M] [--mid-m M] [--mid-dem-m M]\n"
+           "                       [--far-m M] [--far-dem-m M]\n"
+           "                       [--near-km N] [--mid-km N] [--approach-nm N] [--max-export N]\n"
            "                       [--season summer|winter]\n"
            "  s376-cache synth-ksea [--out DIR] [--size N] [--lods]\n"
            "  s376-cache from-geotiff DEM.tif [--imagery FILE] [--out DIR] [--lods]\n"
@@ -33,9 +34,12 @@ void usage() {
            "  s376-cache geojson ICAO [--out DIR]\n"
            "  s376-cache info DIR\n"
            "\n"
-           "fetch downloads Copernicus GLO-30 (or USGS 3DEP) plus NAIP / Sentinel-2\n"
-           "cloudless into BC1/BC7 tiles with mipmaps. High-res LOD near the field,\n"
-           "coarse far out. Downloaded rasters stay under cache/ (gitignored).\n"
+           "fetch downloads Copernicus GLO-30 (or USGS 3DEP) plus NYS / NAIP / S2\n"
+           "into BC1/BC7 tiles with mipmaps. Metres/px default to 0 = native for\n"
+           "the source (NYS 0.15, HRO 0.30, NAIP 0.60, S2 10; 3DEP 1, GLO-30 30)\n"
+           "on the field and 12 nm finals; mid/far step up 4× / 16×. Disk is not\n"
+           "a constraint (pack may exceed Raster's 857 GB). The 980 Ti RAM/VRAM\n"
+           "pager still is. Downloaded rasters stay under cache/ (gitignored).\n"
            "osm pulls Overpass aeroway=taxiway|apron + building=* (ODbL) into DIR/osm.json.\n"
            "geojson writes a FeatureCollection for the osgEarth airport layer.\n"
            "Never points at 10.1.95.0/24 or 192.168.173.0/24.\n";
@@ -88,13 +92,16 @@ int main(int argc, char** argv) {
     std::string dem_kind = "auto";
     std::string img_kind = "auto";
     int size = 128;
-    double radius_km = 25;
-    double near_m = 1.0;
-    double near_dem_m = 2.0;
-    double mid_m = 4.0;
-    double far_m = 20.0;
-    double near_km = 5.0;
-    double approach_nm = 10.0;
+    double radius_km = 50;
+    double near_m = 0;
+    double near_dem_m = 0;
+    double mid_m = 0;
+    double mid_dem_m = 0;
+    double far_m = 0;
+    double far_dem_m = 0;
+    double near_km = 8.0;
+    double mid_km = 40.0;
+    double approach_nm = 12.0;
     int max_export = 4000;
     bool lods = false;
     bool dry = false;
@@ -122,10 +129,16 @@ int main(int argc, char** argv) {
             near_dem_m = std::stod(need("--near-dem-m"));
         else if (a == "--mid-m")
             mid_m = std::stod(need("--mid-m"));
+        else if (a == "--mid-dem-m")
+            mid_dem_m = std::stod(need("--mid-dem-m"));
         else if (a == "--far-m")
             far_m = std::stod(need("--far-m"));
+        else if (a == "--far-dem-m")
+            far_dem_m = std::stod(need("--far-dem-m"));
         else if (a == "--near-km")
             near_km = std::stod(need("--near-km"));
+        else if (a == "--mid-km")
+            mid_km = std::stod(need("--mid-km"));
         else if (a == "--approach-nm")
             approach_nm = std::stod(need("--approach-nm"));
         else if (a == "--max-export")
@@ -179,8 +192,11 @@ int main(int argc, char** argv) {
             req.near_m = near_m;
             req.near_dem_m = near_dem_m;
             req.mid_m = mid_m;
+            req.mid_dem_m = mid_dem_m;
             req.far_m = far_m;
+            req.far_dem_m = far_dem_m;
             req.near_radius_km = near_km;
+            req.mid_radius_km = mid_km;
             req.approach_nm = approach_nm;
             req.max_export = max_export;
             s376::FetchPlan plan;
@@ -306,7 +322,8 @@ int main(int argc, char** argv) {
                 std::cout << "wrote " << out << "  " << packed << " bytes (BC1 + s376dem)\n";
             }
             s376::write_airport_geojson(s376::ksea_public(), out + "/osm.geojson");
-            std::cout << "RSI CERTS for a comparable region was ~857 GB uncompressed.\n";
+            std::cout << "synth pack is a laptop stand-in. Real fetch may exceed Raster's\n"
+                      << "857 GB CERTS farm; disk is not a constraint — quality wins.\n";
             s376::log::shutdown();
             return 0;
         }

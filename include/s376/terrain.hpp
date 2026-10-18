@@ -106,6 +106,8 @@ struct HatSample {
     bool covered = false;
     float hat_ft = 0;
     float elev_ft = 0;
+    bool building = false;  // HOT is a roof, not bare DEM
+    bool intersect = false; // segment through a solid (tunnel / crash)
 };
 HatSample sample_hat(const HeightSource* src, double lat_deg, double lon_deg, double alt_ft);
 

@@ -185,9 +185,21 @@ exponent to recover a VAX F value. `tests/test_xt4.cpp` rebuilds that
 host-side conversion so a reply the IG emits is proven readable.
 
 The IG samples the loaded DEM (`DemHeightSource` / `.s376dem` or a
-synth KSEA box) at the eyepoint. HAT is MSL altitude minus terrain
-elevation; HOT is that elevation. Off the DEM the reply is still
-valid with elev = 0 and hat = altitude (the old spherical stand-in).
+synth KSEA box) at the eyepoint, then raises HOT to any CPU-side
+building / landmark roof under the point (active skyline era). HAT
+is MSL altitude minus that solid. A segment from the previous
+eyepoint through a volume is a hit: HAT is forced ≤ 0. Off the DEM
+and off every solid the reply is still valid with elev = 0 and hat =
+altitude (the old spherical stand-in).
+
+Host crash detection is **host-side**. The IG does not send a
+separate crash packet. The host must act on this type-200 reply:
+
+| Field | Words | How the host should treat it |
+|---|---|---|
+| Valid | 10 | Non-zero = use the sample |
+| HAT ft | 22–23 | Radio altitude / height above solid. **≤ 0 (or below the host's own radio-alt threshold) means the ownship is in or on a building or the ground** |
+| HOT / elev ft | 28–29 | MSL of that solid (DEM or roof) |
 
 ## Display control (type 131)
 

@@ -2,10 +2,19 @@
 
 s376-visual must beat Raster XT4 in every way. **Accuracy is first**
 (see [ACCURACY.md](ACCURACY.md)): never trade a FAA number, lighting
-system, or geodetic conversion for looks or frame time. The only other
-hard constraint is the default box — an **i7-5930K + GTX 980 Ti 6 GB**
-(Maxwell, NVIDIA 580, OpenGL 3.3 compatibility) and **16 GB RAM** at
-60 Hz per channel. The hangar RTX 5060 Ti is the `rtx` preset.
+system, or geodetic conversion for looks or frame time.
+
+**Disk is not a constraint.** The packed dataset may exceed Raster's
+857 GB CERTS farm when quality improves — the owner will fit new SSDs
+in the visual PCs. Quality and accuracy win over storage. Fetch the
+highest published ortho at airports and approaches, and denser global
+terrain; do not downsample to save disk.
+
+The remaining hard constraint is the **runtime** box — an
+**i7-5930K + GTX 980 Ti 6 GB** (Maxwell, NVIDIA 580, OpenGL 3.3
+compatibility) and **16 GB RAM** at 60 Hz per channel. Resident
+`ram_mb` / `vram_mb` still apply; a larger pack is fine, a larger
+resident set is not. The hangar RTX 5060 Ti is the `rtx` preset.
 
 ## Presets
 
@@ -64,26 +73,36 @@ preset budget** on a 16 GB / 6 GB VRAM box.
 # expect [pass] rss  peak < 2 GiB   and cache-tiles paged mesh << naive
 ```
 
-## Imagery resolution (KJFK)
+## Imagery resolution (disk-unlimited tiers)
 
-`s376-cache fetch` defaults: `near_m=1.0`, `max_export=4000`, so a
-4000 px tile is **4 km at 1 m/px**.
+`s376-cache fetch` metres/px default to **0 = native for the chosen
+source**. `max_export=4000` is the ImageServer cap — more tiles, not
+blurrier pixels. A 4000 px tile at NYS 0.15 m/px is **600 m** on a
+side. Do not upsample a source finer than native unless the operator
+set a positive `--near-m` (e.g. `--near-m 1` on NYS stays 1 m).
 
-| Source | Native | What we pull | Licence |
+| LOD | Coverage | Imagery | DEM |
 |---|---|---|---|
-| USDA NAIP (USGS NAIPImagery) | ~0.6 m | ~1 m near / 4 m mid / 20 m far | US public domain |
-| USGS NAIP Plus / HRO (`--imagery hro`) | ~0.3–1 m | same tiling | US public domain |
-| NYS GIS Latest ortho (`--imagery nys`, auto at KJFK) | ~0.15–0.30 m (0.5–1 ft) | same tiling; 4000 px still 1 m/px unless you lower `--near-m` | NYS public ortho |
+| 0 | **8 km** around the ARP + **12 nm** finals | native: NYS **0.15 m**, HRO **0.30 m**, NAIP **0.60 m**, S2 **10 m** | native: 3DEP **1 m**, GLO-30 **30 m** |
+| 1 | **40 km** | 4× native | 2× native |
+| 2 | **50 km** outer | 16× native | 8× native (never finer than native) |
 
-A finished KJFK fetch at the defaults **slightly downsamples NAIP**
-(0.6 m → 1 m) and does **not** preserve 0.5–1 ft. Use `--imagery nys`
-and `--near-m 0.3` (and more tiles) if you want the NYS native
-resolution; watch the 2 GB CPU / 5 GB VRAM caps — paging still holds
-resident RAM, but VRAM grows with how many lod0 tiles sit in the
-frustum.
+| Source | Native | Default pull (near / mid / far) | Licence |
+|---|---|---|---|
+| USDA NAIP (USGS NAIPImagery) | ~0.6 m | **0.60 / 2.4 / 9.6 m** | US public domain |
+| USGS NAIP Plus / HRO (`--imagery hro`) | ~0.3 m | **0.30 / 1.2 / 4.8 m** | US public domain |
+| NYS GIS Latest ortho (`--imagery nys`, auto at KJFK) | ~0.15 m (0.5 ft) | **0.15 / 0.60 / 2.4 m** | NYS public ortho |
+| Sentinel-2 cloudless | 10 m | **10 / 40 / 160 m** | CC BY 4.0 + Copernicus |
+| USGS 3DEP | 1 m | **1 / 2 / 8 m** | US public domain |
+| Copernicus GLO-30 | 30 m | **30 / 60 / 240 m** | Copernicus open |
 
-`--imagery auto` picks NYS for airports inside NY (KJFK), NAIP for
-other CONUS, Sentinel-2 elsewhere. No Google / Bing / Esri scrape.
+`--imagery auto` picks NYS for airports inside NY (KJFK / KEWR), NAIP
+for other CONUS, Sentinel-2 elsewhere. No Google / Bing / Esri scrape.
+
+The pack may be larger than Raster's 857 GB. The pager still evicts
+when `ram_mb` / `vram_mb` would exceed the preset (2 GiB / 5 GiB on
+`gtx980ti`). VRAM grows with how many lod0 tiles sit in the frustum,
+not with how many tiles sit on disk.
 
 ## Ground detail
 

@@ -45,23 +45,26 @@ struct AirportRef {
 
 struct FetchRequest {
     std::string icao = "KSEA";
-    double radius_km = 25;
+    double radius_km = 50; // outer / far-lod box. Disk is free; pager holds RAM.
     std::string dem = "auto";      // auto | glo30 | 3dep
     std::string imagery = "auto";  // auto | nys | hro | naip | s2 | hillshade
     std::string out_dir;
     std::string season = "summer"; // summer | winter (second pack under out/winter)
     bool dry_run = false;
     bool mips = true;
-    double near_m = 1.0;       // imagery m/px near ARP + finals
-    double near_dem_m = 2.0;
-    double mid_m = 4.0;
-    double mid_dem_m = 8.0;
-    double far_m = 20.0;
-    double far_dem_m = 30.0;
-    double near_radius_km = 5.0;
-    double mid_radius_km = 20.0;
-    double approach_nm = 10.0; // 10 nm final each runway end
-    int max_export = 4000;     // ImageServer export cap
+    // Metres / px. 0 = native for the chosen source (NYS 0.15, NAIP 0.6,
+    // HRO 0.3, S2 10; 3DEP 1, GLO-30 30). Disk is not a constraint —
+    // pull the highest available ortho on the field and approaches.
+    double near_m = 0;
+    double near_dem_m = 0;
+    double mid_m = 0;
+    double mid_dem_m = 0;
+    double far_m = 0;
+    double far_dem_m = 0;
+    double near_radius_km = 8.0;  // ARP box at native ortho
+    double mid_radius_km = 40.0;
+    double approach_nm = 12.0; // native ortho along each final
+    int max_export = 4000;     // ImageServer export cap (more tiles, not blurrier)
 };
 
 struct FetchEstimate {
@@ -90,6 +93,12 @@ GeoBox lod_coverage(const AirportRef& apt, const FetchRequest& req, const LodSpe
 std::vector<RasterTile> tile_raster(const GeoBox& box, double m_per_px, int max_px);
 FetchEstimate estimate_fetch(const FetchRequest& req);
 AirportRef lookup_airport_ref(const std::string& icao); // throws if unknown
+
+// Highest published sample spacing for a source. 0 if unknown.
+double native_imagery_m(const std::string& kind); // nys|hro|naip|s2|hillshade
+double native_dem_m(const std::string& kind);     // 3dep|glo30
+// Fill 0 m/px slots from the source native spacing. Disk-unlimited defaults.
+FetchRequest resolved_fetch(const FetchRequest& req);
 
 // curl glob-safe: no raw [ ] that curl would treat as a character class.
 bool curl_glob_safe(const std::string& url);

@@ -2,8 +2,20 @@
 
 The new IG must beat Raster in every way. **Accuracy is first.** Never
 trade a surveyed number, a lighting system, or a geodetic conversion
-for looks or frame time. The GTX 980 Ti 60 Hz channel budget is the
-only other hard constraint.
+for looks, frame time, or disk. Disk is not a constraint (the pack
+may exceed Raster's 857 GB). The remaining hard constraint is the
+GTX 980 Ti **runtime** RAM/VRAM / 60 Hz channel budget.
+
+**One exception:** the hidden Classic (pre-2001) NYC skyline easter
+egg is **art-directed**, not surveyed. Footprints are only rough
+Lower Manhattan placement so the towers read as downtown. Hero
+lighting, facades, night windows, and reflections may be stylized.
+It is session-only. Classic **draws** only inside the NYC geofence
+(`data/regions/ny.toml`); the rest of the world stays the accurate
+Current skyline. Repositioning or leaving NYC does **not** clear the
+egg — coming back to NYC shows Classic again. It clears only when
+the channels reset (host close/reopen, or a future Refresh channels
+control). Everywhere else, accuracy-first still holds.
 
 CI (`s376-tests` → `test_accuracy`) fails if any of these slip:
 
@@ -106,17 +118,14 @@ outside lod0.
 
 ```bash
 rm -rf cache/KJFK
-./build/s376-cache fetch KJFK --out cache/KJFK --dem 3dep --imagery nys \
-  --near-m 1 --near-dem-m 2 --near-km 5 --approach-nm 10 --radius-km 35 \
-  --max-export 4000
-./build/s376-cache fetch KEWR --out cache/KEWR --dem 3dep --imagery nys \
-  --near-m 1 --near-dem-m 2 --near-km 5 --approach-nm 10 --radius-km 35 \
-  --max-export 4000
+./build/s376-cache fetch KJFK --out cache/KJFK --dem 3dep --imagery nys
+./build/s376-cache fetch KEWR --out cache/KEWR --dem 3dep --imagery nys
+# defaults: native NYS 0.15 m on 8 km + 12 nm finals, 50 km outer, 3DEP 1 m
 ./build/s376-doctor --cache-dir cache/KJFK --no-bench
 # expect [pass] faa-kjfk, [pass] faa-coverage, [pass] imagery-align
 ```
 
-Shared NY outer box (4 m / 20 m) is planned in `data/regions/ny.toml`
+Shared NY outer box (denser mid/far terrain) is planned in `data/regions/ny.toml`
 (~40.40–40.98 N, 74.45–73.45 W). High-res stays per airport. The
 pager should load KEWR only when nearby.
 
