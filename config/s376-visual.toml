@@ -1,9 +1,10 @@
 # s376-visual — default projector-PC config.
 # Copy to config/local.toml (gitignored) for machine-specific ports / LAN flags.
 #
-# Collimated cross-cockpit display. Four projectors, four PCs, Raster's
-# THREE channels (front 0 / left −50 / right +50, 50×32.5, 1920×1200
-# 16:10). Heading offset is added to true heading. Left flip_vertical is
+# Collimated cross-cockpit display. Channel count is this [[channels]]
+# list — not hardcoded to 3. Default is four projector PCs. Heading,
+# FOV, and resolution are per-channel (default 1920×1200, 50×32.5).
+# Heading offset is added to true heading. Left flip_vertical is
 # a projector framebuffer mirror only. Captain sees far_left + mid_left;
 # FO sees mid_right + far_right (mirrors hide the other side). The two
 # middle projectors show the SAME front view — a duplicated front, not a split.

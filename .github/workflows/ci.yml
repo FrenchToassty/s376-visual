@@ -20,8 +20,13 @@ jobs:
           bash -n scripts/build-osgearth.sh
           bash -n scripts/fetch-textures.sh
           bash -n scripts/check-no-rsi.sh
+          bash -n scripts/pack-windows.sh
           ./scripts/check-no-rsi.sh
           ./scripts/setup-mint.sh --dry-run --skip-apt --no-desktop | head
+          ./scripts/pack-windows.sh build /tmp/s376-win-layout
+          test -s /tmp/s376-win-layout/CHANNEL-PCS.txt
+          test -d /tmp/s376-win-layout/config
+          test -d /tmp/s376-win-layout/data
       - name: configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
       - name: build
@@ -124,3 +129,41 @@ jobs:
             echo "fetch must refuse a sim-LAN dest" >&2
             exit 1
           fi
+          ./build/s376-cache fetch KEWR --plan --out /tmp/s376-ci-kewr \
+            --near-m 10 --max-export 256 --radius-km 8 --approach-nm 2 --near-km 4
+          test -s /tmp/s376-ci-kewr/fetch.plan.toml
+          ./build/s376-visual --headless --bench --quality gtx980ti --bind 127.0.0.1:2300 \
+            | tee /tmp/s376-bench.txt
+          grep -q "gtx980ti" /tmp/s376-bench.txt
+          grep -q "budget=" /tmp/s376-bench.txt
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DS376_WITH_OSG=OFF -DS376_WITH_GDAL=OFF
+      - name: build
+        run: cmake --build build --config Release
+      - name: unit tests
+        run: |
+          $env:S376_ALLOW_SIM_LAN = ""
+          $env:S376_ALLOW_LAN = ""
+          ctest --test-dir build -C Release --output-on-failure
+      - name: pack zip
+        shell: pwsh
+        run: ./scripts/pack-windows.ps1 -BuildDir build -OutZip s376-visual-windows.zip
+      - name: pack has no imagery
+        shell: pwsh
+        run: |
+          if (-not (Test-Path s376-visual-windows.zip)) { throw "zip missing" }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $z = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path s376-visual-windows.zip))
+          try {
+            foreach ($e in $z.Entries) {
+              $n = $e.FullName.ToLowerInvariant()
+              if ($n -match '\.(nxt|nxb|nx3|nxs|nxo|tif|tiff|jp2)$') {
+                throw "zip contains $n"
+              }
+            }
+          } finally { $z.Dispose() }
