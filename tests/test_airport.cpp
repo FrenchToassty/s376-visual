@@ -531,6 +531,13 @@ void test_airport() {
     CHECK(osm.aprons.size() == aprons0 + 1);
     CHECK(!osm.buildings.empty());
     CHECK_NEAR(osm.buildings.back().height_m, 18.0, 0.1);
+    CHECK(osm.buildings.back().type.empty()); // building=yes is generic
+    const char* hangar =
+        "{\"type\":\"way\",\"tags\":{\"building\":\"hangar\",\"height\":\"14\"},\"geometry\":["
+        "{\"lat\":37.619,\"lon\":-122.382},{\"lat\":37.6195,\"lon\":-122.382},"
+        "{\"lat\":37.6195,\"lon\":-122.381},{\"lat\":37.619,\"lon\":-122.381}]}";
+    CHECK(s376::merge_osm_json(osm, hangar) == 1);
+    CHECK(osm.buildings.back().type == "hangar");
     CHECK(osm.taxiways.back().path.size() == 2);
     CHECK(osm.aprons.back().ring.size() == 4);
     auto osm_mesh = s376::build_airport_mesh(osm);

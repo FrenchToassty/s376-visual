@@ -72,6 +72,11 @@ void test_display() {
     CHECK(s376::tod_bucket(1.0f, -1) == s376::TodBucket::Night);
     CHECK(s376::tod_bucket(0.f, 0) == s376::TodBucket::Day);
     CHECK(s376::tod_bucket(0.f, 3) == s376::TodBucket::Night);
+    CHECK_NEAR(s376::runway_wetness(0), 0.0, 1e-6);
+    CHECK_NEAR(s376::runway_wetness(1), 0.35, 1e-6);
+    CHECK_NEAR(s376::runway_wetness(2), 0.75, 1e-6);
+    CHECK_NEAR(s376::runway_wetness(3), 1.0, 1e-6);
+    CHECK_NEAR(s376::runway_wetness(5), 1.0, 1e-6);
 
     s376::DisplayCorrection warped = id;
     warped.warp[2][3].src_h_deg = 5.f;

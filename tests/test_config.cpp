@@ -75,6 +75,7 @@ void test_config() {
     CHECK(d.render.hdr && d.render.atmosphere && d.render.water && d.render.markings);
     CHECK(d.render.detail_textures && d.render.buildings);
     CHECK(d.render.ssao && !d.render.shadows);
+    CHECK(d.render.bloom && d.render.fxaa && d.render.filmic);
     CHECK(d.render.sync_to_host);
     CHECK(d.render.ram_mb == 2048);
     CHECK(d.render.vram_mb == 5120);
@@ -93,12 +94,24 @@ void test_config() {
         s376::apply_quality_preset(gtx, "gtx980ti");
         CHECK(gtx.ssao && !gtx.shadows);
         CHECK(gtx.hdr && gtx.atmosphere);
+        CHECK(gtx.bloom && gtx.fxaa && gtx.filmic);
         CHECK(gtx.ram_mb == 2048);
         CHECK(gtx.vram_mb == 5120);
         CHECK(gtx.mesh_n == 96);
         const auto dumped = s376::dump_config(d);
         CHECK(dumped.find("render.ram_mb=2048") != std::string::npos);
         CHECK(dumped.find("render.vram_mb=5120") != std::string::npos);
+        CHECK(dumped.find("render.bloom=true") != std::string::npos);
+        CHECK(dumped.find("render.fxaa=true") != std::string::npos);
+        CHECK(dumped.find("render.filmic=true") != std::string::npos);
+        int nb = 0;
+        const auto* budgets = s376::quality_gpu_budgets(nb);
+        CHECK(nb >= 8 && budgets != nullptr);
+        CHECK(std::string(budgets[0].name) == "atmosphere");
+        CHECK_NEAR(s376::quality_gpu_budget_total_ms(false), 12.20, 0.05);
+        CHECK_NEAR(s376::quality_gpu_budget_total_ms(true), 14.00, 0.05);
+        CHECK(s376::quality_gpu_budget_total_ms(false) < 16.67f);
+        CHECK(s376::quality_gpu_budget_total_ms(true) < 16.67f);
     }
     {
         const auto lin = s376::plan_gl_display(true, false);
@@ -159,22 +172,26 @@ void test_config() {
         {
             std::ofstream o(qpath);
             o << "[host]\nbind = \"127.0.0.1:2300\"\n"
-                 "[render]\nquality = \"rtx\"\nssao = false\n";
+                 "[render]\nquality = \"rtx\"\nssao = false\nbloom = false\n";
         }
         auto q = s376::load_config(qpath);
         CHECK(q.render.quality == "rtx");
         CHECK(q.render.shadows);
         CHECK(!q.render.ssao); // individual flag overrides the preset
+        CHECK(!q.render.bloom);
+        CHECK(q.render.fxaa && q.render.filmic);
         CHECK(q.render.hdr && q.render.buildings);
         std::remove(qpath);
     }
+    auto cfg_path = [](const char* rel) {
+        const std::string src = std::string("../") + rel;
+        std::ifstream a(src);
+        if (a)
+            return src;
+        return std::string(rel);
+    };
     {
-        std::string rtx_path = "config/quality-rtx.toml";
-        {
-            std::ifstream probe(rtx_path);
-            if (!probe)
-                rtx_path = "../config/quality-rtx.toml";
-        }
+        std::string rtx_path = cfg_path("config/quality-rtx.toml");
         auto rtx_file = s376::load_config(rtx_path);
         CHECK(rtx_file.render.quality == "rtx");
         CHECK(rtx_file.render.ssao && rtx_file.render.shadows);
@@ -183,12 +200,7 @@ void test_config() {
         CHECK_NEAR(rtx_file.channels[0].heading_offset_deg, -50.0, 1e-6);
     }
     {
-        std::string ch3 = "config/channels-3.toml";
-        {
-            std::ifstream probe(ch3);
-            if (!probe)
-                ch3 = "../config/channels-3.toml";
-        }
+        std::string ch3 = cfg_path("config/channels-3.toml");
         auto c3 = s376::load_config(ch3);
         CHECK(c3.channels.size() == 3);
         CHECK(c3.channels[0].name == "front");
@@ -202,12 +214,7 @@ void test_config() {
         CHECK(wrap3[0].name == "left" && wrap3[1].name == "front" && wrap3[2].name == "right");
     }
     {
-        std::string r3 = "config/raster-3.toml";
-        {
-            std::ifstream probe(r3);
-            if (!probe)
-                r3 = "../config/raster-3.toml";
-        }
+        std::string r3 = cfg_path("config/raster-3.toml");
         auto rc = s376::load_config(r3);
         CHECK(rc.channels.size() == 4);
         auto wrapr = s376::wrap_channels(rc.channels);
@@ -227,12 +234,7 @@ void test_config() {
     std::ifstream globe("data/earth/s376.earth");
     CHECK(static_cast<bool>(globe));
 
-    std::string desk = "config/desk-4monitor.toml";
-    {
-        std::ifstream probe(desk);
-        if (!probe)
-            desk = "../config/desk-4monitor.toml";
-    }
+    std::string desk = cfg_path("config/desk-4monitor.toml");
     auto desk_cfg = s376::load_config(desk);
     CHECK(desk_cfg.channels.size() == 4);
     CHECK(desk_cfg.render.msaa == 4);

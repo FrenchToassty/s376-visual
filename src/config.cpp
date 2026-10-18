@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -122,6 +123,9 @@ void apply_quality_preset(RenderConfig& r, const std::string& name) {
         r.buildings = true;
         r.ssao = true;
         r.shadows = true;
+        r.bloom = true;
+        r.fxaa = true;
+        r.filmic = true;
         r.exposure = 1.05f;
         r.ram_mb = std::max(r.ram_mb, 3072);
         r.vram_mb = std::max(r.vram_mb, 10240);
@@ -139,10 +143,45 @@ void apply_quality_preset(RenderConfig& r, const std::string& name) {
     r.buildings = true;
     r.ssao = true;
     r.shadows = false;
+    r.bloom = true;
+    r.fxaa = true;
+    r.filmic = true;
     r.exposure = 1.0f;
     r.ram_mb = 2048;
     r.vram_mb = 5120;
     r.mesh_n = 96;
+}
+
+namespace {
+const QualityGpuBudget kQualityBudgets[] = {
+    {"atmosphere", "render.atmosphere", 0.45f}, // Rayleigh/Mie sky + aerial
+    {"water", "render.water", 0.80f},           // Fresnel / glint / waves / foam
+    {"detail", "render.detail_textures", 0.55f},
+    {"buildings", "render.buildings", 1.10f}, // facades + night windows
+    {"runway_pbr", "render.markings", 0.30f}, // asphalt/concrete + wet
+    {"bloom", "render.bloom", 0.70f},         // light halo + city glow
+    {"filmic", "render.filmic", 0.15f},
+    {"fxaa", "render.fxaa", 0.35f},
+    {"msaa4", "render.msaa", 1.80f},     // window only
+    {"shadows", "render.shadows", 1.80f} // one cascade; off on gtx980ti
+};
+} // namespace
+
+const QualityGpuBudget* quality_gpu_budgets(int& n) {
+    n = static_cast<int>(sizeof(kQualityBudgets) / sizeof(kQualityBudgets[0]));
+    return kQualityBudgets;
+}
+
+float quality_gpu_budget_total_ms(bool shadows_on) {
+    int n = 0;
+    const QualityGpuBudget* b = quality_gpu_budgets(n);
+    float s = 6.0f; // base tiles + mesh + lights
+    for (int i = 0; i < n; ++i) {
+        if (std::strcmp(b[i].name, "shadows") == 0 && !shadows_on)
+            continue;
+        s += b[i].gpu_ms;
+    }
+    return s;
 }
 
 AppConfig default_config() {
@@ -241,6 +280,12 @@ static void fill_render(RenderConfig& r, const std::unordered_map<std::string, s
         parse_bool(kv.at("render.ssao"), r.ssao);
     if (kv.count("render.shadows"))
         parse_bool(kv.at("render.shadows"), r.shadows);
+    if (kv.count("render.bloom"))
+        parse_bool(kv.at("render.bloom"), r.bloom);
+    if (kv.count("render.fxaa"))
+        parse_bool(kv.at("render.fxaa"), r.fxaa);
+    if (kv.count("render.filmic"))
+        parse_bool(kv.at("render.filmic"), r.filmic);
     if (kv.count("render.exposure"))
         r.exposure = static_cast<float>(std::stod(kv.at("render.exposure")));
     if (kv.count("render.sync_to_host"))
@@ -384,6 +429,9 @@ std::string dump_config(const AppConfig& cfg, const std::vector<std::string>& se
     o << "render.buildings=" << (cfg.render.buildings ? "true" : "false") << "\n";
     o << "render.ssao=" << (cfg.render.ssao ? "true" : "false") << "\n";
     o << "render.shadows=" << (cfg.render.shadows ? "true" : "false") << "\n";
+    o << "render.bloom=" << (cfg.render.bloom ? "true" : "false") << "\n";
+    o << "render.fxaa=" << (cfg.render.fxaa ? "true" : "false") << "\n";
+    o << "render.filmic=" << (cfg.render.filmic ? "true" : "false") << "\n";
     o << "render.sync_to_host=" << (cfg.render.sync_to_host ? "true" : "false") << "\n";
     o << "render.ram_mb=" << cfg.render.ram_mb << "\n";
     o << "render.vram_mb=" << cfg.render.vram_mb << "\n";

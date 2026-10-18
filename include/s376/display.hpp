@@ -87,6 +87,9 @@ const char* display_pattern_name(DisplayPattern p);
 TodBucket tod_bucket(float tod_hours, int tod_select);
 const ColorSet& color_for_tod(const DisplayCorrection& c, TodBucket b);
 
+// Host type-124 runway_condition → wetness 0..1 (dry / damp / wet / flooded).
+float runway_wetness(int runway_condition);
+
 RgbImage make_pattern_rgb(int w, int h, DisplayPattern p, float hfov_deg, float vfov_deg);
 RgbImage apply_correction(const RgbImage& src, const DisplayCorrection& c, TodBucket bucket);
 

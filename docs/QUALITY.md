@@ -29,12 +29,43 @@ resident set is not. The hangar RTX 5060 Ti is the `rtx` preset.
 | Aniso | 16 | 16 |
 | HDR / ACES | on | on |
 | Atmosphere / water / markings / detail / buildings / SSAO | on | on |
-| Shadows | off | on (flag only; CSM not drawn yet) |
+| Bloom / FXAA / filmic | on | on |
+| Shadows | off | on (one-cascade sun CSM, 1024) |
 | Texture format | BC1 (DXT1) far, BC7 near | same |
 | CPU decode to RGBA | **never** | never |
 
 Override any field in TOML after `quality = ...`. `custom` skips the
-preset clamp.
+preset clamp. Each quality lever is independently switchable
+(`render.atmosphere`, `render.water`, `render.detail_textures`,
+`render.buildings`, `render.markings`, `render.bloom`, `render.filmic`,
+`render.fxaa`, `render.msaa`, `render.shadows`). Shot CLI:
+`--tod HOURS` (host type 124) and `--rwy-cond N` (0 dry / 1 damp / 2 wet
+/ ≥3 flooded).
+
+## GTX 980 Ti per-feature GPU budget
+
+One channel, 1920×1200, 60 Hz = **16.67 ms**. Hangar is one 980 Ti per
+channel PC. Values are Maxwell ALU budgets (this box has no 980 Ti;
+llvmpipe is a relative proxy only). Real `GL_TIME_ELAPSED` waits until
+Joey's Mint PC is back.
+
+| Feature | Toggle | GPU ms | What it draws |
+|---|---|---|---|
+| base (tiles + mesh + lights) | — | **6.00** | paged lod + official lights |
+| atmosphere | `render.atmosphere` | **0.45** | Rayleigh/Mie sky, aerial haze from host visibility |
+| water | `render.water` | **0.80** | Jamaica Bay / ocean, Fresnel, glint, wave scroll, foam |
+| detail | `render.detail_textures` | **0.55** | land-cover atlas under ortho (near field) |
+| buildings | `render.buildings` | **1.10** | OSM facades/roofs by type, night windows |
+| runway PBR | `render.markings` | **0.30** | asphalt/concrete + rubber + wet from type 124 |
+| bloom | `render.bloom` | **0.70** | Raster fog-halo on lights + city glow |
+| filmic | `render.filmic` | **0.15** | lift/gamma/gain after ACES |
+| FXAA | `render.fxaa` | **0.35** | window only (screenshot FBO stays MSAA-off) |
+| MSAA 4x | `render.msaa` | **1.80** | window only |
+| shadows | `render.shadows` | **1.80** | one cascade, sun; **off** on `gtx980ti` |
+
+`quality_gpu_budget_total_ms(false)` = **12.20 ms** (default hangar).
+`quality_gpu_budget_total_ms(true)` = **14.00 ms** (`rtx`). Both fit
+under 16.67 ms. Official geometry and light placement are not changed.
 
 ## Why a 1 GB KJFK pack used 14 GB RAM
 
@@ -126,3 +157,22 @@ camera **does not inherit** the master's viewport (a 1920×1008
 decorated window used to leave a ~7% black bar on 1920×1080 captures).
 `--record` writes one RGB frame at a time (ffmpeg pipe or a PNG) so a
 full 04R approach stays inside the 980 Ti `ram_mb` cap.
+
+## Quality-pass frames (llvmpipe, `/tmp/kjfk-tiny` ~8 m)
+
+Hangar 980 Ti / 1 m pack is offline. These are software-GL proxies.
+
+| Pair | Before | After |
+|---|---|---|
+| 0.6 nm day | `kjfk_04r_0.6nm_quality_before.png` | `kjfk_04r_0.6nm_quality_after.png` |
+| 2.99 nm day | `kjfk_04r_2.99nm_quality_before.png` | `kjfk_04r_2.99nm_quality_after.png` |
+| atmosphere off/on | `kjfk_04r_0.6nm_atmo_off.png` | `kjfk_04r_0.6nm_quality_after.png` |
+| water off/on | `kjfk_04r_0.6nm_water_off.png` | `kjfk_04r_0.6nm_quality_after.png` |
+| detail off/on | `kjfk_04r_0.6nm_detail_off.png` | `kjfk_04r_0.6nm_quality_after.png` |
+| runway dry/wet | `kjfk_04r_0.15nm_dry.png` | `kjfk_04r_0.15nm_wet.png` (`--rwy-cond 2`) |
+| dusk | — | `kjfk_04r_0.6nm_dusk.png` (`--tod 0.5`) |
+| night | — | `kjfk_04r_0.6nm_night.png` (`--tod 3`) + `kjfk_04r_2.99nm_night.png` |
+
+`--tod 19` is the type-124 dusk bucket; with the existing
+`sun_ecef` (local solar + longitude) that is still day at KJFK in June.
+Twilight is `--tod 0.5`, night `--tod 3`. Do not change `sun_ecef` here.

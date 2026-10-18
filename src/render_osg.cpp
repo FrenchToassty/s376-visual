@@ -1,5 +1,7 @@
 #include "s376/airport.hpp"
+#include "s376/config.hpp"
 #include "s376/control.hpp"
+#include "s376/display.hpp"
 #include "s376/dxt.hpp"
 #include "s376/geo.hpp"
 #include "s376/lights.hpp"
@@ -103,10 +105,12 @@ varying vec2 vUV;
 varying vec2 vWorld;
 varying float vEyeDist;
 varying vec3 vView;
+varying vec3 vPos;
 void main() {
     vN = gl_Normal;
     vUV = gl_MultiTexCoord0.xy;
     vWorld = gl_MultiTexCoord1.xy;
+    vPos = gl_Vertex.xyz;
     vec4 eye = gl_ModelViewMatrix * gl_Vertex;
     vEyeDist = length(eye.xyz);
     vView = -eye.xyz;
@@ -117,6 +121,8 @@ void main() {
 const char* kLitTexFS = R"(
 #version 120
 uniform sampler2D sTex;
+uniform sampler2D sDetail;
+uniform sampler2D sShadow;
 uniform vec3 uSunDir;
 uniform vec3 uAmbient;
 uniform vec3 uDiffuse;
@@ -127,12 +133,19 @@ uniform float uHaze;
 uniform float uExposure;
 uniform float uDetail;
 uniform float uWater;
-uniform sampler2D sDetail;
+uniform float uNight;
+uniform float uTime;
+uniform float uBloom;
+uniform float uFilmic;
+uniform float uAtmosphere;
+uniform float uShadows;
+uniform mat4 uShadowMatrix;
 varying vec3 vN;
 varying vec2 vUV;
 varying vec2 vWorld;
 varying float vEyeDist;
 varying vec3 vView;
+varying vec3 vPos;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p) {
     vec2 i = floor(p), f = fract(p);
@@ -143,10 +156,28 @@ float noise(vec2 p) {
 vec3 aces(vec3 x) {
     return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
 }
+vec3 grade(vec3 x, float filmicOn) {
+    vec3 t = aces(x);
+    vec3 f = pow(max(t, vec3(0.0)), vec3(0.96)) * 1.03 + vec3(0.008);
+    return mix(t, clamp(f, 0.0, 1.0), filmicOn);
+}
 float aerial(float dist, vec3 n) {
     float g = 1.0 - clamp(abs(dot(normalize(n), normalize(uUp))), 0.0, 1.0);
     float h = uFogDensity + uHaze * (0.10 + 0.55 * pow(g, 1.6));
     return exp(-h * h * dist * dist);
+}
+float shadow_term(vec3 world) {
+    if (uShadows < 0.5)
+        return 1.0;
+    vec4 sp = uShadowMatrix * vec4(world, 1.0);
+    if (sp.w <= 0.0)
+        return 1.0;
+    vec3 sc = sp.xyz / sp.w;
+    sc = sc * 0.5 + 0.5;
+    if (sc.x <= 0.001 || sc.x >= 0.999 || sc.y <= 0.001 || sc.y >= 0.999 || sc.z >= 0.999)
+        return 1.0;
+    float d = texture2D(sShadow, sc.xy).r;
+    return sc.z > d + 0.004 ? 0.38 : 1.0;
 }
 void main() {
     vec3 n = normalize(vN);
@@ -155,35 +186,39 @@ void main() {
     if (uWater > 0.5)
         wet = smoothstep(0.03, 0.16, albedo.b - max(albedo.r, albedo.g) * 0.90);
     float ndl = max(dot(n, normalize(uSunDir)), 0.0);
+    ndl *= shadow_term(vPos);
     float luma = dot(albedo, vec3(0.30, 0.50, 0.20));
     float chroma = albedo.b + albedo.g * 0.6 - albedo.r * 1.4;
     float darkWater = (1.0 - smoothstep(0.05, 0.20, luma)) * smoothstep(0.00, 0.06, chroma);
     if (uWater > 0.5)
         wet = max(wet, darkWater);
     vec2 wu = (dot(vWorld, vWorld) > 1.0) ? vWorld : vUV;
+    float gness = clamp((albedo.g - albedo.r) * 4.0, 0.0, 1.0);
     if (wet < 0.55) {
         float macro = 0.82 + 0.18 * noise(wu * 80.0);
         float micro = 0.90 + 0.10 * noise(wu * 600.0);
         vec3 land = albedo * mix(1.0, macro * micro, uDetail);
-        float gness = clamp((land.g - land.r) * 4.0, 0.0, 1.0);
-        float close = clamp(1.0 - vEyeDist / 2500.0, 0.0, 1.0);
+        gness = clamp((land.g - land.r) * 4.0, 0.0, 1.0);
+        float paved = clamp((luma - 0.22) * 3.5 * (1.0 - gness), 0.0, 1.0);
+        float close = clamp(1.0 - vEyeDist / 2200.0, 0.0, 1.0);
         float mid = clamp(1.0 - vEyeDist / 8000.0, 0.12, 1.0);
         vec3 grass = vec3(0.20, 0.30, 0.13) * (0.82 + 0.18 * noise(wu * 900.0));
         vec3 dirt = vec3(0.30, 0.23, 0.14) * (0.88 + 0.12 * noise(wu * 300.0));
-        vec2 duv = wu * 400.0;
-        vec3 atlas = texture2D(sDetail, vec2(fract(duv.x) * 0.5 + (gness > 0.35 ? 0.0 : 0.5),
-                                             fract(duv.y) * 0.5 + (wet > 0.2 ? 0.5 : 0.0))).rgb;
-        land = mix(mix(land, dirt, 0.22), grass, gness * 0.40);
-        land = mix(land, land * (0.55 + 0.90 * atlas), close);
+        vec2 duv = wu * 480.0;
+        float qx = paved > 0.45 ? 0.5 : 0.0;
+        float qy = gness > 0.35 ? 0.0 : 0.5;
+        vec3 atlas = texture2D(sDetail, vec2(fract(duv.x) * 0.5 + qx, fract(duv.y) * 0.5 + qy)).rgb;
+        land = mix(mix(land, dirt, 0.18 * (1.0 - paved)), grass, gness * 0.42);
+        land = mix(land, land * (0.50 + 0.95 * atlas), close);
         albedo = mix(albedo, land, uDetail * mid * (1.0 - wet));
     }
     vec3 col = albedo * (uAmbient + uDiffuse * ndl);
-    if (wet > 0.01) {
+    if (wet > 0.01 && uWater > 0.5) {
         vec3 view = normalize(vView);
         vec3 sun = normalize(uSunDir);
-        float n1 = noise(wu * 520.0);
-        float n2 = noise(wu * 1280.0 + 11.0);
-        vec3 wn = normalize(n + vec3((n1 - 0.5) * 0.18, (n2 - 0.5) * 0.18, 0.0));
+        float n1 = noise(wu * 520.0 + vec2(uTime * 0.07, uTime * 0.03));
+        float n2 = noise(wu * 1280.0 + vec2(-uTime * 0.05, uTime * 0.09) + 11.0);
+        vec3 wn = normalize(n + vec3((n1 - 0.5) * 0.22, (n2 - 0.5) * 0.22, 0.0));
         float fres = pow(1.0 - clamp(dot(wn, view), 0.0, 1.0), 5.0);
         vec3 deep = vec3(0.02, 0.08, 0.16);
         vec3 shallow = vec3(0.05, 0.16, 0.24);
@@ -191,13 +226,20 @@ void main() {
         vec3 skyref = mix(uFogColor, vec3(0.32, 0.52, 0.78), 0.55);
         wcol = mix(wcol, skyref, 0.20 + 0.58 * fres);
         float glint = pow(max(dot(reflect(-sun, wn), view), 0.0), 72.0);
-        wcol += vec3(1.0, 0.95, 0.82) * glint * 0.90;
+        wcol += vec3(1.0, 0.95, 0.82) * glint * 0.90 * (1.0 - uNight * 0.85);
         wcol *= (uAmbient + uDiffuse * (0.22 + 0.55 * max(dot(wn, sun), 0.0)));
+        float foam = smoothstep(0.42, 0.68, wet) * (1.0 - smoothstep(0.78, 0.98, wet));
+        foam *= 0.55 + 0.45 * noise(wu * 900.0 + vec2(uTime * 0.15, 0.0));
+        wcol = mix(wcol, vec3(0.86, 0.90, 0.94), foam * 0.65);
         col = mix(col, wcol, wet);
+    }
+    if (uBloom > 0.5 && uNight > 0.25 && wet < 0.40) {
+        float urban = smoothstep(0.14, 0.36, luma) * (1.0 - gness);
+        col += vec3(1.0, 0.70, 0.32) * urban * uNight * uBloom * 0.14;
     }
     float f = aerial(vEyeDist, n);
     col = mix(uFogColor, col, clamp(f, 0.0, 1.0));
-    gl_FragColor = vec4(aces(col * uExposure), 1.0);
+    gl_FragColor = vec4(grade(col * uExposure, uFilmic), 1.0);
 }
 )";
 
@@ -207,12 +249,14 @@ varying vec3 vN;
 varying vec4 vCol;
 varying float vEyeDist;
 varying vec3 vPos;
+varying vec3 vView;
 void main() {
     vN = gl_Normal;
     vCol = gl_Color;
     vPos = gl_Vertex.xyz;
     vec4 eye = gl_ModelViewMatrix * gl_Vertex;
     vEyeDist = length(eye.xyz);
+    vView = -eye.xyz;
     gl_Position = ftransform();
 }
 )";
@@ -226,13 +270,21 @@ uniform vec3 uFogColor;
 uniform float uFogDensity;
 uniform float uHaze;
 uniform vec3 uUp;
+uniform vec3 uOrigin;
 uniform float uExposure;
 uniform float uDetail;
 uniform float uSsao;
+uniform float uNight;
+uniform float uWetness;
+uniform float uFilmic;
+uniform float uShadows;
+uniform sampler2D sShadow;
+uniform mat4 uShadowMatrix;
 varying vec3 vN;
 varying vec4 vCol;
 varying float vEyeDist;
 varying vec3 vPos;
+varying vec3 vView;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p) {
     vec2 i = floor(p), f = fract(p);
@@ -243,17 +295,73 @@ float noise(vec2 p) {
 vec3 aces(vec3 x) {
     return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
 }
+vec3 grade(vec3 x, float filmicOn) {
+    vec3 t = aces(x);
+    vec3 f = pow(max(t, vec3(0.0)), vec3(0.96)) * 1.03 + vec3(0.008);
+    return mix(t, clamp(f, 0.0, 1.0), filmicOn);
+}
+float shadow_term(vec3 world) {
+    if (uShadows < 0.5)
+        return 1.0;
+    vec4 sp = uShadowMatrix * vec4(world, 1.0);
+    if (sp.w <= 0.0)
+        return 1.0;
+    vec3 sc = sp.xyz / sp.w;
+    sc = sc * 0.5 + 0.5;
+    if (sc.x <= 0.001 || sc.x >= 0.999 || sc.y <= 0.001 || sc.y >= 0.999 || sc.z >= 0.999)
+        return 1.0;
+    float d = texture2D(sShadow, sc.xy).r;
+    return sc.z > d + 0.004 ? 0.38 : 1.0;
+}
 void main() {
     vec3 n = normalize(vN);
-    float ndl = max(dot(n, normalize(uSunDir)), 0.0);
+    vec3 sun = normalize(uSunDir);
+    float ndl = max(dot(n, sun), 0.0) * shadow_term(vPos);
     float mat = vCol.a;
     vec3 albedo = vCol.rgb;
     if (mat < 0.5) {
+        vec2 uv = vPos.xy * 0.08;
+        float n1 = noise(uv);
+        float n2 = noise(uv * 4.3 + 3.1);
+        vec3 nmap = normalize(n + vec3((n1 - 0.5) * 0.28, (n2 - 0.5) * 0.28, 0.0));
         float rub = 0.88 + 0.12 * noise(vPos.xy * 0.08);
         albedo *= mix(1.0, (0.78 + 0.22 * noise(vPos.xy * 0.35)) * rub, uDetail);
+        float rough = mix(0.74, 0.18, clamp(uWetness, 0.0, 1.0));
+        vec3 view = normalize(vView);
+        float fres = pow(1.0 - clamp(dot(nmap, view), 0.0, 1.0), 5.0);
+        float glint = pow(max(dot(reflect(-sun, nmap), view), 0.0), mix(40.0, 180.0, 1.0 - rough));
+        albedo = mix(albedo, mix(albedo * 0.55, uFogColor, 0.30 + 0.50 * fres), uWetness * 0.85);
+        albedo += vec3(0.85, 0.90, 1.0) * glint * uWetness * 0.55;
+        n = nmap;
+        ndl = max(dot(n, sun), 0.0) * shadow_term(vPos);
+    } else if (mat > 1.5 && mat < 2.5) {
+        float n1 = noise(vPos.xy * 0.22);
+        albedo *= mix(1.0, 0.88 + 0.12 * n1, uDetail);
+        float rough = mix(0.62, 0.20, clamp(uWetness, 0.0, 1.0));
+        vec3 view = normalize(vView);
+        vec3 nmap = normalize(n + vec3((n1 - 0.5) * 0.16, 0.0, 0.0));
+        float fres = pow(1.0 - clamp(dot(nmap, view), 0.0, 1.0), 5.0);
+        float glint = pow(max(dot(reflect(-sun, nmap), view), 0.0), mix(32.0, 140.0, 1.0 - rough));
+        albedo = mix(albedo, mix(albedo * 0.70, uFogColor, 0.22 + 0.40 * fres), uWetness * 0.55);
+        albedo += vec3(0.80, 0.86, 0.95) * glint * uWetness * 0.30;
     } else if (mat > 2.5 && mat < 3.5) {
+        vec3 up = normalize(uUp);
+        float hgt = abs(dot(vPos - uOrigin, up));
+        vec3 tng = normalize(cross(n, up));
+        if (dot(tng, tng) < 1e-6)
+            tng = vec3(1.0, 0.0, 0.0);
+        vec2 fu = vec2(dot(vPos, tng) * 0.35, hgt * 0.55);
+        float win = step(0.22, fract(fu.x)) * step(0.28, fract(fu.y));
+        float mortar = smoothstep(0.08, 0.18, abs(fract(fu.x * 2.0) - 0.5));
+        albedo *= mix(0.82, 1.0, mortar);
+        albedo = mix(albedo, albedo * vec3(0.22, 0.28, 0.36), win * 0.70);
+        float glow = win * uNight * (0.28 + 0.72 * hash(floor(fu)));
+        albedo += vec3(1.0, 0.78, 0.42) * glow * 1.65;
         albedo *= 0.75 + 0.25 * ndl;
         albedo *= mix(1.0, 0.85 + 0.15 * uSsao, 1.0);
+    } else if (mat > 3.5 && mat < 4.5) {
+        float tile = 0.84 + 0.16 * noise(vPos.xy * 0.55);
+        albedo *= tile;
     }
     if (mat > 0.5 && mat < 1.5) {
         float fade = clamp(1.0 - vEyeDist / 12000.0, 0.35, 1.0);
@@ -265,7 +373,7 @@ void main() {
     float h = uFogDensity + uHaze * (0.12 + 0.45 * g);
     float f = exp(-h * h * vEyeDist * vEyeDist);
     col = mix(uFogColor, col, clamp(f, 0.0, 1.0));
-    gl_FragColor = vec4(aces(col * uExposure), 1.0);
+    gl_FragColor = vec4(grade(col * uExposure, uFilmic), 1.0);
 }
 )";
 
@@ -300,6 +408,7 @@ uniform float uHaze;
 uniform float uExposure;
 uniform float uSsao;
 uniform float uNight;
+uniform float uFilmic;
 varying vec3 vN;
 varying vec3 vView;
 varying vec2 vUV;
@@ -308,6 +417,11 @@ varying float vMat;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 vec3 aces(vec3 x) {
     return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+}
+vec3 grade(vec3 x, float filmicOn) {
+    vec3 t = aces(x);
+    vec3 f = pow(max(t, vec3(0.0)), vec3(0.96)) * 1.03 + vec3(0.008);
+    return mix(t, clamp(f, 0.0, 1.0), filmicOn);
 }
 void main() {
     vec3 n = normalize(vN);
@@ -338,7 +452,7 @@ void main() {
     float h = uFogDensity + uHaze * (0.10 + 0.40 * g);
     float f = exp(-h * h * vEyeDist * vEyeDist);
     col = mix(uFogColor, col, clamp(f, 0.0, 1.0));
-    gl_FragColor = vec4(aces(col * uExposure * 1.08), 1.0);
+    gl_FragColor = vec4(grade(col * uExposure * 1.08, uFilmic), 1.0);
 }
 )";
 
@@ -362,11 +476,17 @@ uniform vec3 uDiffuse;
 uniform float uFogDensity;
 uniform float uHaze;
 uniform float uExposure;
+uniform float uFilmic;
 varying vec4 vCol;
 varying float vEyeDist;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 vec3 aces(vec3 x) {
     return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+}
+vec3 grade(vec3 x, float filmicOn) {
+    vec3 t = aces(x);
+    vec3 f = pow(max(t, vec3(0.0)), vec3(0.96)) * 1.03 + vec3(0.008);
+    return mix(t, clamp(f, 0.0, 1.0), filmicOn);
 }
 void main() {
     float edge = 0.55 + 0.45 * hash(gl_FragCoord.xy * 0.07 + vEyeDist * 0.001);
@@ -375,7 +495,7 @@ void main() {
     float h = uFogDensity + uHaze;
     float f = exp(-h * h * vEyeDist * vEyeDist);
     col = mix(uFogColor, col, clamp(f, 0.0, 1.0));
-    gl_FragColor = vec4(aces(col * uExposure), vCol.a * edge);
+    gl_FragColor = vec4(grade(col * uExposure, uFilmic), vCol.a * edge);
 }
 )";
 
@@ -405,10 +525,18 @@ const char* kPointFS = R"(
 uniform vec3 uFogColor;
 uniform float uFogDensity;
 uniform float uExposure;
+uniform float uBloom;
+uniform float uNight;
+uniform float uFilmic;
 varying vec4 vCol;
 varying float vEyeDist;
 vec3 aces(vec3 x) {
     return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+}
+vec3 grade(vec3 x, float filmicOn) {
+    vec3 t = aces(x);
+    vec3 f = pow(max(t, vec3(0.0)), vec3(0.96)) * 1.03 + vec3(0.008);
+    return mix(t, clamp(f, 0.0, 1.0), filmicOn);
 }
 void main() {
     vec2 pc = gl_PointCoord * 2.0 - 1.0;
@@ -416,8 +544,11 @@ void main() {
     if (r2 > 1.0)
         discard;
     float core = exp(-r2 * 2.8);
+    float halo = exp(-r2 * 0.55) * 0.38 * uBloom * (0.35 + 0.65 * uNight);
+    float fogH = exp(-uFogDensity * vEyeDist * 0.12);
     float f = exp(-uFogDensity * uFogDensity * vEyeDist * vEyeDist);
-    gl_FragColor = vec4(aces(vCol.rgb * uExposure), vCol.a * core * clamp(f, 0.0, 1.0));
+    float a = vCol.a * (core + halo * fogH) * clamp(f, 0.0, 1.0);
+    gl_FragColor = vec4(grade(vCol.rgb * uExposure, uFilmic), a);
 }
 )";
 
@@ -441,10 +572,17 @@ uniform vec3 uFogColor;
 uniform float uExposure;
 uniform float uTanHalfH;
 uniform float uTanHalfV;
+uniform float uFilmic;
+uniform float uAtmosphere;
 varying vec2 vNdc;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 vec3 aces(vec3 x) {
     return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+}
+vec3 grade(vec3 x, float filmicOn) {
+    vec3 t = aces(x);
+    vec3 f = pow(max(t, vec3(0.0)), vec3(0.96)) * 1.03 + vec3(0.008);
+    return mix(t, clamp(f, 0.0, 1.0), filmicOn);
 }
 void main() {
     vec3 up = normalize(uUp);
@@ -457,26 +595,85 @@ void main() {
     float h = clamp(dot(d, up), -1.0, 1.0);
     vec3 sun = normalize(uSunDir);
     float m = max(dot(d, sun), 0.0);
+    float sunH = clamp(dot(sun, up), -0.25, 1.0);
     vec3 zenith = vec3(0.10, 0.38, 0.92);
     vec3 horiz = vec3(0.55, 0.72, 0.95);
     vec3 ground = vec3(0.28, 0.38, 0.52);
-    vec3 sky = mix(horiz, zenith, pow(clamp(h, 0.0, 1.0), 0.55));
+    vec3 simple = mix(horiz, zenith, pow(clamp(h, 0.0, 1.0), 0.55));
     if (h < 0.0)
-        sky = mix(horiz, ground, clamp(-h * 2.0, 0.0, 1.0));
-    sky += vec3(1.0, 0.96, 0.82) * smoothstep(0.9994, 0.99985, m) * 0.55;
-    sky += vec3(1.0, 0.90, 0.70) * pow(m, 512.0) * 0.18;
+        simple = mix(horiz, ground, clamp(-h * 2.0, 0.0, 1.0));
+    simple += vec3(1.0, 0.96, 0.82) * smoothstep(0.9994, 0.99985, m) * 0.55;
+    simple += vec3(1.0, 0.90, 0.70) * pow(m, 512.0) * 0.18;
     float hz = pow(1.0 - abs(h), 1.25);
-    sky = mix(sky, uFogColor, 0.16 * hz);
-    float night = clamp(-dot(sun, up) * 2.0, 0.0, 1.0);
+    simple = mix(simple, uFogColor, 0.16 * hz);
+    // Rayleigh / Mie as a modulation on the proven gradient (GLSL 120).
+    // A full optical-depth integral goes brown at noon on Maxwell ALU.
+    float cosT = dot(d, sun);
+    float rayP = 0.75 * (1.0 + cosT * cosT);
+    float g = 0.76;
+    float mieP = (1.0 - g * g) / pow(max(1.0 + g * g - 2.0 * g * cosT, 1e-4), 1.5);
+    float am = 1.0 / max(h * 0.70 + 0.30, 0.10);
+    vec3 rayleigh = vec3(0.10, 0.34, 0.90) * rayP * exp(-0.08 * am);
+    vec3 mie = vec3(1.0, 0.88, 0.65) * mieP * 0.045;
+    float twilight = pow(1.0 - clamp(sunH, 0.0, 1.0), 2.4);
+    vec3 dusk = vec3(1.0, 0.42, 0.12) * mieP * twilight * 0.40 * exp(-abs(h) * 3.2);
+    vec3 pbr = (rayleigh + mie) * (0.45 + 0.70 * max(sunH, 0.0)) + dusk;
+    pbr = mix(simple, pbr + simple * 0.35, 0.55);
+    pbr += vec3(1.0, 0.96, 0.85) * smoothstep(0.9995, 0.99992, m) * clamp(sunH + 0.05, 0.0, 1.0);
+    if (h < 0.0)
+        pbr = mix(pbr, ground * (0.25 + 0.75 * max(sunH, 0.0)), clamp(-h * 2.2, 0.0, 1.0));
+    pbr = mix(pbr, uFogColor, 0.12 * hz);
+    vec3 sky = mix(simple, pbr, step(0.5, uAtmosphere));
+    float night = clamp(-sunH * 2.2, 0.0, 1.0);
     vec3 moon = normalize(-sun + 0.15 * up);
     float mm = max(dot(d, moon), 0.0);
-    vec3 nightcol = vec3(0.01, 0.02, 0.05);
+    vec3 nightcol = vec3(0.01, 0.015, 0.04);
     nightcol += vec3(0.65, 0.70, 0.82) * pow(mm, 80.0) * 0.9;
     nightcol += vec3(0.35, 0.40, 0.50) * pow(mm, 8.0) * 0.08;
     float star = step(0.996, hash(d.xy * 90.0 + d.z * 17.0));
     nightcol += vec3(star) * step(0.05, h);
     sky = mix(sky, nightcol, night);
-    gl_FragColor = vec4(aces(sky * uExposure), 1.0);
+    gl_FragColor = vec4(grade(sky * uExposure, uFilmic), 1.0);
+}
+)";
+
+const char* kFxaaVS = R"(
+#version 120
+varying vec2 vUV;
+void main() {
+    vUV = gl_Vertex.xy * 0.5 + 0.5;
+    gl_Position = vec4(gl_Vertex.xy, 0.0, 1.0);
+}
+)";
+
+const char* kFxaaFS = R"(
+#version 120
+uniform sampler2D sColor;
+uniform vec2 uInvRes;
+varying vec2 vUV;
+void main() {
+    vec3 rgb = texture2D(sColor, vUV).rgb;
+    vec3 rgbN = texture2D(sColor, vUV + vec2(0.0, uInvRes.y)).rgb;
+    vec3 rgbS = texture2D(sColor, vUV - vec2(0.0, uInvRes.y)).rgb;
+    vec3 rgbE = texture2D(sColor, vUV + vec2(uInvRes.x, 0.0)).rgb;
+    vec3 rgbW = texture2D(sColor, vUV - vec2(uInvRes.x, 0.0)).rgb;
+    vec3 luma = vec3(0.299, 0.587, 0.114);
+    float l = dot(rgb, luma);
+    float lN = dot(rgbN, luma);
+    float lS = dot(rgbS, luma);
+    float lE = dot(rgbE, luma);
+    float lW = dot(rgbW, luma);
+    float lMin = min(l, min(min(lN, lS), min(lE, lW)));
+    float lMax = max(l, max(max(lN, lS), max(lE, lW)));
+    vec2 dir = vec2(-(lN + lS) + (lE + lW), (lN + lW) - (lS + lE));
+    float dirR = 1.0 / (min(abs(dir.x), abs(dir.y)) + (lN + lS + lE + lW) * 0.25 + 1e-4);
+    dir = clamp(dir * dirR, vec2(-8.0), vec2(8.0)) * uInvRes;
+    vec3 a = 0.5 * (texture2D(sColor, vUV + dir * (1.0 / 3.0 - 0.5)).rgb +
+                    texture2D(sColor, vUV + dir * (2.0 / 3.0 - 0.5)).rgb);
+    vec3 b = a * 0.5 + 0.25 * (texture2D(sColor, vUV + dir * -0.5).rgb +
+                               texture2D(sColor, vUV + dir * 0.5).rgb);
+    float lb = dot(b, luma);
+    gl_FragColor = vec4((lb < lMin || lb > lMax) ? a : b, 1.0);
 }
 )";
 
@@ -668,7 +865,22 @@ struct ShaderEnv {
     osg::ref_ptr<osg::Uniform> tan_half_h;
     osg::ref_ptr<osg::Uniform> tan_half_v;
     osg::ref_ptr<osg::Uniform> cam_up;
+    osg::ref_ptr<osg::Uniform> time;
+    osg::ref_ptr<osg::Uniform> wetness;
+    osg::ref_ptr<osg::Uniform> bloom;
+    osg::ref_ptr<osg::Uniform> filmic;
+    osg::ref_ptr<osg::Uniform> atmosphere;
+    osg::ref_ptr<osg::Uniform> shadows;
+    osg::ref_ptr<osg::Uniform> origin;
+    osg::ref_ptr<osg::Uniform> shadow_matrix;
 };
+
+constexpr unsigned kCastShadow = 0x2u;
+
+void no_shadow(osg::Node* n) {
+    if (n)
+        n->setNodeMask(n->getNodeMask() & ~kCastShadow);
+}
 
 void attach_env_uniforms(osg::StateSet* ss, ShaderEnv& env) {
     env.sun_dir = new osg::Uniform("uSunDir", osg::Vec3(1.f, 0.f, 0.f));
@@ -688,6 +900,15 @@ void attach_env_uniforms(osg::StateSet* ss, ShaderEnv& env) {
     env.tan_half_h = new osg::Uniform("uTanHalfH", 0.466f);
     env.tan_half_v = new osg::Uniform("uTanHalfV", 0.292f);
     env.cam_up = new osg::Uniform("uCamUp", osg::Vec3(0.f, 0.f, 1.f));
+    env.time = new osg::Uniform("uTime", 12.f);
+    env.wetness = new osg::Uniform("uWetness", 0.f);
+    env.bloom = new osg::Uniform("uBloom", 1.f);
+    env.filmic = new osg::Uniform("uFilmic", 1.f);
+    env.atmosphere = new osg::Uniform("uAtmosphere", 1.f);
+    env.shadows = new osg::Uniform("uShadows", 0.f);
+    env.origin = new osg::Uniform("uOrigin", osg::Vec3(0.f, 0.f, 0.f));
+    env.shadow_matrix = new osg::Uniform(osg::Uniform::FLOAT_MAT4, "uShadowMatrix");
+    env.shadow_matrix->set(osg::Matrixf());
     ss->addUniform(env.sun_dir);
     ss->addUniform(env.ambient);
     ss->addUniform(env.diffuse);
@@ -705,7 +926,63 @@ void attach_env_uniforms(osg::StateSet* ss, ShaderEnv& env) {
     ss->addUniform(env.tan_half_h);
     ss->addUniform(env.tan_half_v);
     ss->addUniform(env.cam_up);
+    ss->addUniform(env.time);
+    ss->addUniform(env.wetness);
+    ss->addUniform(env.bloom);
+    ss->addUniform(env.filmic);
+    ss->addUniform(env.atmosphere);
+    ss->addUniform(env.shadows);
+    ss->addUniform(env.origin);
+    ss->addUniform(env.shadow_matrix);
+    ss->addUniform(new osg::Uniform("sShadow", 2));
     strip_ff(ss);
+}
+
+osg::Camera* make_fxaa_cam(osg::Texture2D* color, int w, int h) {
+    auto* cam = new osg::Camera;
+    cam->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
+    cam->setProjectionMatrix(osg::Matrix::identity());
+    cam->setViewMatrix(osg::Matrix::identity());
+    cam->setComputeNearFarMode(osg::CullSettings::DO_NOT_COMPUTE_NEAR_FAR);
+    cam->setCullingMode(osg::CullSettings::NO_CULLING);
+    cam->setClearMask(0);
+    cam->setAllowEventFocus(false);
+    cam->setRenderOrder(osg::Camera::POST_RENDER, 20);
+    cam->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER);
+    cam->setViewport(0, 0, w, h);
+    auto* geode = new osg::Geode;
+    auto* geom = new osg::Geometry;
+    auto* verts = new osg::Vec3Array;
+    verts->push_back(osg::Vec3(-1.f, -1.f, 0.f));
+    verts->push_back(osg::Vec3(1.f, -1.f, 0.f));
+    verts->push_back(osg::Vec3(1.f, 1.f, 0.f));
+    verts->push_back(osg::Vec3(-1.f, 1.f, 0.f));
+    auto* idx = new osg::DrawElementsUInt(GL_TRIANGLES);
+    idx->push_back(0);
+    idx->push_back(1);
+    idx->push_back(2);
+    idx->push_back(0);
+    idx->push_back(2);
+    idx->push_back(3);
+    geom->setVertexArray(verts);
+    geom->addPrimitiveSet(idx);
+    geom->setCullingActive(false);
+    auto* ss = geom->getOrCreateStateSet();
+    ss->setTextureAttributeAndModes(0, color, osg::StateAttribute::ON);
+    ss->addUniform(new osg::Uniform("sColor", 0));
+    ss->addUniform(new osg::Uniform("uInvRes", osg::Vec2(1.f / float(std::max(1, w)),
+                                                         1.f / float(std::max(1, h)))));
+    ss->setAttributeAndModes(make_program(kFxaaVS, kFxaaFS), osg::StateAttribute::ON);
+    ss->setMode(GL_BLEND, osg::StateAttribute::OFF);
+    ss->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
+    ss->setAttributeAndModes(new osg::Depth(osg::Depth::ALWAYS, 0, 1, false));
+    strip_ff(ss);
+    geode->addDrawable(geom);
+    geode->setCullingActive(false);
+    cam->addChild(geode);
+    cam->setCullingActive(false);
+    no_shadow(cam);
+    return cam;
 }
 
 osg::Node* make_sky_dome() {
@@ -2101,10 +2378,14 @@ class OsgRenderer final : public Renderer {
         }
 
         osg::ref_ptr<osg::Group> root = new osg::Group;
+        casters_ = new osg::Group;
+        root->addChild(casters_);
         if (cfg.render.atmosphere) {
             sky_xf_ = make_sky_dome();
-            if (sky_xf_)
+            if (sky_xf_) {
+                no_shadow(sky_xf_.get());
                 root->addChild(sky_xf_.get());
+            }
         }
 #ifdef S376_HAS_OSGEARTH
         osg::ref_ptr<osg::Node> earth = osgDB::readRefNodeFile(cfg.render.earth_file);
@@ -2123,7 +2404,7 @@ class OsgRenderer final : public Renderer {
         if (!used_earth_) {
             const std::string dir = cfg.render.cache_dir;
             tiles_root_ = new osg::Group;
-            root->addChild(tiles_root_);
+            casters_->addChild(tiles_root_);
             tile_index_ = scan_cache_tiles(dir);
             tiles_ready_ = tile_index_.empty();
             ram_budget_ = static_cast<std::uint64_t>(std::max(256, cfg.render.ram_mb)) * 1024ull *
@@ -2153,12 +2434,12 @@ class OsgRenderer final : public Renderer {
             }
         }
         if (globe && tile_index_.empty())
-            root->addChild(globe);
+            casters_->addChild(globe);
         if (!used_earth_ && tile_index_.empty()) {
             const float an = static_cast<float>(cfg.render.aniso);
             for (const auto& apt : all_public_airports()) {
                 if (auto* g = make_local_ground(apt.arp_lat, apt.arp_lon, 40.0, an)) {
-                    root->addChild(g);
+                    casters_->addChild(g);
                     S376_LOG_INFO("render", "%s local ground  40 km", apt.icao.c_str());
                 }
             }
@@ -2186,7 +2467,7 @@ class OsgRenderer final : public Renderer {
                 apply_skyline_era(apt.buildings, active_skyline_era());
                 if (auto* mesh = make_airport_geode(build_airport_mesh(
                         apt, cfg.render.buildings, cfg.render.markings))) {
-                    root->addChild(mesh);
+                    casters_->addChild(mesh);
                     S376_LOG_INFO("render", "%s mesh  %zu runways  %zu lights  %zu bldgs  %s",
                                   apt.icao.c_str(), apt.runways.size(), apt.lights.size(),
                                   apt.buildings.size(), apt.attribution.c_str());
@@ -2197,6 +2478,7 @@ class OsgRenderer final : public Renderer {
             if (lights_gpu_.geom) {
                 auto* geode = new osg::Geode;
                 geode->addDrawable(lights_gpu_.geom);
+                no_shadow(geode);
                 root->addChild(geode);
             }
             precip_gpu_ = make_precip_gpu();
@@ -2244,6 +2526,57 @@ class OsgRenderer final : public Renderer {
             }
         }
         attach_env_uniforms(root->getOrCreateStateSet(), env_u_);
+        if (env_u_.bloom)
+            env_u_.bloom->set(cfg.render.bloom ? 1.f : 0.f);
+        if (env_u_.filmic)
+            env_u_.filmic->set(cfg.render.filmic ? 1.f : 0.f);
+        if (env_u_.atmosphere)
+            env_u_.atmosphere->set(cfg.render.atmosphere ? 1.f : 0.f);
+        if (env_u_.shadows)
+            env_u_.shadows->set(cfg.render.shadows ? 1.f : 0.f);
+        {
+            int nb = 0;
+            const auto* budgets = quality_gpu_budgets(nb);
+            S376_LOG_INFO("render",
+                          "quality budget  %.2f ms / 16.67  preset=%s  shadows=%s  (980 Ti ALU)",
+                          quality_gpu_budget_total_ms(cfg.render.shadows), cfg.render.quality.c_str(),
+                          cfg.render.shadows ? "on" : "off");
+            for (int i = 0; i < nb; ++i) {
+                if (std::strcmp(budgets[i].name, "shadows") == 0 && !cfg.render.shadows)
+                    continue;
+                S376_LOG_INFO("render", "  gpu  %-12s  %s  %.2f ms", budgets[i].name,
+                              budgets[i].toggle, budgets[i].gpu_ms);
+            }
+        }
+        if (cfg.render.shadows && casters_) {
+            shadow_tex_ = new osg::Texture2D;
+            shadow_tex_->setTextureSize(1024, 1024);
+            shadow_tex_->setInternalFormat(GL_DEPTH_COMPONENT24);
+            shadow_tex_->setSourceFormat(GL_DEPTH_COMPONENT);
+            shadow_tex_->setSourceType(GL_FLOAT);
+            shadow_tex_->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
+            shadow_tex_->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
+            shadow_tex_->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_BORDER);
+            shadow_tex_->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_BORDER);
+            shadow_tex_->setBorderColor(osg::Vec4(1.f, 1.f, 1.f, 1.f));
+            shadow_tex_->setResizeNonPowerOfTwoHint(false);
+            shadow_cam_ = new osg::Camera;
+            shadow_cam_->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
+            shadow_cam_->setRenderOrder(osg::Camera::PRE_RENDER, -20);
+            shadow_cam_->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
+            shadow_cam_->attach(osg::Camera::DEPTH_BUFFER, shadow_tex_.get());
+            shadow_cam_->setClearMask(GL_DEPTH_BUFFER_BIT);
+            shadow_cam_->setClearColor(osg::Vec4(1.f, 1.f, 1.f, 1.f));
+            shadow_cam_->setViewport(0, 0, 1024, 1024);
+            shadow_cam_->setComputeNearFarMode(osg::CullSettings::DO_NOT_COMPUTE_NEAR_FAR);
+            shadow_cam_->setCullingActive(false);
+            shadow_cam_->addChild(casters_);
+            no_shadow(shadow_cam_.get());
+            root->addChild(shadow_cam_);
+            root->getOrCreateStateSet()->setTextureAttributeAndModes(2, shadow_tex_.get(),
+                                                                     osg::StateAttribute::ON);
+            S376_LOG_INFO("render", "shadows  one-cascade 1024 CSM (sun)");
+        }
         if (sky_xf_) {
             struct SkyViewCallback : public osg::NodeCallback {
                 ShaderEnv* env = nullptr;
@@ -2365,8 +2698,39 @@ class OsgRenderer final : public Renderer {
                               *missiles = nullptr;
                 osg::ref_ptr<osg::Camera> hud =
                     make_instructor_hud(place.w, place.h, ver, toast, era, missiles);
+                no_shadow(hud.get());
                 if (auto* cam = view->getCamera())
                     cam->addChild(hud);
+                if (cfg.render.fxaa && !prefer_rgb_textures()) {
+                    if (auto* cam = view->getCamera()) {
+                        auto* color = new osg::Texture2D;
+                        color->setTextureSize(win_w, win_h);
+                        color->setInternalFormat(GL_RGBA8);
+                        color->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
+                        color->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
+                        color->setResizeNonPowerOfTwoHint(false);
+                        auto* depth = new osg::Texture2D;
+                        depth->setTextureSize(win_w, win_h);
+                        depth->setInternalFormat(GL_DEPTH_COMPONENT24);
+                        depth->setFilter(osg::Texture::MIN_FILTER, osg::Texture::NEAREST);
+                        depth->setFilter(osg::Texture::MAG_FILTER, osg::Texture::NEAREST);
+                        depth->setResizeNonPowerOfTwoHint(false);
+                        cam->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
+                        cam->attach(osg::Camera::COLOR_BUFFER, color);
+                        cam->attach(osg::Camera::DEPTH_BUFFER, depth);
+                        osg::ref_ptr<osg::Camera> fxaa = make_fxaa_cam(color, win_w, win_h);
+                        fxaa->setGraphicsContext(cam->getGraphicsContext());
+                        if (view->addSlave(fxaa.get(), false)) {
+                            const unsigned idx = view->findSlaveIndexForCamera(fxaa.get());
+                            auto& sl = view->getSlave(idx);
+                            if (sl._camera) {
+                                sl._camera->setGraphicsContext(cam->getGraphicsContext());
+                                sl._camera->setViewport(0, 0, win_w, win_h);
+                            }
+                            S376_LOG_INFO("render", "fxaa  window %dx%d", win_w, win_h);
+                        }
+                    }
+                }
                 hud_version_ = ver;
                 hud_toast_ = toast;
                 hud_era_ = era;
@@ -3044,6 +3408,12 @@ class OsgRenderer final : public Renderer {
             }
         }
         const float dayf = static_cast<float>(std::max(0.0, std::sin(geo::deg2rad(el))));
+        if (env_u_.fog_color) {
+            const float twilight = (1.f - dayf) * dayf * 4.f;
+            env_u_.fog_color->set(osg::Vec3(0.18f + 0.24f * dayf + 0.22f * twilight + 0.06f * alt_k,
+                                            0.16f + 0.44f * dayf + 0.08f * twilight + 0.06f * alt_k,
+                                            0.22f + 0.64f * dayf + 0.04f * alt_k));
+        }
         float flash = 0.f;
         if (host.have_env && host.env.lightning_trigger != 0) {
             if (host.env.lightning_trigger != last_lightning_)
@@ -3076,6 +3446,46 @@ class OsgRenderer final : public Renderer {
         }
         if (env_u_.night)
             env_u_.night->set(1.f - dayf);
+        if (env_u_.time)
+            env_u_.time->set(tod * 37.f + 12.f);
+        if (env_u_.wetness)
+            env_u_.wetness->set(host.have_env ? runway_wetness(host.env.runway_condition) : 0.f);
+        if (env_u_.bloom)
+            env_u_.bloom->set(cfg_.render.bloom ? 1.f : 0.f);
+        if (env_u_.filmic)
+            env_u_.filmic->set(cfg_.render.filmic ? 1.f : 0.f);
+        if (env_u_.atmosphere)
+            env_u_.atmosphere->set(cfg_.render.atmosphere ? 1.f : 0.f);
+        if (env_u_.shadows)
+            env_u_.shadows->set(cfg_.render.shadows && shadow_cam_ ? 1.f : 0.f);
+        if (env_u_.origin && host.have_eyepoint) {
+            const geo::Ecef o =
+                geo::lla_to_ecef(host.eye.lat_deg, host.eye.lon_deg, host.eye.alt_ft * geo::kFtToM);
+            env_u_.origin->set(osg::Vec3(static_cast<float>(o.x), static_cast<float>(o.y),
+                                         static_cast<float>(o.z)));
+        }
+        if (shadow_cam_ && host.have_eyepoint) {
+            const geo::Ecef eye =
+                geo::lla_to_ecef(host.eye.lat_deg, host.eye.lon_deg, host.eye.alt_ft * geo::kFtToM);
+            osg::Vec3d center(eye.x, eye.y, eye.z);
+            osg::Vec3d sd(s.x, s.y, s.z);
+            if (sd.length2() > 1e-12) {
+                sd.normalize();
+                osg::Vec3d from = center + sd * 3500.0;
+                geo::Ecef ee2, nn2, uu2;
+                geo::ecef_to_enu_axes(host.eye.lat_deg, host.eye.lon_deg, ee2, nn2, uu2);
+                osg::Vec3d upv(uu2.x, uu2.y, uu2.z);
+                shadow_cam_->setViewMatrixAsLookAt(from, center, upv);
+                shadow_cam_->setProjectionMatrixAsOrtho(-1800.0, 1800.0, -1800.0, 1800.0, 200.0,
+                                                        8000.0);
+                osg::Matrixf bias(0.5f, 0.f, 0.f, 0.f, 0.f, 0.5f, 0.f, 0.f, 0.f, 0.f, 0.5f, 0.f,
+                                  0.5f, 0.5f, 0.5f, 1.f);
+                if (env_u_.shadow_matrix)
+                    env_u_.shadow_matrix->set(osg::Matrixf(shadow_cam_->getViewMatrix()) *
+                                              osg::Matrixf(shadow_cam_->getProjectionMatrix()) *
+                                              bias);
+            }
+        }
         const float dk = 0.15f + 0.85f * dayf + flash;
         if (env_u_.diffuse)
             env_u_.diffuse->set(osg::Vec3(1.0f * dk, 0.95f * dk, 0.85f * dk));
@@ -3173,6 +3583,9 @@ class OsgRenderer final : public Renderer {
     std::vector<CacheTileRef> tile_index_;
     std::vector<ResidentTile> resident_;
     osg::ref_ptr<osg::Group> tiles_root_;
+    osg::ref_ptr<osg::Group> casters_;
+    osg::ref_ptr<osg::Camera> shadow_cam_;
+    osg::ref_ptr<osg::Texture2D> shadow_tex_;
     std::uint64_t ram_budget_ = 2ull << 30;
     std::uint64_t vram_budget_ = 5ull << 30;
     std::uint64_t resident_cpu_ = 0;

@@ -231,6 +231,16 @@ TodBucket tod_bucket(float tod_hours, int tod_select) {
     return TodBucket::Night;
 }
 
+float runway_wetness(int runway_condition) {
+    if (runway_condition <= 0)
+        return 0.f;
+    if (runway_condition == 1)
+        return 0.35f;
+    if (runway_condition == 2)
+        return 0.75f;
+    return 1.f;
+}
+
 const ColorSet& color_for_tod(const DisplayCorrection& c, TodBucket b) {
     switch (b) {
     case TodBucket::Dawn:
