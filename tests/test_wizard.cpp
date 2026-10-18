@@ -157,14 +157,17 @@ void test_wizard() {
     set.set("pattern", "grid5");
     set.set("gamma", 1.2);
     set.set("flip", 1);
+    set.set("resolution", "1280x800");
     auto after = s376::control_hub().handle(set);
     CHECK(after.ok());
     CHECK_NEAR(std::stod(after.get("ch.0.hdg")), 12.5, 1e-4);
     CHECK(after.get("ch.0.pattern") == "grid5");
     CHECK(after.get("ch.0.flip") == "1");
+    CHECK(after.get("ch.0.resolution") == "1280x800");
     const auto live = s376::control_hub().live_channels();
     CHECK(live.size() == 1);
     CHECK(live[0].flip_vertical);
+    CHECK(live[0].width == 1280 && live[0].height == 800);
     CHECK_NEAR(live[0].heading_offset_deg, 12.5, 1e-4);
 
     {
@@ -186,13 +189,15 @@ void test_wizard() {
         const std::string cpath = "s376-test-chan.toml";
         std::ofstream o(cpath);
         o << "[[channels]]\nname = \"front\"\nheading_offset_deg = 0\nhfov_deg = 50\n"
-             "vfov_deg = 32.5\nflip_vertical = false\n";
+             "vfov_deg = 32.5\nflip_vertical = false\nresolution = \"1920x1080\"\n";
         o.close();
         s376::ChannelConfig ch;
         ch.name = "front";
         ch.heading_offset_deg = 35.515;
         ch.hfov_deg = 49;
         ch.flip_vertical = true;
+        ch.width = 1920;
+        ch.height = 1200;
         ch.pattern = "black";
         std::string err;
         CHECK(s376::patch_channel_display(cpath, ch, err));
@@ -201,6 +206,7 @@ void test_wizard() {
         CHECK_NEAR(loaded.channels[0].heading_offset_deg, 35.515, 1e-6);
         CHECK(loaded.channels[0].flip_vertical);
         CHECK(loaded.channels[0].pattern == "black");
+        CHECK(loaded.channels[0].width == 1920 && loaded.channels[0].height == 1200);
         std::remove(cpath.c_str());
     }
 

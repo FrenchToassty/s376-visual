@@ -13,6 +13,7 @@
 #include "s376/terrain.hpp"
 #include "s376/version.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -44,6 +45,8 @@ void usage() {
            "  --channel NAME        far_left|mid_left|mid_right|far_right|all\n"
            "                        aliases: left|front|right|front_fo\n"
            "                        (default: all enabled, or $S376_CHANNEL)\n"
+           "                        --channel all --record/--screenshot writes a\n"
+           "                        Left|Front|Right strip at each channel's WxH\n"
            "  --cache-dir PATH      packed DEM/imagery from s376-cache\n"
            "  --headless            run the host receiver with no GL window\n"
            "  --demo                in-process synth to 127.0.0.1 (no VAX needed)\n"
@@ -56,6 +59,7 @@ void usage() {
            "  --reply-master NAME   only this --channel sends the type-200 HAT reply\n"
            "  --no-hat              never send HAT (overrides reply_master)\n"
            "  --screenshot PATH     write the first channel (PPM+PNG) after warmup and exit\n"
+           "                        (--channel all: Left|Front|Right strip)\n"
            "  --screenshot-wait SEC settle time before capture (default 3; pager idle or this)\n"
            "  --self-test-shot DIR  render a known solid/gradient, check pixels, write files\n"
            "  --approach ICAO:RWY   scripted straight glidepath to touchdown (KJFK:04R)\n"
@@ -64,6 +68,7 @@ void usage() {
            "  --kts KT              approach groundspeed (default 140)\n"
            "  --fps N               record frame rate (default 30)\n"
            "  --record PATH         offscreen FBO flight to PATH (.mp4 via ffmpeg, or PNG dir)\n"
+           "                        --channel all: stitched Left|Front|Right strip\n"
            "  --at ICAO[:RWY[:nm]]  pose the eye (KJFK:04R:0 lined-up, KJFK:04R:8, or KJFK)\n"
            "                        does not wait for host packets\n"
            "  --alt FT              override shot altitude (MSL feet)\n"
@@ -418,7 +423,23 @@ int main(int argc, char** argv) {
     if (!self_test_shot.empty())
         std::filesystem::create_directories(self_test_shot);
 
-    const auto channels = s376::select_channels(cfg, channel_name);
+    auto channels = s376::select_channels(cfg, channel_name);
+    const bool capture_mode = !screenshot_path.empty() || !record_path.empty();
+    if (capture_mode && channel_name == "all") {
+        auto wrap = s376::wrap_channels(s376::select_channels(cfg, "all"));
+        if (wrap.size() >= 2) {
+            channels = std::move(wrap);
+            int x = 0;
+            for (auto& ch : channels) {
+                ch.window_x = x;
+                ch.window_y = 0;
+                x += std::max(8, ch.width);
+            }
+            int sw = 0, sh = 0;
+            s376::wrap_strip_size(channels, sw, sh);
+            S376_LOG_INFO("ig", "strip Left|Front|Right  %zu ch  %dx%d", channels.size(), sw, sh);
+        }
+    }
     if (channels.empty()) {
         S376_LOG_ERROR("ig", "no channel matched '%s'",
                        channel_name.empty() ? "all" : channel_name.c_str());
@@ -429,8 +450,9 @@ int main(int argc, char** argv) {
     std::vector<std::string> selected_names;
     for (const auto& ch : channels) {
         selected_names.push_back(ch.name);
-        S376_LOG_INFO("ig", "selected %s  hdg=%.3f  %dx%d  fov=%.1fx%.1f", ch.name.c_str(),
-                      ch.heading_offset_deg, ch.width, ch.height, ch.hfov_deg, ch.vfov_deg);
+        S376_LOG_INFO("ig", "selected %s  hdg=%.3f  %dx%d  fov=%.1fx%.1f%s", ch.name.c_str(),
+                      ch.heading_offset_deg, ch.width, ch.height, ch.hfov_deg, ch.vfov_deg,
+                      ch.flip_vertical ? "  flip" : "");
     }
     if (channels.size() > 1) {
         S376_LOG_INFO("ig",
@@ -535,8 +557,13 @@ int main(int argc, char** argv) {
     if (rc == 0 && !record_path.empty()) {
         const int n = s376::approach_frame_count(approach);
         const float dt = static_cast<float>(1.0 / std::max(1.0, approach.fps));
-        const int w = std::max(8, channels.front().width);
-        const int h = std::max(8, channels.front().height);
+        int w = 0, h = 0;
+        if (channels.size() > 1)
+            s376::wrap_strip_size(channels, w, h);
+        else {
+            w = std::max(8, channels.front().width);
+            h = std::max(8, channels.front().height);
+        }
         s376::RecordWriter writer;
         if (!writer.open(record_path, w, h, approach.fps)) {
             S376_LOG_ERROR("ig", "record open failed: %s", record_path.c_str());
@@ -666,9 +693,13 @@ int main(int argc, char** argv) {
                 rend->request_stop();
                 break;
             }
-            S376_LOG_INFO("ig", "wrote %s (FBO %dx%d, waited %.2fs pager=%s)",
-                          screenshot_path.c_str(), channels.front().width, channels.front().height,
-                          waited, rend->pager_idle() ? "idle" : "timeout");
+            int sw = channels.front().width, sh = channels.front().height;
+            if (channels.size() > 1)
+                s376::wrap_strip_size(channels, sw, sh);
+            S376_LOG_INFO("ig", "wrote %s (FBO %dx%d, waited %.2fs pager=%s%s)",
+                          screenshot_path.c_str(), sw, sh, waited,
+                          rend->pager_idle() ? "idle" : "timeout",
+                          channels.size() > 1 ? "  strip" : "");
             rend->request_stop();
             break;
         }

@@ -77,6 +77,7 @@ int run_headless(s376::WizardConfig cfg, bool do_status, bool do_refresh, bool d
                                   << "MB  ram=" << ch.ram_mb << "MB  host_age=" << ch.host_age_ms
                                   << "ms  hdg=" << ch.cfg.heading_offset_deg
                                   << "  fov=" << ch.cfg.hfov_deg << "x" << ch.cfg.vfov_deg
+                                  << "  " << s376::format_resolution(ch.cfg.width, ch.cfg.height)
                                   << (ch.cfg.flip_vertical ? " flip" : "") << "  pattern="
                                   << (ch.cfg.pattern.empty() ? "none" : ch.cfg.pattern) << "\n";
                     }
@@ -108,6 +109,7 @@ struct UiState {
     s376::ControlStatus last;
     int sel = 0;
     char warp_buf[8][7][32]{};
+    char res_buf[32]{};
     bool warp_init = false;
     float poll_left = 0;
 };
@@ -122,6 +124,9 @@ void apply_display(UiState& ui, const s376::ChannelLive& edit) {
     req.set("hfov", edit.cfg.hfov_deg);
     req.set("vfov", edit.cfg.vfov_deg);
     req.set("flip", edit.cfg.flip_vertical ? 1 : 0);
+    req.set("resolution", s376::format_resolution(edit.cfg.width, edit.cfg.height));
+    req.set("width", edit.cfg.width);
+    req.set("height", edit.cfg.height);
     req.set("pattern", s376::display_pattern_name(edit.corr.pattern));
     req.set("gamma", edit.corr.gamma);
     req.set("blend_ramp", edit.corr.blend.ramp);
@@ -287,6 +292,17 @@ void draw_ui(UiState& ui) {
                     edit.cfg.hfov_deg = hf;
                 if (ImGui::SliderFloat("VFOV (deg)", &vf, 15.f, 50.f, "%.2f"))
                     edit.cfg.vfov_deg = vf;
+                if (!ui.warp_init) {
+                    std::snprintf(ui.res_buf, sizeof(ui.res_buf), "%s",
+                                  s376::format_resolution(edit.cfg.width, edit.cfg.height).c_str());
+                }
+                if (ImGui::InputText("Resolution (WxH)", ui.res_buf, sizeof(ui.res_buf))) {
+                    int rw = edit.cfg.width, rh = edit.cfg.height;
+                    if (s376::parse_resolution(ui.res_buf, rw, rh)) {
+                        edit.cfg.width = rw;
+                        edit.cfg.height = rh;
+                    }
+                }
                 ImGui::Checkbox("Flip vertical", &edit.cfg.flip_vertical);
                 const char* pats[] = {"none", "grid5", "white70", "black"};
                 int pi = 0;

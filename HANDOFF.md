@@ -27,6 +27,20 @@ from tests/CI. `scripts/check-no-rsi.sh` fails the build if
 
 ## Current state (2026-10-18, this increment)
 
+**Channel geometry (this increment):** every screenshot/record uses
+Raster 50° × 32.5° and the per-channel heading offsets
+(+35.515 / 0 / −35.25), including flipped Left. Default output is
+**1920×1200** (tan(25°)/tan(16.25°) ≈ 1.60, 16:10) until Joey
+confirms the projector resolution. Per-channel `resolution = "WxH"`
+on `[[channels]]` and the s376-wizard Display tab. `--channel all
+--record` / `--screenshot` writes a stitched Left|Front|Right strip
+(5760×1200). Verification frame uses this geometry.
+
+llvmpipe KJFK:04R:2.99 / 962 ft (`/tmp/kjfk-tiny`):
+`/opt/cursor/artifacts/kjfk_04r_front_1920x1200.png` (1920×1200) and
+`/opt/cursor/artifacts/kjfk_04r_wrap_LFR_1920x1200.png` (5760×1200
+Left|Front|Right, Left flipped). Tests: 129947 pass.
+
 **Hangar record frame 140 (dda4f06) fixes:** clip-space sky camera
 (no zenith trapezoid, no hash grain); DXT pad to mod-4/POT at pack
 **and** load (2011×2033 → 2048); no mipmap-gen on compressed

@@ -52,8 +52,7 @@ hfov_deg = 50.0
 vfov_deg = 32.5
 flip_vertical = false
 monitor = 0
-width = 1920
-height = 1080
+resolution = "1920x1200"
 enabled = true
 
 [[channels]]
@@ -65,8 +64,7 @@ hfov_deg = 50.0
 vfov_deg = 32.5
 flip_vertical = true
 monitor = 1
-width = 1920
-height = 1080
+resolution = "1920x1200"
 enabled = true
 
 [[channels]]
@@ -78,8 +76,7 @@ hfov_deg = 50.0
 vfov_deg = 32.5
 flip_vertical = false
 monitor = 2
-width = 1920
-height = 1080
+resolution = "1920x1200"
 enabled = true
 
 [[channels]]
@@ -92,6 +89,5 @@ hfov_deg = 60.0
 vfov_deg = 40.0
 flip_vertical = false
 monitor = 3
-width = 1920
-height = 1080
+resolution = "1920x1080"
 enabled = true

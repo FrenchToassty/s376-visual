@@ -3,7 +3,7 @@
 #
 # Collimated cross-cockpit display. Four projectors, four PCs, Raster's
 # THREE channels (startup log: front 0 / left +35.515 / right −35.25,
-# 50×32.5). Captain sees far_left + mid_left; FO sees mid_right + far_right
+# 50×32.5, 1920×1200 16:10). Captain sees far_left + mid_left; FO sees mid_right + far_right
 # (mirrors hide the other side). The two middle projectors show the SAME
 # front view — a duplicated front channel, not a split.
 #
@@ -84,9 +84,9 @@ pitch_offset_deg = 0.0
 roll_offset_deg = 0.0
 hfov_deg = 50.0
 vfov_deg = 32.5
+flip_vertical = true          # Raster Left was flipped
 monitor = 0
-width = 1920
-height = 1080
+resolution = "1920x1200"      # 16:10 until Joey confirms projector res
 fullscreen = false
 enabled = true
 
@@ -97,9 +97,9 @@ pitch_offset_deg = 0.0
 roll_offset_deg = 0.0
 hfov_deg = 50.0
 vfov_deg = 32.5
+flip_vertical = false
 monitor = 1
-width = 1920
-height = 1080
+resolution = "1920x1200"
 fullscreen = false
 enabled = true
 
@@ -110,13 +110,13 @@ pitch_offset_deg = 0.0
 roll_offset_deg = 0.0
 hfov_deg = 50.0
 vfov_deg = 32.5
+flip_vertical = false
 # Optional FO seat offset (metres, aircraft body). 0 = same eye as mid_left.
 # eye_right_m = 0.51
 # eye_fwd_m = 0.0
 # eye_up_m = 0.0
 monitor = 2
-width = 1920
-height = 1080
+resolution = "1920x1200"
 fullscreen = false
 enabled = true
 
@@ -127,10 +127,10 @@ pitch_offset_deg = 0.0
 roll_offset_deg = 0.0
 hfov_deg = 50.0
 vfov_deg = 32.5
+flip_vertical = false
 # Same optional FO offset as mid_right if you enable a per-seat eye.
 # eye_right_m = 0.51
 monitor = 3
-width = 1920
-height = 1080
+resolution = "1920x1200"
 fullscreen = false
 enabled = true

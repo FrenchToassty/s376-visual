@@ -36,8 +36,8 @@ name = "far_left"
 heading_offset_deg = 35.515
 hfov_deg = 50.0
 vfov_deg = 32.5
-width = 1920
-height = 1080
+flip_vertical = true
+resolution = "1920x1200"
 enabled = true
 
 [[channels]]
@@ -45,9 +45,9 @@ name = "mid_left"
 heading_offset_deg = 0.0
 hfov_deg = 50.0
 vfov_deg = 32.5
+flip_vertical = false
 monitor = 1
-width = 1920
-height = 1080
+resolution = "1920x1200"
 enabled = true
 
 [[channels]]
@@ -55,9 +55,9 @@ name = "mid_right"
 heading_offset_deg = 0.0
 hfov_deg = 50.0
 vfov_deg = 32.5
+flip_vertical = false
 monitor = 2
-width = 1920
-height = 1080
+resolution = "1920x1200"
 enabled = true
 
 [[channels]]
@@ -65,7 +65,7 @@ name = "far_right"
 heading_offset_deg = -35.25
 hfov_deg = 50.0
 vfov_deg = 32.5
+flip_vertical = false
 monitor = 3
-width = 1920
-height = 1080
+resolution = "1920x1200"
 enabled = true

@@ -40,6 +40,23 @@ void test_channels() {
     CHECK_NEAR(all[1].heading_offset_deg, 0.0, 1e-6);
     CHECK_NEAR(all[2].heading_offset_deg, 0.0, 1e-6);
     CHECK_NEAR(all[3].heading_offset_deg, -35.25, 1e-6);
+    CHECK(all[0].width == 1920 && all[0].height == 1200);
+    CHECK(all[0].flip_vertical);
+    CHECK(!all[1].flip_vertical && !all[2].flip_vertical && !all[3].flip_vertical);
+    CHECK_NEAR(all[0].hfov_deg, 50.0, 1e-9);
+    CHECK_NEAR(all[0].vfov_deg, 32.5, 1e-9);
+    {
+        const double aspect = static_cast<double>(all[0].width) / static_cast<double>(all[0].height);
+        const double tan_aspect = std::tan(25.0 * 3.14159265358979323846 / 180.0) /
+                                  std::tan(16.25 * 3.14159265358979323846 / 180.0);
+        CHECK_NEAR(aspect, tan_aspect, 0.02);
+    }
+    auto wrap = s376::wrap_channels(all);
+    CHECK(wrap.size() == 3);
+    CHECK(wrap[0].name == "far_left" && wrap[1].name == "mid_left" && wrap[2].name == "far_right");
+    int sw = 0, sh = 0;
+    s376::wrap_strip_size(wrap, sw, sh);
+    CHECK(sw == 1920 * 3 && sh == 1200);
     auto one = s376::select_channels(cfg, "mid_left");
     CHECK(one.size() == 1 && one[0].name == "mid_left");
     CHECK_NEAR(one[0].heading_offset_deg, 0.0, 1e-6);
@@ -127,11 +144,11 @@ void test_channels() {
 
     // Shared eyepoint, left channel looks ~35.5° to the left of front.
     const auto front = s376::geo::make_channel_view(47.46, -122.31, 136.0, 180.34, 0, 0, 0, 0, 0,
-                                                    50, 32.5, 1920, 1080);
+                                                    50, 32.5, 1920, 1200);
     const auto left = s376::geo::make_channel_view(47.46, -122.31, 136.0, 180.34, 0, 0, 35.515, 0, 0,
-                                                   50, 32.5, 1920, 1080);
+                                                   50, 32.5, 1920, 1200);
     const auto right = s376::geo::make_channel_view(47.46, -122.31, 136.0, 180.34, 0, 0, -35.25, 0, 0,
-                                                    50, 32.5, 1920, 1080);
+                                                    50, 32.5, 1920, 1200);
     CHECK_NEAR(front.eye.x, left.eye.x, 1e-6);
     CHECK_NEAR(front.eye.x, right.eye.x, 1e-6);
     CHECK_NEAR(left.heading_deg, 180.34 + 35.515, 1e-6);
@@ -144,6 +161,6 @@ void test_channels() {
     // mid_left and mid_right share the front frustum; FO eye offset is optional.
     CHECK_NEAR(all[1].heading_offset_deg, all[2].heading_offset_deg, 1e-9);
     const auto fo = s376::geo::make_channel_view(47.46, -122.31, 136.0, 180.34, 0, 0, 0, 0, 0, 50,
-                                                32.5, 1920, 1080, 0, 0.51, 0);
+                                                32.5, 1920, 1200, 0, 0.51, 0);
     CHECK(std::fabs(fo.eye.x - front.eye.x) + std::fabs(fo.eye.y - front.eye.y) > 0.1);
 }

@@ -35,6 +35,8 @@ class Renderer {
     virtual void request_stop() {}
     virtual bool capture(const std::string&) { return false; }
     // Offscreen FBO of the first channel into `im` (top-down RGB). No files.
+    // When more than one channel is selected (e.g. --channel all --record),
+    // a Left|Front|Right horizontal strip at each channel's WxH.
     virtual bool capture_rgb(RgbImage&) { return false; }
     // True when the OSG DatabasePager has nothing left to fetch/compile.
     virtual bool pager_idle() const { return true; }

@@ -68,9 +68,12 @@ A synthetic 737 takes off from KSEA 16L. Production is **one process per
 projector PC** (`--channel far_left|mid_left|mid_right|far_right`, or
 `$S376_CHANNEL`). The two middle PCs show the same Raster front frustum
 (0°); far_left is Raster left (+35.515°), far_right is Raster right
-(−35.25°); all 50° × 32.5°. `--channel front` still aliases `mid_left`.
-Omit `--channel` (or `--channel all`) to tile every enabled window on a
-laptop. `config/channels-3.toml` is the three-name laptop alternative.
+(−35.25°); all 50° × 32.5° at 1920×1200 (16:10; `resolution = "WxH"`).
+far_left is flipped vertically (Raster Left). `--channel front` still
+aliases `mid_left`. Omit `--channel` (or `--channel all`) to tile every
+enabled window on a laptop. `--channel all --record` / `--screenshot`
+writes a stitched Left|Front|Right strip. `config/channels-3.toml` is
+the three-name laptop alternative.
 `--headless` runs the same path with no GL.
 `--demo-weather` adds type-124 rain/wind/lightning, type-125/126/127
 cloud decks, type-128 fog, and one type-105 storm cell (host fields
@@ -109,7 +112,7 @@ contact `10.1.95.0/24` or `192.168.173.0/24`.
 |---|---|
 | `-c / --config PATH` | TOML file (see `config/s376-visual.toml`) |
 | `--bind HOST:PORT` | override listen address |
-| `--channel NAME` | `far_left`/`mid_left`/`mid_right`/`far_right`/`all` (aliases `left`/`front`/`right`/`front_fo`). Default: all enabled, or `$S376_CHANNEL` |
+| `--channel NAME` | `far_left`/`mid_left`/`mid_right`/`far_right`/`all` (aliases `left`/`front`/`right`/`front_fo`). Default: all enabled, or `$S376_CHANNEL`. `--channel all --record`/`--screenshot` = Left\|Front\|Right strip |
 | `--reply-master NAME` | only this `--channel` sends the type-200 HAT reply (default `mid_left`) |
 | `--cache-dir PATH` | packed DEM/imagery from `s376-cache` |
 | `--headless` | decoder + socket, no GL |
@@ -118,7 +121,7 @@ contact `10.1.95.0/24` or `192.168.173.0/24`.
 | `-v` / `--debug` | verbose / per-packet hex |
 | `--gl-debug` | OSG per-attribute GL error checks (off in Release) |
 | `--quality NAME` | `gtx980ti` (default, 2 GB RAM / 5 GB VRAM cap) / `rtx` / `custom` — see `docs/QUALITY.md` |
-| `--screenshot PATH` | write the first channel (offscreen FBO at channel WxH, PPM+PNG) after warmup and exit |
+| `--screenshot PATH` | write the first channel (offscreen FBO at channel WxH, default 1920×1200, PPM+PNG) after warmup and exit |
 | `--screenshot-wait SEC` | settle time before capture (default 3; pager idle or this) |
 | `--self-test-shot DIR` | render a known solid/gradient, check pixels, write PPM+PNG |
 | `--approach ICAO:RWY` | scripted straight glidepath to the landing threshold (`KJFK:04R`) |
@@ -143,6 +146,9 @@ only — never commit it):
 # Joey video — straight 3° to 04R touchdown, cars animating (Mint RTX 5060 Ti):
 ./build/s376-visual --cache-dir cache/KJFK --channel mid_left --approach KJFK:04R \
   --start-agl 2000 --gs 3.0 --kts 140 --fps 30 --record out.mp4
+# Wraparound strip (Left|Front|Right) at Raster 50×32.5 / 1920×1200:
+./build/s376-visual --cache-dir cache/KJFK --channel all --approach KJFK:04R \
+  --start-agl 2000 --gs 3.0 --kts 140 --fps 30 --record wrap.mp4
 ```
 
 `s376-doctor` never sends a packet off the machine. It reports on-disk

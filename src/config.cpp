@@ -155,6 +155,7 @@ AppConfig default_config() {
     fl.heading_offset_deg = 35.515;
     fl.raster_ch = 1;
     fl.monitor = 0;
+    fl.flip_vertical = true; // Raster Left channel was flipped
     ml.name = "mid_left"; // Raster front (captain)
     ml.heading_offset_deg = 0;
     ml.raster_ch = 0;
@@ -267,6 +268,13 @@ static ChannelConfig fill_channel(const std::unordered_map<std::string, std::str
     inum("monitor", c.monitor);
     inum("width", c.width);
     inum("height", c.height);
+    if (kv.count("resolution")) {
+        int rw = c.width, rh = c.height;
+        if (parse_resolution(kv.at("resolution"), rw, rh)) {
+            c.width = rw;
+            c.height = rh;
+        }
+    }
     inum("window_x", c.window_x);
     inum("window_y", c.window_y);
     if (kv.count("fullscreen"))
@@ -418,6 +426,72 @@ static std::string resolve_channel_alias(const std::string& name) {
     return name;
 }
 
+bool parse_resolution(const std::string& s, int& w, int& h) {
+    if (s.empty())
+        return false;
+    std::size_t sep = s.find_first_of("xX*");
+    std::size_t seplen = 1;
+    if (sep == std::string::npos) {
+        sep = s.find("\xC3\x97"); // UTF-8 ×
+        seplen = 2;
+    }
+    if (sep == std::string::npos || sep == 0 || sep + seplen >= s.size())
+        return false;
+    try {
+        const int a = std::stoi(s.substr(0, sep));
+        const int b = std::stoi(s.substr(sep + seplen));
+        if (a < 8 || b < 8 || a > 16384 || b > 16384)
+            return false;
+        w = a;
+        h = b;
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+std::string format_resolution(int w, int h) {
+    return std::to_string(std::max(8, w)) + "x" + std::to_string(std::max(8, h));
+}
+
+std::vector<ChannelConfig> wrap_channels(const std::vector<ChannelConfig>& channels) {
+    const ChannelConfig *left = nullptr, *front = nullptr, *right = nullptr;
+    for (const auto& ch : channels) {
+        if (!ch.enabled)
+            continue;
+        if (ch.role == "host_io" || ch.name == "ios")
+            continue;
+        if (ch.name == "mid_right" || ch.name == "front_fo" || ch.name == "fo_front")
+            continue;
+        const bool is_left = ch.raster_ch == 1 || ch.name == "far_left" || ch.name == "left";
+        const bool is_front = ch.raster_ch == 0 || ch.name == "mid_left" || ch.name == "front";
+        const bool is_right = ch.raster_ch == 2 || ch.name == "far_right" || ch.name == "right";
+        if (is_left)
+            left = &ch;
+        else if (is_front)
+            front = &ch;
+        else if (is_right)
+            right = &ch;
+    }
+    std::vector<ChannelConfig> out;
+    if (left)
+        out.push_back(*left);
+    if (front)
+        out.push_back(*front);
+    if (right)
+        out.push_back(*right);
+    return out;
+}
+
+void wrap_strip_size(const std::vector<ChannelConfig>& channels, int& w, int& h) {
+    w = 0;
+    h = 0;
+    for (const auto& ch : channels) {
+        w += std::max(8, ch.width);
+        h = std::max(h, std::max(8, ch.height));
+    }
+}
+
 std::vector<ChannelConfig> select_channels(const AppConfig& cfg, const std::string& name) {
     std::vector<ChannelConfig> out;
     if (name.empty() || name == "all") {
@@ -562,7 +636,7 @@ bool patch_channel_display(const std::string& config_path, const ChannelConfig& 
     bool in_block = false;
     bool matched = false;
     bool wrote_hdg = false, wrote_hfov = false, wrote_vfov = false, wrote_flip = false,
-         wrote_pat = false;
+         wrote_pat = false, wrote_res = false, wrote_w = false, wrote_h = false;
     auto flush_missing = [&]() {
         if (!in_block)
             return;
@@ -574,6 +648,8 @@ bool patch_channel_display(const std::string& config_path, const ChannelConfig& 
             out << "vfov_deg = " << ch.vfov_deg << "\n";
         if (!wrote_flip)
             out << "flip_vertical = " << (ch.flip_vertical ? "true" : "false") << "\n";
+        if (!wrote_res && !wrote_w && !wrote_h)
+            out << "resolution = \"" << format_resolution(ch.width, ch.height) << "\"\n";
         if (!wrote_pat && !ch.pattern.empty())
             out << "pattern = \"" << ch.pattern << "\"\n";
     };
@@ -583,7 +659,8 @@ bool patch_channel_display(const std::string& config_path, const ChannelConfig& 
             trimmed.substr(trimmed.size() - 2) == "]]") {
             flush_missing();
             in_block = false;
-            wrote_hdg = wrote_hfov = wrote_vfov = wrote_flip = wrote_pat = false;
+            wrote_hdg = wrote_hfov = wrote_vfov = wrote_flip = wrote_pat = wrote_res =
+                wrote_w = wrote_h = false;
             out << line << "\n";
             continue;
         }
@@ -612,6 +689,21 @@ bool patch_channel_display(const std::string& config_path, const ChannelConfig& 
                 if (key == "flip_vertical") {
                     replace(ch.flip_vertical ? "true" : "false");
                     wrote_flip = true;
+                    continue;
+                }
+                if (key == "resolution") {
+                    replace(std::string("\"") + format_resolution(ch.width, ch.height) + "\"");
+                    wrote_res = true;
+                    continue;
+                }
+                if (key == "width") {
+                    replace(std::to_string(ch.width));
+                    wrote_w = true;
+                    continue;
+                }
+                if (key == "height") {
+                    replace(std::to_string(ch.height));
+                    wrote_h = true;
                     continue;
                 }
                 if (key == "pattern") {

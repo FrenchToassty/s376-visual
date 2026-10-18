@@ -90,12 +90,17 @@ Collimated cross-cockpit: the captain sees far_left + mid_left; the FO
 sees mid_right + far_right (mirrors hide the other side). Both middle
 projectors show the **same front view** (duplicated front, not a split).
 
-| PC / `--channel` | Raster channel | Heading | FOV |
-|---|---|---|---|
-| far_left | left | +35.515° | 50° × 32.5° |
-| mid_left | front (captain) | 0° | 50° × 32.5° |
-| mid_right | front (FO duplicate) | 0° | 50° × 32.5° |
-| far_right | right | −35.25° | 50° × 32.5° |
+| PC / `--channel` | Raster channel | Heading | FOV | Output |
+|---|---|---|---|---|
+| far_left | left (flipped) | +35.515° | 50° × 32.5° | 1920×1200 |
+| mid_left | front (captain) | 0° | 50° × 32.5° | 1920×1200 |
+| mid_right | front (FO duplicate) | 0° | 50° × 32.5° | 1920×1200 |
+| far_right | right | −35.25° | 50° × 32.5° | 1920×1200 |
+
+Aspect is tan(25°)/tan(16.25°) ≈ 1.60 (16:10). `resolution = "WxH"`
+on each `[[channels]]` block; 1920×1200 until the projector res is
+confirmed. `--channel all --record` / `--screenshot` writes a stitched
+Left\|Front\|Right strip.
 
 Optional `eye_right_m` / `eye_fwd_m` / `eye_up_m` on a channel shift the
 camera in aircraft body metres (FO seat). Default 0 = shared host eye.

@@ -419,6 +419,13 @@ ControlStatus poll_target(const WizardTarget& t, const WizardConfig& cfg, int ti
             live.cfg.hfov_deg = std::stod(r.get((p + "hfov").c_str(), "50"));
             live.cfg.vfov_deg = std::stod(r.get((p + "vfov").c_str(), "32.5"));
             live.cfg.flip_vertical = r.get((p + "flip").c_str()) == "1";
+            live.cfg.width = std::stoi(r.get((p + "width").c_str(), "1920"));
+            live.cfg.height = std::stoi(r.get((p + "height").c_str(), "1200"));
+            int rw = live.cfg.width, rh = live.cfg.height;
+            if (parse_resolution(r.get((p + "resolution").c_str()), rw, rh)) {
+                live.cfg.width = rw;
+                live.cfg.height = rh;
+            }
             live.corr.gamma = std::stof(r.get((p + "gamma").c_str(), "1"));
             live.corr.blend.ramp = std::stof(r.get((p + "blend_ramp").c_str(), "0.5"));
             live.fps = std::stod(r.get("fps", "0"));

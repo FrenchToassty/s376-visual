@@ -43,9 +43,10 @@ set that flag.
   packet age, errors). **Refresh channels** sends `op=refresh` (calls
   `refresh_channels()`, which clears the Classic NYC skyline egg and
   missiles), then SIGTERM / wait / relaunch.
-- **Display** — heading, FOV, flip, 7×5 warp, edge blend, gamma,
-  test pattern. **Apply** is live; **Save** writes the correction
-  TOML and patches the IG config `[[channels]]` block.
+- **Display** — heading, FOV, flip, `resolution = WxH` (default
+  1920×1200, 16:10), 7×5 warp, edge blend, gamma, test pattern.
+  **Apply** is live; **Save** writes the correction TOML and patches
+  the IG config `[[channels]]` block.
 - **Info** — build number (`git describe` + date), GPU/driver,
   airport packs. Click the build line **7 times within 15 s** to
   unlock Classic and Missiles (same Android-style toasts as the IG

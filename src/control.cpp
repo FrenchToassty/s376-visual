@@ -273,6 +273,9 @@ void ControlHub::fill_status(ControlMsg& r) const {
         r.set((p + "hfov").c_str(), c.cfg.hfov_deg);
         r.set((p + "vfov").c_str(), c.cfg.vfov_deg);
         r.set((p + "flip").c_str(), c.cfg.flip_vertical ? 1 : 0);
+        r.set((p + "width").c_str(), c.cfg.width);
+        r.set((p + "height").c_str(), c.cfg.height);
+        r.set((p + "resolution").c_str(), format_resolution(c.cfg.width, c.cfg.height));
         r.set((p + "pattern").c_str(), display_pattern_name(c.corr.pattern));
         r.set((p + "gamma").c_str(), c.corr.gamma);
         r.set((p + "blend_ramp").c_str(), c.corr.blend.ramp);
@@ -301,6 +304,25 @@ void ControlHub::apply_set(const ControlMsg& req) {
         num("vfov", c.cfg.vfov_deg);
         if (!req.get("flip").empty())
             c.cfg.flip_vertical = to_bool(req.get("flip"));
+        if (!req.get("resolution").empty()) {
+            int w = c.cfg.width, h = c.cfg.height;
+            if (parse_resolution(req.get("resolution"), w, h)) {
+                c.cfg.width = w;
+                c.cfg.height = h;
+            }
+        }
+        if (!req.get("width").empty()) {
+            try {
+                c.cfg.width = std::max(8, std::stoi(req.get("width")));
+            } catch (...) {
+            }
+        }
+        if (!req.get("height").empty()) {
+            try {
+                c.cfg.height = std::max(8, std::stoi(req.get("height")));
+            } catch (...) {
+            }
+        }
         if (!req.get("pattern").empty()) {
             c.cfg.pattern = req.get("pattern");
             c.corr.pattern = parse_display_pattern(c.cfg.pattern);

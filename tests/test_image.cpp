@@ -69,6 +69,15 @@ void test_image() {
     CHECK(s376::looks_like_video_path("out.mp4"));
     CHECK(s376::looks_like_video_path("/tmp/jfk.MOV"));
     CHECK(!s376::looks_like_video_path("/tmp/frames"));
+    {
+        const auto a = s376::make_solid_rgb(4, 3, 10, 20, 30);
+        const auto b = s376::make_solid_rgb(5, 3, 40, 50, 60);
+        const auto strip = s376::stitch_horizontal({a, b});
+        CHECK(strip.w == 9 && strip.h == 3);
+        CHECK(strip.rgb[0] == 10 && strip.rgb[2] == 30);
+        CHECK(strip.rgb[4 * 3] == 40 && strip.rgb[4 * 3 + 2] == 60);
+    }
+
     CHECK(s376::record_frames_dir("out.mp4") == "out-frames");
     CHECK(s376::record_frames_dir("/tmp/jfk-frames") == "/tmp/jfk-frames");
     CHECK(s376::frame_png_path("/tmp/f", 1).find("frame-000001.png") != std::string::npos);
@@ -120,7 +129,7 @@ void test_image() {
     CHECK(mid.find("hdg=0") != std::string::npos);
     CHECK(mid.find("channel far_right") == std::string::npos);
     CHECK(mid.find("channel far_left") == std::string::npos);
-    CHECK(mid.find("1920x1080") != std::string::npos);
+    CHECK(mid.find("1920x1200") != std::string::npos);
 
     const std::string two = s376::dump_config(cfg, {"far_left", "mid_left"});
     CHECK(two.find("selected=far_left,mid_left") != std::string::npos);

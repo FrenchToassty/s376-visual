@@ -1575,6 +1575,10 @@ void apply_view_camera(osg::Camera* cam, const ChannelConfig& ch, const HostStat
     cam->setComputeNearFarMode(osg::CullSettings::DO_NOT_COMPUTE_NEAR_FAR);
     cam->setProjectionMatrixAsPerspective(v.vfov_deg, v.aspect, v.near_m, v.far_m);
     cam->setViewMatrixAsLookAt(epos, center, upv);
+    // Raster Left was projected flipped vertically.
+    if (ch.flip_vertical)
+        cam->setProjectionMatrix(cam->getProjectionMatrix() *
+                                 osg::Matrixd::scale(1.0, -1.0, 1.0));
 }
 
 // LDR RGBA8 FBO readback. PACK_ALIGNMENT 1 so a non-multiple-of-4 width
@@ -2093,9 +2097,10 @@ class OsgRenderer final : public Renderer {
             }
 
             S376_LOG_INFO("render",
-                          "channel %s  %dx%d at %d,%d screen %d  fov %.1fx%.1f  hdg-off %.3f%s",
+                          "channel %s  %dx%d at %d,%d screen %d  fov %.1fx%.1f  hdg-off %.3f%s%s",
                           ch.name.c_str(), place.w, place.h, place.x, place.y, place.screen,
                           ch.hfov_deg, ch.vfov_deg, ch.heading_offset_deg,
+                          ch.flip_vertical ? "  flip" : "",
                           channels_.size() == 1 ? " (single-window)" : "");
         }
 
@@ -2160,7 +2165,7 @@ class OsgRenderer final : public Renderer {
         update_clouds(cloud_gpu_, host, cloud_drift_m_);
         update_storms(storm_gpu_, host, storm_flash_);
         update_traffic(traffic_gpu_, host, dt);
-        if (host.script_dt >= 0.f && !channels_.empty()) {
+        if (host.script_dt >= 0.f && channels_.size() == 1) {
             const ChannelConfig& ch = channels_.front();
             ensure_shot_fbo(std::max(8, ch.width), std::max(8, ch.height), host);
         }
@@ -2189,10 +2194,10 @@ class OsgRenderer final : public Renderer {
         return true;
     }
 
-    bool capture_rgb(RgbImage& im) override {
-        if (channels_.empty() || !viewer_ || views_.empty())
+    bool capture_one(std::size_t i, RgbImage& im) {
+        if (i >= channels_.size() || views_.empty())
             return false;
-        const ChannelConfig& ch = channels_.front();
+        const ChannelConfig& ch = channels_[i];
         const int w = std::max(8, ch.width);
         const int h = std::max(8, ch.height);
         auto score = [](const RgbImage& img) -> int {
@@ -2219,23 +2224,30 @@ class OsgRenderer final : public Renderer {
             return uniq;
         };
         RgbImage fbo, win;
-        if (shot_cb_ && shot_cb_->ok && shot_cb_->img)
+        if (i == 0 && shot_cb_ && shot_cb_->ok && shot_cb_->img && shot_w_ == w && shot_h_ == h)
             fbo = rgb_from_fbo(*shot_cb_->img);
-        if (auto* cam = views_.front()->getCamera()) {
-            if (auto* gc = cam->getGraphicsContext()) {
-                gc->makeCurrent();
-                osg::ref_ptr<osg::Image> grab = new osg::Image;
-                grab->allocateImage(w, h, 1, GL_RGBA, GL_UNSIGNED_BYTE);
-                grab->setPacking(1);
-                glPixelStorei(GL_PACK_ALIGNMENT, 1);
-                glReadBuffer(GL_BACK);
-                grab->readPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE);
-                win = rgb_from_fbo(*grab);
+        const std::size_t vi = i < views_.size() ? i : 0;
+        if (auto* cam = views_[vi]->getCamera()) {
+            const osg::Viewport* vp = cam->getViewport();
+            const bool size_ok = vp && static_cast<int>(vp->width()) == w &&
+                                 static_cast<int>(vp->height()) == h;
+            if (size_ok) {
+                if (auto* gc = cam->getGraphicsContext()) {
+                    gc->makeCurrent();
+                    osg::ref_ptr<osg::Image> grab = new osg::Image;
+                    grab->allocateImage(w, h, 1, GL_RGBA, GL_UNSIGNED_BYTE);
+                    grab->setPacking(1);
+                    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+                    glReadBuffer(GL_BACK);
+                    grab->readPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE);
+                    win = rgb_from_fbo(*grab);
+                }
             }
         }
         const int fs = score(fbo), ws = score(win);
-        S376_LOG_INFO("render", "readback FBO score=%d px0=%d,%d,%d  window score=%d px0=%d,%d,%d",
-                      fs, fbo.rgb.size() >= 3 ? fbo.rgb[0] : -1,
+        S376_LOG_INFO("render",
+                      "readback %s  FBO score=%d px0=%d,%d,%d  window score=%d px0=%d,%d,%d",
+                      ch.name.c_str(), fs, fbo.rgb.size() >= 3 ? fbo.rgb[0] : -1,
                       fbo.rgb.size() >= 3 ? fbo.rgb[1] : -1, fbo.rgb.size() >= 3 ? fbo.rgb[2] : -1,
                       ws, win.rgb.size() >= 3 ? win.rgb[0] : -1,
                       win.rgb.size() >= 3 ? win.rgb[1] : -1, win.rgb.size() >= 3 ? win.rgb[2] : -1);
@@ -2251,6 +2263,24 @@ class OsgRenderer final : public Renderer {
         return render_fbo(w, h, clear, root_.get(), false, &ch, &last_host_, im);
     }
 
+    bool capture_rgb(RgbImage& im) override {
+        if (channels_.empty() || !viewer_ || views_.empty())
+            return false;
+        if (channels_.size() == 1)
+            return capture_one(0, im);
+        std::vector<RgbImage> parts;
+        parts.reserve(channels_.size());
+        for (std::size_t i = 0; i < channels_.size(); ++i) {
+            RgbImage part;
+            if (!capture_one(i, part))
+                return false;
+            parts.push_back(std::move(part));
+        }
+        im = stitch_horizontal(parts);
+        return im.w > 0 && im.h > 0 &&
+               im.rgb.size() >= static_cast<std::size_t>(im.w * im.h * 3);
+    }
+
     bool capture(const std::string& path) override {
         if (path.empty())
             return false;
@@ -2260,8 +2290,13 @@ class OsgRenderer final : public Renderer {
         std::string ppm, png;
         if (!write_shot_images(path, im, &ppm, &png))
             return false;
-        S376_LOG_INFO("render", "shot FBO %dx%d channel %s  ppm=%s png=%s", im.w, im.h,
-                      channels_.front().name.c_str(), ppm.c_str(), png.c_str());
+        if (channels_.size() > 1) {
+            S376_LOG_INFO("render", "shot strip %dx%d  %zu channels  ppm=%s png=%s", im.w, im.h,
+                          channels_.size(), ppm.c_str(), png.c_str());
+        } else {
+            S376_LOG_INFO("render", "shot FBO %dx%d channel %s  ppm=%s png=%s", im.w, im.h,
+                          channels_.front().name.c_str(), ppm.c_str(), png.c_str());
+        }
         return true;
     }
 

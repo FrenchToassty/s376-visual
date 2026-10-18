@@ -119,6 +119,33 @@ bool write_png(const std::string& path, const RgbImage& im) {
     return stbi_write_png(path.c_str(), im.w, im.h, 3, im.rgb.data(), im.w * 3) != 0;
 }
 
+RgbImage stitch_horizontal(const std::vector<RgbImage>& parts) {
+    RgbImage out;
+    if (parts.empty())
+        return out;
+    int w = 0, h = 0;
+    for (const auto& p : parts) {
+        if (p.w < 1 || p.h < 1 ||
+            p.rgb.size() < static_cast<std::size_t>(p.w * p.h * 3))
+            return {};
+        w += p.w;
+        h = std::max(h, p.h);
+    }
+    out.w = w;
+    out.h = h;
+    out.rgb.assign(static_cast<std::size_t>(w * h * 3), 0);
+    int x0 = 0;
+    for (const auto& p : parts) {
+        for (int y = 0; y < p.h; ++y) {
+            std::memcpy(out.rgb.data() + static_cast<std::size_t>((y * w + x0) * 3),
+                        p.rgb.data() + static_cast<std::size_t>(y * p.w * 3),
+                        static_cast<std::size_t>(p.w * 3));
+        }
+        x0 += p.w;
+    }
+    return out;
+}
+
 bool write_shot_images(const std::string& path, const RgbImage& im, std::string* ppm_out,
                        std::string* png_out) {
     const std::string stem = stem_of(path);

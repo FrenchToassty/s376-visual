@@ -26,6 +26,10 @@ bool write_shot_images(const std::string& path, const RgbImage& im, std::string*
                        std::string* png_out = nullptr);
 bool read_ppm(const std::string& path, RgbImage& im);
 
+// Left-to-right strip. Heights may differ; shorter parts are top-aligned
+// (sky stays at y=0) and padded with black.
+RgbImage stitch_horizontal(const std::vector<RgbImage>& parts);
+
 // True if every pixel is within `tol` of the expected solid / gradient.
 bool pixels_near_solid(const RgbImage& im, std::uint8_t r, std::uint8_t g, std::uint8_t b,
                        int tol = 2);

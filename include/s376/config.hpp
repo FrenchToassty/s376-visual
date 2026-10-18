@@ -21,8 +21,11 @@ struct ChannelConfig {
     double eye_right_m = 0;
     double eye_up_m = 0;
     int monitor = 0;
+    // Raster FOV is 50° H × 32.5° V; aspect tan(25°)/tan(16.25°) ≈ 1.60
+    // (16:10). Default output is 1920×1200 until the projector res is confirmed.
+    // TOML may set `resolution = "1920x1200"` or width/height.
     int width = 1920;
-    int height = 1080;
+    int height = 1200;
     bool fullscreen = false;
     bool enabled = true;
     int window_x = -1; // -1 = auto (monitor or tiled)
@@ -48,7 +51,7 @@ struct WindowPlacement {
     int x = 80;
     int y = 80;
     int w = 1920;
-    int h = 1080;
+    int h = 1200;
     bool fullscreen = false;
 };
 
@@ -130,12 +133,21 @@ std::string dump_config(const AppConfig& cfg);
 // When `selected` is non-empty, only those channels are printed and a
 // `selected=name` line is added (so --channel mid_left does not look like far_right).
 std::string dump_config(const AppConfig& cfg, const std::vector<std::string>& selected);
-// Rewrite heading / FOV / flip / pattern for one [[channels]] block.
+// Rewrite heading / FOV / flip / resolution / pattern for one [[channels]] block.
 bool patch_channel_display(const std::string& config_path, const ChannelConfig& ch,
                            std::string& err);
 
+// `resolution = "1920x1200"` (also 1920X1200 / 1920×1200). False if out of range.
+bool parse_resolution(const std::string& s, int& w, int& h);
+std::string format_resolution(int w, int h);
+
 // name empty or "all" → every enabled channel; otherwise the named one.
 std::vector<ChannelConfig> select_channels(const AppConfig& cfg, const std::string& name);
+
+// Unique Raster wrap Left | Front | Right. Skips the FO front duplicate
+// (mid_right) and non-channel roles (host_io / ios).
+std::vector<ChannelConfig> wrap_channels(const std::vector<ChannelConfig>& channels);
+void wrap_strip_size(const std::vector<ChannelConfig>& channels, int& w, int& h);
 
 // Type-200 HAT: hat_responder must be on, and reply_master empty or selected.
 bool hat_reply_enabled(const HostConfig& h, const std::vector<ChannelConfig>& selected);

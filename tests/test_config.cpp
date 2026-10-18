@@ -46,6 +46,19 @@ void test_config() {
     CHECK_NEAR(d.channels[3].heading_offset_deg, -35.25, 1e-6);
     CHECK_NEAR(d.channels[0].hfov_deg, 50.0, 1e-9);
     CHECK_NEAR(d.channels[0].vfov_deg, 32.5, 1e-9);
+    CHECK(d.channels[0].width == 1920 && d.channels[0].height == 1200);
+    CHECK(d.channels[0].flip_vertical);
+    CHECK(!d.channels[1].flip_vertical);
+    {
+        int w = 0, h = 0;
+        CHECK(s376::parse_resolution("1920x1200", w, h) && w == 1920 && h == 1200);
+        CHECK(s376::parse_resolution("1280X800", w, h) && w == 1280 && h == 800);
+        CHECK(s376::parse_resolution(std::string("1920") + "\xC3\x97" + "1200", w, h) &&
+              w == 1920 && h == 1200);
+        CHECK(s376::format_resolution(1920, 1200) == "1920x1200");
+        CHECK(!s376::parse_resolution("nope", w, h));
+        CHECK(!s376::parse_resolution("4x4", w, h));
+    }
     CHECK(d.host.bind == "0.0.0.0:2300");
     CHECK(d.host.reply_port == 2301);
     CHECK(d.control.bind == "127.0.0.1:2376");
@@ -103,7 +116,7 @@ void test_config() {
              "hat_responder = false\n"
              "[render]\nengine = \"osg\"\nframe_rate = 30\ngl_debug = true\n"
              "[[channels]]\nname = \"front\"\nheading_offset_deg = 0\nhfov_deg = 50\n"
-             "vfov_deg = 32.5\nwidth = 800\nheight = 600\n"
+             "vfov_deg = 32.5\nresolution = \"800x600\"\n"
              "[[channels]]\nname = \"left\"\nheading_offset_deg = 35.515\nenabled = false\n";
     }
     auto c = s376::load_config(path);
@@ -180,6 +193,26 @@ void test_config() {
         CHECK(c3.host.reply_master == "front");
         CHECK(!c3.render.sync_to_host);
         CHECK_NEAR(c3.channels[1].heading_offset_deg, 35.515, 1e-6);
+        CHECK(c3.channels[0].width == 1920 && c3.channels[0].height == 1200);
+        CHECK(c3.channels[1].flip_vertical);
+        auto wrap3 = s376::wrap_channels(c3.channels);
+        CHECK(wrap3.size() == 3);
+        CHECK(wrap3[0].name == "left" && wrap3[1].name == "front" && wrap3[2].name == "right");
+    }
+    {
+        std::string r3 = "config/raster-3.toml";
+        {
+            std::ifstream probe(r3);
+            if (!probe)
+                r3 = "../config/raster-3.toml";
+        }
+        auto rc = s376::load_config(r3);
+        CHECK(rc.channels.size() == 4);
+        auto wrapr = s376::wrap_channels(rc.channels);
+        CHECK(wrapr.size() == 3);
+        CHECK(wrapr[0].name == "left" && wrapr[0].flip_vertical);
+        CHECK(wrapr[1].name == "front" && wrapr[2].name == "right");
+        CHECK(wrapr[0].width == 1920 && wrapr[0].height == 1200);
     }
 
     std::ifstream ksea_earth("data/earth/ksea.earth");
