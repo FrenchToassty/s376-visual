@@ -26,6 +26,21 @@ account may stop mid-run — treat this file as the source of truth.
   (ubuntu-24.04, 1984 tests, doctor, headless demo, sim-LAN refusal,
   `s376-cache` smoke). Optional osgEarth job is `workflow_dispatch` only.
 
+## Standing rule: Raster XT4 parity
+
+Match the original RSI Raster XT4 on this 737-300: same host fields,
+same visual features, same HAT replies. Allowed deltas: lighter GPU,
+sharper image (MSAA / AF / crisp points), cleaner code. Do not invent
+scenery or weather the host does not send. Checklist:
+[docs/PARITY.md](docs/PARITY.md). Gaps stay listed there until closed.
+
+## Milestone: 4-monitor desk + sharpness (2026-10-18)
+
+`config/desk-4monitor.toml` pins IOS at x=0 (DP-4), left 1920 (DP-3),
+front 3840 (HDMI-0), right 5760 (DP-0). Same ViewAngles as Raster.
+`render.msaa=4` and `render.aniso=16` (GL 3.3 / Maxwell). Type-124
+`tod_select` 0–3 now snaps sun/sky to day/dusk/dawn/night.
+
 ## Milestone: KLAX / KJFK layouts (2026-10-18)
 
 Same generator as KSEA: OurAirports runway ends, FAA-charted ALS
@@ -150,7 +165,7 @@ are unit-tested.
 
 | Item | Path | What's left |
 |---|---|---|
-| osgEarth tiles | `data/earth/s376.earth` | Build osgEarth on the hangar box; add a Copernicus elevation layer |
+| osgEarth tiles | `data/earth/ksea.earth` | File is in. Build osgEarth on the hangar box (`scripts/build-osgearth.sh`) and confirm the cache GeoTIFFs drape |
 | HAT off-DEM | `sample_hat` | Stand-in elev=0 when the point is outside the packed region |
 | More airports | `docs/AIRPORTS.md` | KSEA / KSFO / KLAS / KLAX / KJFK are in. Next: EGLL / EDDF |
 | Off-axis frustum | camera is rotated by heading offset | Shared eyepoint + asymmetric projection later |
@@ -158,11 +173,11 @@ are unit-tested.
 
 ## Next 5 concrete steps (in order)
 
-1. **4-monitor desk config** (this round).
-2. **Asymmetric / off-axis projection** if ViewAngles overlap is not enough.
-3. **EGLL / EDDF** layouts.
-4. **NLIM / edge blend** — later.
-5. **Loopback capture** (never commit the files).
+1. **Weather** (queued): precip, 3 cloud layers, storm cells, --demo-weather.
+2. **Close PARITY gaps**: 109 beams, 131 display, 128 fog deck, PAPI/taxi.
+3. **Asymmetric / off-axis projection** if ViewAngles overlap is not enough.
+4. **EGLL / EDDF** layouts.
+5. **NLIM / edge blend** — later.
 
 ## How to build / run / test (Linux Mint 22)
 
@@ -216,6 +231,6 @@ src/              core + s376-visual / s376-synth / s376-doctor / s376-cache
 tests/            assert-style unit tests (no Catch2)
 config/           default TOML
 data/earth/       osgEarth earth file
-data/airports/    public KSEA / KSFO / KLAS TOML (OurAirports numbers)
-docs/             DESIGN PROTOCOL AIRPORTS SOURCES
+data/airports/    public KSEA / KSFO / KLAS / KLAX / KJFK TOML
+docs/             DESIGN PROTOCOL AIRPORTS SOURCES PARITY
 ```

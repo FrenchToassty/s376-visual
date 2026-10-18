@@ -20,6 +20,8 @@ cache_dir = ""            # packed region from s376-cache; empty = synth KSEA DE
 frame_rate = 60
 window_title = "s376-visual"
 vsync = true
+msaa = 4                  # 4x MSAA; 0 off. GL 3.3 / Maxwell-safe
+aniso = 16                # anisotropic filter on DEM/globe drapes
 
 [log]
 verbose = false

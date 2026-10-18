@@ -51,6 +51,8 @@ struct RenderConfig {
     double frame_rate = 60.0;
     std::string window_title = "s376-visual";
     bool vsync = true;
+    int msaa = 4;  // 0 off; 4 is GL 3.3 / Maxwell-safe
+    int aniso = 16; // 1 off; 16 is typical
 };
 
 struct LogConfig {

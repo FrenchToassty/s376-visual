@@ -153,6 +153,10 @@ static void fill_render(RenderConfig& r, const std::unordered_map<std::string, s
         r.window_title = kv.at("render.window_title");
     if (kv.count("render.vsync"))
         parse_bool(kv.at("render.vsync"), r.vsync);
+    if (kv.count("render.msaa"))
+        r.msaa = std::stoi(kv.at("render.msaa"));
+    if (kv.count("render.aniso"))
+        r.aniso = std::stoi(kv.at("render.aniso"));
 }
 
 static ChannelConfig fill_channel(const std::unordered_map<std::string, std::string>& kv) {
@@ -220,6 +224,8 @@ std::string dump_config(const AppConfig& cfg) {
     o << "render.earth_file=" << cfg.render.earth_file << "\n";
     o << "render.cache_dir=" << cfg.render.cache_dir << "\n";
     o << "render.frame_rate=" << cfg.render.frame_rate << "\n";
+    o << "render.msaa=" << cfg.render.msaa << "\n";
+    o << "render.aniso=" << cfg.render.aniso << "\n";
     for (const auto& ch : cfg.channels) {
         o << "channel " << ch.name << " hdg=" << ch.heading_offset_deg << " fov=" << ch.hfov_deg
           << "x" << ch.vfov_deg << " " << ch.width << "x" << ch.height

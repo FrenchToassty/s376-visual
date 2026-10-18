@@ -129,6 +129,10 @@ if [[ "$NO_DESKTOP" -eq 0 ]]; then
         write_desktop "$APPDIR/s376-visual-3ch.desktop" \
             "s376-visual 3-channel" "$CH3_EXEC" \
             "Left / front / right CompositeViewer (tiled on one display)"
+        write_desktop "$APPDIR/s376-visual-desk.desktop" \
+            "s376-visual 4-monitor desk" \
+            "$BIN --demo --cache-dir $ROOT/cache/ksea -c $ROOT/config/desk-4monitor.toml" \
+            "IOS on DP-4, L/F/R on DP-3 / HDMI-0 / DP-0"
         if [[ -d "$HOME/Desktop" ]]; then
             write_desktop "$HOME/Desktop/s376-visual-demo.desktop" \
                 "s376-visual demo" "$DEMO_EXEC" \

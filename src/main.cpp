@@ -32,7 +32,7 @@ void usage() {
            "usage: s376-visual [options]\n"
            "  -c, --config PATH     TOML config (default config/s376-visual.toml if present)\n"
            "  --bind HOST:PORT      override host.bind (default 0.0.0.0:2300)\n"
-           "  --channel NAME        front|left|right|all  (default: all enabled channels)\n"
+           "  --channel NAME        front|left|right|ios|all  (default: all enabled)\n"
            "  --cache-dir PATH      packed DEM/imagery from s376-cache\n"
            "  --headless            run the host receiver with no GL window\n"
            "  --demo                in-process synth to 127.0.0.1 (no VAX needed)\n"

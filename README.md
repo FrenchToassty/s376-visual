@@ -213,6 +213,8 @@ needed.
 Not yet: NLIM, landing-light beams, remaining airports. The plan is in
 [docs/AIRPORTS.md](docs/AIRPORTS.md) and [docs/DESIGN.md](docs/DESIGN.md).
 Protocol field layouts: [docs/PROTOCOL.md](docs/PROTOCOL.md).
+Parity vs Raster XT4: [docs/PARITY.md](docs/PARITY.md). Four-monitor desk:
+`config/desk-4monitor.toml`.
 
 ## License
 

@@ -60,6 +60,8 @@ void test_config() {
     CHECK(!c.host.hat_responder);
     CHECK(c.render.engine == "osg");
     CHECK_NEAR(c.render.frame_rate, 30.0, 1e-9);
+    CHECK(d.render.msaa == 4);
+    CHECK(d.render.aniso == 16);
     CHECK(c.channels.size() == 2);
     CHECK(c.channels[0].width == 800);
     CHECK(!c.channels[1].enabled);
@@ -74,4 +76,39 @@ void test_config() {
     CHECK(earth.find("feature_geom") != std::string::npos);
     std::ifstream globe("data/earth/s376.earth");
     CHECK(static_cast<bool>(globe));
+
+    std::string desk = "config/desk-4monitor.toml";
+    {
+        std::ifstream probe(desk);
+        if (!probe)
+            desk = "../config/desk-4monitor.toml";
+    }
+    auto desk_cfg = s376::load_config(desk);
+    CHECK(desk_cfg.channels.size() == 4);
+    CHECK(desk_cfg.render.msaa == 4);
+    CHECK(desk_cfg.render.aniso == 16);
+    CHECK(desk_cfg.render.earth_file.find("ksea.earth") != std::string::npos);
+    bool ios = false, left = false, front = false, right = false;
+    for (const auto& ch : desk_cfg.channels) {
+        if (ch.name == "ios") {
+            ios = ch.window_x == 0 && ch.pitch_offset_deg < 0;
+        }
+        if (ch.name == "left") {
+            left = ch.window_x == 1920;
+            CHECK_NEAR(ch.heading_offset_deg, 35.515, 1e-6);
+        }
+        if (ch.name == "front")
+            front = ch.window_x == 3840;
+        if (ch.name == "right")
+            right = ch.window_x == 5760 && ch.heading_offset_deg < 0;
+    }
+    CHECK(ios && left && front && right);
+    auto placed = s376::layout_channels(s376::select_channels(desk_cfg, "all"), 1, 7680, 1080);
+    CHECK(placed.size() == 4);
+    for (const auto& p : placed) {
+        if (p.name == "ios")
+            CHECK(p.x == 0);
+        if (p.name == "front")
+            CHECK(p.x == 3840);
+    }
 }

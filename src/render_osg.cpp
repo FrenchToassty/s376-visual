@@ -94,7 +94,7 @@ osg::Image* make_globe_image(int w, int h) {
     return img;
 }
 
-osg::Node* make_procedural_globe() {
+osg::Node* make_procedural_globe(float aniso = 16.f) {
     auto* geode = new osg::Geode;
     constexpr int nlon = 96, nlat = 48;
     auto* geom = new osg::Geometry;
@@ -138,8 +138,9 @@ osg::Node* make_procedural_globe() {
 
     auto* tex = new osg::Texture2D(make_globe_image(720, 360));
     tex->setWrap(osg::Texture::WRAP_S, osg::Texture::REPEAT);
-    tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
+    tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR_MIPMAP_LINEAR);
     tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
+    tex->setMaxAnisotropy(std::max(1.f, aniso));
     geom->getOrCreateStateSet()->setTextureAttributeAndModes(0, tex, osg::StateAttribute::ON);
     auto* mat = new osg::Material;
     mat->setDiffuse(osg::Material::FRONT_AND_BACK, osg::Vec4(1, 1, 1, 1));
@@ -193,7 +194,7 @@ osg::Image* image_from_dds_or_rgb(const CacheRegion& cache) {
     return image_from_rgb(ImageRgb::hillshade(cache.dem));
 }
 
-osg::Node* make_dem_patch(const CacheRegion& cache) {
+osg::Node* make_dem_patch(const CacheRegion& cache, float aniso = 16.f) {
     const DemGrid& dem = cache.dem;
     if (dem.empty())
         return nullptr;
@@ -241,8 +242,9 @@ osg::Node* make_dem_patch(const CacheRegion& cache) {
     auto* tex = new osg::Texture2D(image_from_dds_or_rgb(cache));
     tex->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
     tex->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
-    tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
+    tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR_MIPMAP_LINEAR);
     tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
+    tex->setMaxAnisotropy(std::max(1.f, aniso));
     geom->getOrCreateStateSet()->setTextureAttributeAndModes(0, tex, osg::StateAttribute::ON);
     auto* mat = new osg::Material;
     mat->setDiffuse(osg::Material::FRONT_AND_BACK, osg::Vec4(1, 1, 1, 1));
@@ -381,8 +383,11 @@ class OsgRenderer final : public Renderer {
         // Apt OSG 3.6 is a compatibility-profile stack. Ask for 3.3 so a
         // Maxwell GTX 980 Ti (GL 4.6 max) and the hangar RTX 5060 Ti share
         // the same path. Do not request a Core profile.
-        if (osg::ref_ptr<osg::DisplaySettings> ds = osg::DisplaySettings::instance())
+        if (osg::ref_ptr<osg::DisplaySettings> ds = osg::DisplaySettings::instance()) {
             ds->setGLContextVersion("3.3");
+            if (cfg.render.msaa > 0)
+                ds->setNumMultiSamples(std::max(0, std::min(cfg.render.msaa, 8)));
+        }
 
         osg::ref_ptr<osg::Group> root = new osg::Group;
 #ifdef S376_HAS_OSGEARTH
@@ -394,10 +399,10 @@ class OsgRenderer final : public Renderer {
         } else {
             S376_LOG_WARN("render", "could not load %s; using procedural globe",
                           cfg.render.earth_file.c_str());
-            root->addChild(make_procedural_globe());
+            root->addChild(make_procedural_globe(static_cast<float>(cfg.render.aniso)));
         }
 #else
-        root->addChild(make_procedural_globe());
+        root->addChild(make_procedural_globe(static_cast<float>(cfg.render.aniso)));
 #endif
         if (!used_earth_) {
             const std::string dir = cfg.render.cache_dir;
@@ -409,7 +414,7 @@ class OsgRenderer final : public Renderer {
                         continue;
                     try {
                         auto cache = load_cache(lod);
-                        if (auto* patch = make_dem_patch(cache)) {
+                        if (auto* patch = make_dem_patch(cache, static_cast<float>(cfg.render.aniso))) {
                             root->addChild(patch);
                             any_lod = true;
                             S376_LOG_INFO("render", "draped LOD%d  %dx%d  %.3f,%.3f .. %.3f,%.3f", i,
@@ -423,7 +428,7 @@ class OsgRenderer final : public Renderer {
             }
             if (!any_lod) {
                 const CacheRegion cache = load_or_synth_cache(dir);
-                if (auto* patch = make_dem_patch(cache)) {
+                if (auto* patch = make_dem_patch(cache, static_cast<float>(cfg.render.aniso))) {
                     root->addChild(patch);
                     S376_LOG_INFO("render", "draped %s DEM  %.3f,%.3f .. %.3f,%.3f  BC1/hillshade",
                                   cache.name.empty() ? "region" : cache.name.c_str(), cache.dem.west,
@@ -550,7 +555,26 @@ class OsgRenderer final : public Renderer {
         const float vis_m = vis_ft * static_cast<float>(geo::kFtToM);
         fog_->setDensity(1.7f / vis_m);
 
-        const float tod = host.have_env ? host.env.tod_hours : 14.5f;
+        float tod = host.have_env ? host.env.tod_hours : 14.5f;
+        // Type-124 tod_select: −1 = continuous hours; 0 day / 1 dusk / 2 dawn / 3 night.
+        if (host.have_env && host.env.tod_select >= 0) {
+            switch (host.env.tod_select) {
+            case 0:
+                tod = 14.5f;
+                break;
+            case 1:
+                tod = 19.0f;
+                break;
+            case 2:
+                tod = 6.0f;
+                break;
+            case 3:
+                tod = 0.5f;
+                break;
+            default:
+                break;
+            }
+        }
         const int month = host.have_env ? host.env.month : 6;
         const int day = host.have_env ? host.env.day : 21;
         const double lat = host.have_eyepoint ? host.eye.lat_deg : 47.46;
