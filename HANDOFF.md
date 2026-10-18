@@ -4,7 +4,7 @@ A coworker (human or agent) can pick up from here. Cursor usage on the
 original account may stop mid-run — **this file is the source of truth**.
 Update it at the end of every run.
 
-**PR (quality):** new PR off `cursor/s376-visual-v1-6852` (this increment)
+**PR (quality):** https://github.com/joeylawell/s376-visual/pull/4 (draft)
 **Branch:** `cursor/quality-gtx980ti-6852`
 **PR #1 (visual v1):** https://github.com/joeylawell/s376-visual/pull/1 (draft)
 **Base:** `cursor/s376-visual-v1-6852` @ fc37cf9
