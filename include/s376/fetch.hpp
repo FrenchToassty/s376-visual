@@ -64,7 +64,8 @@ struct FetchRequest {
     double near_radius_km = 8.0;  // ARP box at native ortho
     double mid_radius_km = 40.0;
     double approach_nm = 12.0; // native ortho along each final
-    int max_export = 4000;     // ImageServer export cap (more tiles, not blurrier)
+    int max_export = 2048;     // ImageServer export cap (2048; 4000 500/504s)
+    bool plan_only = false;    // --plan: print tile bboxes + coverage, no GET
 };
 
 struct FetchEstimate {
@@ -74,14 +75,31 @@ struct FetchEstimate {
     std::uint64_t est_packed_bytes = 0;
 };
 
+// USGS 3DEP / NYS ImageServer reject ~4k F32/JPG exports (500/504).
+constexpr int kMaxServiceExportPx = 2048;
+
+struct PlannedTile {
+    int lod = 0;
+    int ix = 0;
+    int iy = 0; // 0 = south
+    GeoBox box;
+    int dem_w = 0;
+    int dem_h = 0;
+    int img_w = 0;
+    int img_h = 0;
+};
+
 struct FetchPlan {
     std::string icao;
     std::string dem_kind;
     std::string img_kind;
     std::string attribution;
     std::vector<LodSpec> lods;
+    std::vector<PlannedTile> tiles; // dense grid per LOD; same bbox for DEM+img
     std::vector<std::string> urls;
     FetchEstimate estimate;
+    bool covers_faa = false;
+    std::vector<std::string> uncovered;
 };
 
 GeoBox box_from_radius(double lat, double lon, double radius_km);
@@ -91,6 +109,14 @@ std::vector<LodSpec> default_lods(double radius_km); // synth / offline
 std::vector<LodSpec> fetch_lods(const FetchRequest& req);
 GeoBox lod_coverage(const AirportRef& apt, const FetchRequest& req, const LodSpec& lod);
 std::vector<RasterTile> tile_raster(const GeoBox& box, double m_per_px, int max_px);
+int clamp_export_px(int px); // 64…kMaxServiceExportPx
+int pixel_span(const GeoBox& b, bool north_south, double m_per_px, int cap);
+std::vector<PlannedTile> plan_lod_tiles(const AirportRef& apt, const FetchRequest& req,
+                                        const LodSpec& lod);
+std::string format_fetch_plan(const FetchPlan& plan, const AirportRef& apt,
+                              const FetchRequest& req);
+bool cache_tile_ready(const std::string& tile_dir);
+bool file_looks_like_raster(const std::string& path);
 FetchEstimate estimate_fetch(const FetchRequest& req);
 AirportRef lookup_airport_ref(const std::string& icao); // throws if unknown
 

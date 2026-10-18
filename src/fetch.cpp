@@ -9,14 +9,17 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <random>
 #include <sstream>
 #include <stdexcept>
+#include <thread>
 
 namespace s376 {
 namespace {
@@ -94,6 +97,7 @@ std::vector<GeoBox> coverage_boxes(const AirportRef& apt, const FetchRequest& re
 
 std::vector<RasterTile> tile_raster(const GeoBox& box, double m_per_px, int max_px) {
     std::vector<RasterTile> out;
+    // iy=0 is the southern row, ix=0 the western column (dense, no holes).
     // Allow native NYS (~0.15 m). Do not clamp up to 0.25 — disk is free.
     const double mpp = std::max(0.05, m_per_px);
     const int cap = std::max(64, max_px);
@@ -121,6 +125,130 @@ std::vector<RasterTile> tile_raster(const GeoBox& box, double m_per_px, int max_
         }
     }
     return out;
+}
+
+int clamp_export_px(int px) {
+    if (px <= 0 || px > kMaxServiceExportPx)
+        return kMaxServiceExportPx;
+    return std::max(64, px);
+}
+
+int pixel_span(const GeoBox& b, bool north_south, double m_per_px, int cap) {
+    const double lat = 0.5 * (b.south + b.north);
+    const double m_lat = 111320.0;
+    const double m_lon = 111320.0 * std::max(0.2, std::cos(geo::deg2rad(lat)));
+    const double metres =
+        north_south ? (b.north - b.south) * m_lat : (b.east - b.west) * m_lon;
+    const double mpp = std::max(0.05, m_per_px);
+    return std::max(8, std::min(cap, static_cast<int>(std::lround(metres / mpp))));
+}
+
+std::vector<PlannedTile> plan_lod_tiles(const AirportRef& apt, const FetchRequest& req,
+                                        const LodSpec& lod) {
+    const FetchRequest r = resolved_fetch(req);
+    const int cap = clamp_export_px(r.max_export);
+    const double img_m = lod.img_m > 0 ? lod.img_m : 20.0;
+    const double dem_m = lod.dem_m > 0 ? lod.dem_m : 30.0;
+    const double split_m = std::min(img_m, dem_m);
+    const GeoBox box = lod_coverage(apt, r, lod);
+    const auto cells = tile_raster(box, split_m, cap);
+    std::vector<PlannedTile> out;
+    out.reserve(cells.size());
+    for (const auto& c : cells) {
+        PlannedTile p;
+        p.lod = lod.level;
+        p.ix = c.ix;
+        p.iy = c.iy;
+        p.box = c.box;
+        p.dem_w = pixel_span(c.box, false, dem_m, cap);
+        p.dem_h = pixel_span(c.box, true, dem_m, cap);
+        p.img_w = pixel_span(c.box, false, img_m, cap);
+        p.img_h = pixel_span(c.box, true, img_m, cap);
+        out.push_back(p);
+    }
+    return out;
+}
+
+bool cache_tile_ready(const std::string& tile_dir) {
+    const std::string elev = tile_dir + "/elev.s376dem";
+    if (!std::filesystem::exists(elev))
+        return false;
+    try {
+        if (std::filesystem::file_size(elev) < 64)
+            return false;
+        (void)DemGrid::peek(elev);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool file_looks_like_raster(const std::string& path) {
+    std::error_code ec;
+    if (!std::filesystem::exists(path, ec))
+        return false;
+    const auto sz = std::filesystem::file_size(path, ec);
+    if (ec || sz < 256)
+        return false;
+    std::ifstream f(path, std::ios::binary);
+    unsigned char m[4] = {};
+    f.read(reinterpret_cast<char*>(m), 4);
+    if (f.gcount() < 3)
+        return false;
+    if (m[0] == 0xFF && m[1] == 0xD8)
+        return true; // JPEG
+    if (m[0] == 0x89 && m[1] == 'P' && m[2] == 'N' && m[3] == 'G')
+        return true;
+    if (m[0] == 'I' && m[1] == 'I' && m[2] == '*')
+        return true; // TIFF LE
+    if (m[0] == 'M' && m[1] == 'M' && m[3] == '*')
+        return true; // TIFF BE
+    if (m[0] == '<' || m[0] == '{')
+        return false; // HTML / JSON error body
+    return sz > 4096;
+}
+
+std::string format_fetch_plan(const FetchPlan& plan, const AirportRef& apt, const FetchRequest&) {
+    std::ostringstream o;
+    o << plan.icao << " dem=" << plan.dem_kind << " img=" << plan.img_kind
+      << "  tiles=" << plan.tiles.size() << " (iy=0 south, ix=0 west, dense grid)\n";
+    std::vector<std::pair<std::string, std::pair<double, double>>> pts;
+    pts.push_back({"ARP", {apt.lat, apt.lon}});
+    try {
+        const Airport a = airport_by_icao(apt.icao);
+        for (const auto& rw : a.runways) {
+            pts.push_back({rw.ident_le, {rw.le_lat, rw.le_lon}});
+            pts.push_back({rw.ident_he, {rw.he_lat, rw.he_lon}});
+        }
+    } catch (...) {
+    }
+    int cur_lod = -1;
+    for (const auto& t : plan.tiles) {
+        if (t.lod != cur_lod) {
+            cur_lod = t.lod;
+            o << "lod" << t.lod << "\n";
+        }
+        o << "  t" << t.iy << "_" << t.ix << "  W " << t.box.west << " S " << t.box.south << " E "
+          << t.box.east << " N " << t.box.north << "  dem " << t.dem_w << "x" << t.dem_h << "  img "
+          << t.img_w << "x" << t.img_h;
+        for (const auto& p : pts) {
+            if (box_contains(t.box, p.second.first, p.second.second, 0))
+                o << "  " << p.first;
+        }
+        o << "\n";
+    }
+    if (plan.covers_faa)
+        o << "COVERAGE ok — ARP and every runway end sit in a lod0 tile\n";
+    else {
+        o << "COVERAGE missing:";
+        for (const auto& n : plan.uncovered)
+            o << " " << n;
+        o << "\n";
+    }
+    o << "estimate img=" << plan.estimate.img_tiles << " dem=" << plan.estimate.dem_tiles
+      << " raw~" << plan.estimate.est_raw_bytes << " packed~" << plan.estimate.est_packed_bytes
+      << "\n";
+    return o.str();
 }
 
 std::vector<LodSpec> default_lods(double radius_km) {
@@ -214,6 +342,7 @@ FetchRequest resolved_fetch(const FetchRequest& in) {
         r.approach_nm = 12.0;
     if (r.radius_km <= 0)
         r.radius_km = 50.0;
+    r.max_export = clamp_export_px(r.max_export);
     r.dem = dem;
     r.imagery = img;
     return r;
@@ -268,18 +397,15 @@ FetchEstimate estimate_fetch(const FetchRequest& in) {
     const FetchRequest req = resolved_fetch(in);
     const AirportRef apt = lookup_airport_ref(req.icao);
     for (const auto& lod : fetch_lods(req)) {
-        const GeoBox box = lod_coverage(apt, req, lod);
-        const auto img = tile_raster(box, lod.img_m > 0 ? lod.img_m : 20.0, req.max_export);
-        const auto dem = tile_raster(box, lod.dem_m > 0 ? lod.dem_m : 30.0, req.max_export);
-        e.img_tiles += img.size();
-        e.dem_tiles += dem.size();
-        for (const auto& t : img) {
-            e.est_raw_bytes += static_cast<std::uint64_t>(t.w) * static_cast<std::uint64_t>(t.h) * 3;
-            const auto packed = lod.bc7 ? dxt::bc7_size(t.w, t.h) : dxt::bc1_size(t.w, t.h);
+        const auto tiles = plan_lod_tiles(apt, req, lod);
+        e.img_tiles += tiles.size();
+        e.dem_tiles += tiles.size();
+        for (const auto& t : tiles) {
+            e.est_raw_bytes += static_cast<std::uint64_t>(t.img_w) * static_cast<std::uint64_t>(t.img_h) * 3;
+            const auto packed = lod.bc7 ? dxt::bc7_size(t.img_w, t.img_h) : dxt::bc1_size(t.img_w, t.img_h);
             e.est_packed_bytes += packed + packed / 3; // mips
+            e.est_raw_bytes += static_cast<std::uint64_t>(t.dem_w) * static_cast<std::uint64_t>(t.dem_h) * 4;
         }
-        for (const auto& t : dem)
-            e.est_raw_bytes += static_cast<std::uint64_t>(t.w) * static_cast<std::uint64_t>(t.h) * 4;
     }
     return e;
 }
@@ -394,7 +520,7 @@ std::string http_get_command(const std::string& url, const std::string& dest) {
     std::ostringstream cmd;
     // -g / --globoff: Overpass QL has [out:json] etc. curl treats [ ] as
     // a glob character class ("bad range in URL") unless globbing is off.
-    cmd << curl_bin() << " -g -fsSL --max-time 180 --retry 5 --retry-delay 2 -A "
+    cmd << curl_bin() << " -g -fsSL --max-time 180 --retry 0 -A "
         << "'s376-visual/0.1 (+https://github.com/joeylawell/s376-visual)' -o '" << dest << "' '"
         << url << "'";
     return cmd.str();
@@ -405,7 +531,7 @@ std::string http_post_command(const std::string& url, const std::string& body_fi
     if (!shell_quote_ok(url) || !shell_quote_ok(dest) || !shell_quote_ok(body_file))
         throw std::runtime_error("refusing curl path with a quote");
     std::ostringstream cmd;
-    cmd << curl_bin() << " -g -fsSL --max-time 180 --retry 5 --retry-delay 2 -A "
+    cmd << curl_bin() << " -g -fsSL --max-time 180 --retry 0 -A "
         << "'s376-visual/0.1 (+https://github.com/joeylawell/s376-visual)' --data-urlencode 'data@"
         << body_file << "' -o '" << dest << "' '" << url << "'";
     return cmd.str();
@@ -413,17 +539,32 @@ std::string http_post_command(const std::string& url, const std::string& body_fi
 
 bool http_get_file(const std::string& url, const std::string& dest) {
     safety::check_data_url(url);
-    if (std::filesystem::exists(dest) && std::filesystem::file_size(dest) > 32) {
+    if (file_looks_like_raster(dest)) {
         S376_LOG_INFO("cache", "resume skip %s", dest.c_str());
         return true;
     }
     ensure_dir(std::filesystem::path(dest).parent_path().string());
-    const std::string cmd = http_get_command(url, dest);
-    S376_LOG_INFO("cache", "GET %s", url.c_str());
-    const int rc = std::system(cmd.c_str());
-    if (rc != 0)
-        return false;
-    return std::filesystem::exists(dest) && std::filesystem::file_size(dest) > 32;
+    std::error_code ec;
+    static thread_local std::mt19937 rng{std::random_device{}()};
+    std::uniform_int_distribution<int> jitter(0, 400);
+    constexpr int kTries = 8;
+    for (int attempt = 0; attempt < kTries; ++attempt) {
+        std::filesystem::remove(dest, ec);
+        const std::string cmd = http_get_command(url, dest);
+        if (attempt == 0)
+            S376_LOG_INFO("cache", "GET %s", url.c_str());
+        else
+            S376_LOG_INFO("cache", "retry %d/%d %s", attempt + 1, kTries, dest.c_str());
+        const int rc = std::system(cmd.c_str());
+        if (rc == 0 && file_looks_like_raster(dest))
+            return true;
+        std::filesystem::remove(dest, ec);
+        if (attempt + 1 == kTries)
+            break;
+        const int backoff_ms = (1 << std::min(attempt, 6)) * 1000 + jitter(rng);
+        std::this_thread::sleep_for(std::chrono::milliseconds(backoff_ms));
+    }
+    return false;
 }
 
 bool http_post_file(const std::string& url, const std::string& body, const std::string& dest) {
@@ -483,11 +624,11 @@ FetchPlan plan_fetch(const FetchRequest& in) {
     } else if (dem == "3dep") {
         attr << "Elevation: USGS 3DEP (public domain, US government work).\n";
         for (const auto& lod : p.lods) {
-            const GeoBox box = lod_coverage(apt, req, lod);
-            const auto tiles = tile_raster(box, lod.dem_m > 0 ? lod.dem_m : 30.0, req.max_export);
+            const auto tiles = plan_lod_tiles(apt, req, lod);
+            p.tiles.insert(p.tiles.end(), tiles.begin(), tiles.end());
             for (const auto& t : tiles)
                 p.urls.push_back(
-                    usgs_export_url("3DEPElevation", t.box, t.w, t.h, "tiff", "F32"));
+                    usgs_export_url("3DEPElevation", t.box, t.dem_w, t.dem_h, "tiff", "F32"));
         }
         auto g = glo30_urls_for_box(box_from_radius(apt.lat, apt.lon, req.radius_km));
         p.urls.insert(p.urls.end(), g.begin(), g.end());
@@ -501,12 +642,14 @@ FetchPlan plan_fetch(const FetchRequest& in) {
             attr << "Imagery: USGS NAIP Plus / HRO (US public domain) over NAIP.\n";
         else
             attr << "Imagery: USDA NAIP via USGS National Map ImageServer (US public domain).\n";
-        for (const auto& lod : p.lods) {
-            const GeoBox box = lod_coverage(apt, req, lod);
-            const auto tiles = tile_raster(box, lod.img_m > 0 ? lod.img_m : 20.0, req.max_export);
-            for (const auto& t : tiles)
-                p.urls.push_back(imagery_export_url(img, t.box, t.w, t.h));
+        if (p.tiles.empty()) {
+            for (const auto& lod : p.lods) {
+                const auto tiles = plan_lod_tiles(apt, req, lod);
+                p.tiles.insert(p.tiles.end(), tiles.begin(), tiles.end());
+            }
         }
+        for (const auto& t : p.tiles)
+            p.urls.push_back(imagery_export_url(img, t.box, t.img_w, t.img_h));
     } else if (img == "s2") {
         attr << "Imagery: EOX Sentinel-2 cloudless 2023 (CC BY 4.0, Copernicus Sentinel data).\n";
         p.urls.push_back(s2_tile_url(12, 0, 0));
@@ -517,6 +660,37 @@ FetchPlan plan_fetch(const FetchRequest& in) {
     }
     attr << "Do not commit the downloaded rasters. See docs/SOURCES.md.\n";
     p.attribution = attr.str();
+    if (p.tiles.empty()) {
+        for (const auto& lod : p.lods) {
+            const auto tiles = plan_lod_tiles(apt, req, lod);
+            p.tiles.insert(p.tiles.end(), tiles.begin(), tiles.end());
+        }
+    }
+    try {
+        const Airport a = airport_by_icao(apt.icao);
+        std::vector<CacheTileRef> planned;
+        for (const auto& t : p.tiles) {
+            if (t.lod != 0)
+                continue;
+            CacheTileRef r;
+            r.lod = 0;
+            r.west = t.box.west;
+            r.south = t.box.south;
+            r.east = t.box.east;
+            r.north = t.box.north;
+            planned.push_back(r);
+        }
+        AccReport cov;
+        cov.icao = apt.icao;
+        p.covers_faa = highest_res_covers_tiles(planned, a, &cov);
+        for (const auto& f : cov.fails) {
+            auto name = f.detail;
+            const auto sp = name.find(' ');
+            p.uncovered.push_back(sp == std::string::npos ? name : name.substr(0, sp));
+        }
+    } catch (...) {
+        p.covers_faa = true; // no layout: ARP circle only
+    }
     return p;
 }
 
@@ -638,7 +812,7 @@ std::uint64_t fetch_and_pack(const FetchRequest& in, FetchPlan* plan_out) {
         if (out.size() < 7 || out.substr(out.size() - 7) != "/winter")
             out += "/winter";
     }
-    if (req.dry_run)
+    if (req.dry_run || req.plan_only)
         return 0;
 
     ensure_dir(out);
@@ -659,66 +833,58 @@ std::uint64_t fetch_and_pack(const FetchRequest& in, FetchPlan* plan_out) {
         }
     };
 
-    auto img_url = [&](const RasterTile& t) {
-        return imagery_export_url(plan.img_kind, t.box, t.w, t.h);
-    };
     const bool tiled_img =
         plan.img_kind == "naip" || plan.img_kind == "nys" || plan.img_kind == "hro";
 
     std::size_t packed_tiles = 0;
+    std::size_t missing = 0;
     if (plan.dem_kind == "3dep" || tiled_img) {
-        for (const auto& lod : plan.lods) {
-            const GeoBox box = lod_coverage(apt, req, lod);
-            const auto dem_tiles =
-                tile_raster(box, lod.dem_m > 0 ? lod.dem_m : 30.0, req.max_export);
-            const auto img_tiles =
-                tile_raster(box, lod.img_m > 0 ? lod.img_m : 20.0, req.max_export);
-            const std::size_t n = std::max(dem_tiles.size(), img_tiles.size());
-            for (std::size_t i = 0; i < n; ++i) {
-                const RasterTile& dt = i < dem_tiles.size() ? dem_tiles[i]
-                                                           : (img_tiles.empty() ? dem_tiles[0]
-                                                                                : img_tiles[i]);
-                const RasterTile& it = i < img_tiles.size() ? img_tiles[i] : dt;
-                DemGrid tile_dem;
-                ImageRgb tile_img;
-                if (plan.dem_kind == "3dep") {
-                    const std::string dest = raw + "/l" + std::to_string(lod.level) + "-d-" +
-                                             std::to_string(dt.iy) + "-" + std::to_string(dt.ix) +
-                                             ".tif";
-                    const std::string url =
-                        usgs_export_url("3DEPElevation", dt.box, dt.w, dt.h, "tiff", "F32");
-                    if (try_get(url, dest) && gdal_available()) {
-                        try {
-                            tile_dem = DemGrid::load_geotiff(dest);
-                        } catch (const std::exception& ex) {
-                            S376_LOG_WARN("cache", "3DEP tile: %s", ex.what());
-                        }
-                    }
-                }
-                if (tiled_img) {
-                    const std::string dest = raw + "/l" + std::to_string(lod.level) + "-i-" +
-                                             std::to_string(it.iy) + "-" + std::to_string(it.ix) +
-                                             ".tif";
-                    if (try_get(img_url(it), dest) && gdal_available()) {
-                        try {
-                            tile_img = ImageRgb::load_jpeg_or_png(dest);
-                        } catch (const std::exception& ex) {
-                            S376_LOG_WARN("cache", "NAIP tile: %s", ex.what());
-                        }
-                    }
-                }
-                if (tile_dem.empty())
-                    continue;
-                if (tile_img.rgb.empty())
-                    tile_img = ImageRgb::hillshade(tile_dem);
-                const std::string tdir = out + "/lod" + std::to_string(lod.level) + "/t" +
-                                         std::to_string(dt.iy) + "_" + std::to_string(dt.ix);
-                write_lod_dir(tdir, tile_dem, tile_img, lod.bc7, req.mips);
+        for (const auto& t : plan.tiles) {
+            const std::string tdir = out + "/lod" + std::to_string(t.lod) + "/t" +
+                                     std::to_string(t.iy) + "_" + std::to_string(t.ix);
+            if (cache_tile_ready(tdir)) {
+                S376_LOG_INFO("cache", "resume skip %s", tdir.c_str());
                 ++packed_tiles;
-                dems.push_back(tile_dem);
-                if (imagery.rgb.empty())
-                    imagery = tile_img;
+                continue;
             }
+            DemGrid tile_dem;
+            ImageRgb tile_img;
+            if (plan.dem_kind == "3dep") {
+                const std::string dest = raw + "/l" + std::to_string(t.lod) + "-d-" +
+                                         std::to_string(t.iy) + "-" + std::to_string(t.ix) + ".tif";
+                const std::string url =
+                    usgs_export_url("3DEPElevation", t.box, t.dem_w, t.dem_h, "tiff", "F32");
+                if (try_get(url, dest) && gdal_available()) {
+                    try {
+                        tile_dem = DemGrid::load_geotiff(dest);
+                    } catch (const std::exception& ex) {
+                        S376_LOG_WARN("cache", "3DEP tile: %s", ex.what());
+                    }
+                }
+            }
+            if (tiled_img) {
+                const std::string dest = raw + "/l" + std::to_string(t.lod) + "-i-" +
+                                         std::to_string(t.iy) + "-" + std::to_string(t.ix) + ".tif";
+                const std::string url = imagery_export_url(plan.img_kind, t.box, t.img_w, t.img_h);
+                if (try_get(url, dest) && gdal_available()) {
+                    try {
+                        tile_img = ImageRgb::load_jpeg_or_png(dest);
+                    } catch (const std::exception& ex) {
+                        S376_LOG_WARN("cache", "NAIP tile: %s", ex.what());
+                    }
+                }
+            }
+            if (tile_dem.empty()) {
+                ++missing;
+                continue;
+            }
+            if (tile_img.rgb.empty())
+                tile_img = ImageRgb::hillshade(tile_dem);
+            write_lod_dir(tdir, tile_dem, tile_img, t.lod == 0, req.mips);
+            ++packed_tiles;
+            dems.push_back(std::move(tile_dem));
+            if (imagery.rgb.empty())
+                imagery = tile_img;
         }
     }
     if (dems.empty() && (plan.dem_kind == "glo30" || plan.dem_kind == "3dep")) {
@@ -768,8 +934,30 @@ std::uint64_t fetch_and_pack(const FetchRequest& in, FetchPlan* plan_out) {
         }
     }
 
+    if (missing > 0 || (!plan.tiles.empty() && packed_tiles < plan.tiles.size())) {
+        std::ofstream covf(out + "/coverage.toml");
+        covf << "icao = \"" << apt.icao << "\"\ncovers_faa = false\n";
+        covf << "planned = " << plan.tiles.size() << "\nready = " << packed_tiles << "\n";
+        covf << "missing = " << missing << "\n";
+        S376_LOG_WARN("cache",
+                      "%s incomplete  ready=%zu planned=%zu missing=%zu — raw kept; re-run the "
+                      "same fetch to resume",
+                      apt.icao.c_str(), packed_tiles, plan.tiles.size(), missing);
+        throw std::runtime_error(apt.icao +
+                                 " fetch incomplete (missing tiles). Re-run the same command; "
+                                 "completed tiles are skipped. Not writing a success pack.");
+    }
+
     CacheRegion region;
     region.name = apt.icao;
+    if (dems.empty()) {
+        for (const auto& t : scan_cache_tiles(out)) {
+            try {
+                dems.push_back(DemGrid::load(t.path + "/elev.s376dem"));
+            } catch (...) {
+            }
+        }
+    }
     if (!dems.empty()) {
         // Always resample onto an ARP-centered box. Never pack_lods from
         // dems.front() — tile_raster iy=0 is the SW tile, which shifted the
@@ -788,11 +976,13 @@ std::uint64_t fetch_and_pack(const FetchRequest& in, FetchPlan* plan_out) {
             for (int x = 0; x < 256; ++x) {
                 const double lo = merged.west + (merged.east - merged.west) * x / 255.0;
                 double z = 0;
-                bool ok = false;
-                for (const auto& t : dems) {
-                    if (t.sample_m(la, lo, z)) {
-                        ok = true;
-                        break;
+                bool ok = sample_cache_elev_m(out, la, lo, z);
+                if (!ok) {
+                    for (const auto& t : dems) {
+                        if (t.sample_m(la, lo, z)) {
+                            ok = true;
+                            break;
+                        }
                     }
                 }
                 merged.z_m[static_cast<std::size_t>(y * 256 + x)] =
@@ -812,10 +1002,6 @@ std::uint64_t fetch_and_pack(const FetchRequest& in, FetchPlan* plan_out) {
     // Coarse root + lodN/elev for HAT / fallback. High-res tiles already
     // live in lodN/tY_X from the ImageServer loop.
     const auto bytes = pack_lods(region, out, default_lods(req.radius_km), req.mips);
-    // Drop raw GeoTIFFs after a successful pack (gitignored). Disk is not
-    // capped against Raster's 857 GB CERTS farm — quality wins over storage.
-    std::error_code ec;
-    std::filesystem::remove_all(raw, ec);
     const auto packed = directory_bytes(out);
     S376_LOG_INFO("cache", "packed %s  %llu bytes  %zu tiles  dem=%s img=%s", apt.icao.c_str(),
                   static_cast<unsigned long long>(packed), packed_tiles, plan.dem_kind.c_str(),
@@ -855,24 +1041,19 @@ std::uint64_t fetch_and_pack(const FetchRequest& in, FetchPlan* plan_out) {
                            "Re-fetch; do not keep a SW-shifted pack.");
         }
         if (const FaaAirportRef* faa = faa_airport(apt.icao)) {
-            DemGrid root;
-            try {
-                root = DemGrid::load(out + "/elev.s376dem");
-            } catch (...) {
-            }
-            if (!root.empty()) {
-                for (const auto& e : faa->ends) {
-                    double z = 0;
-                    if (root.sample_m(e.lat, e.lon, z) &&
-                        std::fabs(z - e.elev_ft * geo::kFtToM) > 15.0) {
-                        S376_LOG_WARN("cache",
-                                      "%s %s DEM %.1f m vs FAA %.1f m (root is coarse; lod0 tiles "
-                                      "must pass the 1 m suite)",
-                                      apt.icao.c_str(), e.ident.c_str(), z, e.elev_ft * geo::kFtToM);
-                    }
+            for (const auto& e : faa->ends) {
+                double z = 0;
+                if (sample_cache_elev_m(out, e.lat, e.lon, z) &&
+                    std::fabs(z - e.elev_ft * geo::kFtToM) > 15.0) {
+                    S376_LOG_WARN("cache",
+                                  "%s %s DEM %.1f m vs FAA %.1f ft (%.1f m)",
+                                  apt.icao.c_str(), e.ident.c_str(), z, e.elev_ft,
+                                  e.elev_ft * geo::kFtToM);
                 }
             }
         }
+        std::error_code ec;
+        std::filesystem::remove_all(raw, ec);
     } catch (const std::runtime_error& ex) {
         if (std::string(ex.what()).find("no built-in layout") != std::string::npos)
             return packed;

@@ -27,11 +27,22 @@ from tests/CI. `scripts/check-no-rsi.sh` fails the build if
 
 ## Current state (2026-10-18, this increment)
 
-**Hidden visual-only missiles** added to the same developer easter
-egg as Classic (version×7 on the build number; session-only until
-host channel reset or **Refresh channels**). Off by default. See
-below. Prior increments still apply: `s376-wizard`, Classic NYC
-skyline, disk-unlimited fetch.
+**Fetch resume + 2048 px exports + `--plan`.** Hangar KJFK fetch at
+702adb3 (`--max-export 4000`, 3829×3660) got USGS/NYS **500/504**,
+left a 1.1 GB partial pack, and `faa-coverage` / `faa-elev` failed.
+Fixes: ImageServer cap **2048**; exponential backoff + jitter (8
+tries); per-tile resume (skip completed `lodN/tY_X` and valid raw);
+one dense grid per LOD (iy=0 south, same bbox for DEM+imagery — the
+sparse `t1_0` holes were failed downloads / mismatched grids, not a
+planned skip); `--plan` prints every tile bbox and checks ARP+ends
+**inside a tile** (not the union). Incomplete fetch keeps `raw/` and
+does **not** claim success. `faa-elev` samples lod0 tiles; the
+`3.62712 m` figure was FAA **04L/04R 11.9 ft**, not a copied ARP
+(13 ft) and not the DEM reading.
+
+**Hidden visual-only missiles** (same 7-click unlock as Classic).
+Prior increments: `s376-wizard`, Classic NYC skyline, disk-unlimited
+fetch.
 
 `s376-wizard` is a Dear ImGui + GLFW console on the Host IO /
 operator PC. It talks to the channel IGs over a local UDP control
@@ -123,11 +134,10 @@ native). Pager still caps resident 2 GiB / 5 GiB. See
 Road traffic (`3e99c97`), accuracy core (`702adb3`), and the scenery
 checklist / raster-parity guard (`700659c`) are landed.
 
-This increment: **20593** unit tests passed, 0 failed (missiles
-keep-out: Classic in-zone blocked; JFK→Manhattan culled at the 10 sm
-boundary; far-away fire ok; Current skyline unrestricted). Doctor
-`faa-kjfk` / `faa-kewr` unchanged. Hangar re-fetch is still priority
-1 — now at **native NYS**, no `--near-m 1`.
+This increment: unit tests passed via `ctest` from the build dir
+(plan/coverage/elev + missiles). Doctor `faa-kjfk` / `faa-kewr`
+unchanged. Hangar re-fetch is still priority 1 — use the resume
+command below (2048 px, do not pass `--max-export 4000`).
 
 ### Host crash / HAT (type 200)
 
@@ -184,9 +194,13 @@ The hangar KJFK pack was **mislocated** (~20 km SW; no lod0 north of
 on the FAA ARP** with NYS imagery:
 
 ```bash
-rm -rf cache/KJFK
-./build/s376-cache fetch KJFK --out cache/KJFK --dem 3dep --imagery nys
-# native NYS 0.15 m on 8 km + 12 nm finals, 3DEP 1 m, 50 km outer
+# Plan first (no download). Then fetch; re-run to resume missing tiles.
+# Do NOT rm -rf if a previous run left raw/ or lod0/tY_X.
+./build/s376-cache fetch KJFK --plan --out cache/KJFK --dem 3dep --imagery nys \
+  --near-m 1 --near-dem-m 1 --near-km 5 --approach-nm 10 --radius-km 35
+./build/s376-cache fetch KJFK --out cache/KJFK --dem 3dep --imagery nys \
+  --near-m 1 --near-dem-m 1 --near-km 5 --approach-nm 10 --radius-km 35
+# 2048 px cap (do not pass --max-export 4000). Same command resumes.
 ./build/s376-cache bake-osm cache/KJFK   # if osm.json exists; runtime uses osm.bin only
 ./build/s376-doctor --cache-dir cache/KJFK --no-bench
 # expect [pass] faa-kjfk, [pass] faa-coverage (ARP + every end in lod0)
@@ -261,7 +275,7 @@ OpenGL, 60 Hz at one channel (1920×1080, 50×32.5). `render.quality =
 
 | # | Item | Notes |
 |---|---|---|
-| 1 | **Hangar re-fetch KJFK** | `rm -rf cache/KJFK` then fetch `--imagery nys`. Confirm `faa-coverage`. |
+| 1 | **Hangar re-fetch KJFK** | Resume fetch (2048 px, `--plan` first). Confirm `faa-coverage` + `faa-elev`. Do not `rm -rf` if raw/tiles exist. |
 | 2 | **Hangar 12k re-test** | After re-fetch: ortho, no top band, zero `invalid enumerant`, blue sky, pavement runways. Paste doctor RSS + shot path. |
 | 3 | Host CSN movers | Type-100 CSN ≠ 1 counted, body ignored. 12 routes + marshaller poses are stored only. |
 | 4 | Road traffic cars | **Landed.** 280-car GPU batch; OSM highways when baked. |

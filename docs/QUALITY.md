@@ -76,10 +76,13 @@ preset budget** on a 16 GB / 6 GB VRAM box.
 ## Imagery resolution (disk-unlimited tiers)
 
 `s376-cache fetch` metres/px default to **0 = native for the chosen
-source**. `max_export=4000` is the ImageServer cap — more tiles, not
-blurrier pixels. A 4000 px tile at NYS 0.15 m/px is **600 m** on a
-side. Do not upsample a source finer than native unless the operator
-set a positive `--near-m` (e.g. `--near-m 1` on NYS stays 1 m).
+source**. `max_export=2048` is the ImageServer cap (USGS 3DEP and NYS
+return 500/504 on ~4k F32/JPG). More tiles, not blurrier pixels. A
+2048 px tile at NYS 0.15 m/px is **307 m** on a side. Re-run fetch to
+resume — completed `lodN/tY_X` tiles are skipped. `--plan` prints
+every tile bbox and FAA coverage with no download. Do not upsample a
+source finer than native unless the operator set a positive
+`--near-m` (e.g. `--near-m 1` on NYS stays 1 m).
 
 | LOD | Coverage | Imagery | DEM |
 |---|---|---|---|

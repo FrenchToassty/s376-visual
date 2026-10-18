@@ -50,4 +50,7 @@ bool highest_res_covers_tiles(const std::vector<CacheTileRef>& tiles, const Airp
 
 std::string format_acc_report(const AccReport& r);
 
+// Sample the finest cache DEM that covers the point (lod0/tY_X, then root).
+bool sample_cache_elev_m(const std::string& cache_dir, double lat, double lon, double& z_m);
+
 } // namespace s376

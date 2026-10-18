@@ -188,32 +188,67 @@ bool highest_res_covers_airport(const GeoBox& lod0, const Airport& a, AccReport*
 
 bool highest_res_covers_tiles(const std::vector<CacheTileRef>& tiles, const Airport& a,
                               AccReport* out) {
-    GeoBox u;
+    auto covered = [&](double lat, double lon) {
+        for (const auto& t : tiles) {
+            if (t.lod != 0)
+                continue;
+            const GeoBox b{t.west, t.south, t.east, t.north};
+            if (box_contains(b, lat, lon, 0))
+                return true;
+        }
+        return false;
+    };
     bool any = false;
     for (const auto& t : tiles) {
-        if (t.lod != 0)
-            continue;
-        GeoBox b;
-        b.west = t.west;
-        b.south = t.south;
-        b.east = t.east;
-        b.north = t.north;
-        if (!any) {
-            u = b;
+        if (t.lod == 0)
             any = true;
-        } else {
-            u.west = std::min(u.west, b.west);
-            u.south = std::min(u.south, b.south);
-            u.east = std::max(u.east, b.east);
-            u.north = std::max(u.north, b.north);
-        }
     }
     if (!any) {
         if (out)
             out->fails.push_back({"lod0-cover", "no lod0 tiles"});
         return false;
     }
-    return highest_res_covers_airport(u, a, out);
+    bool ok = true;
+    auto one = [&](double lat, double lon, const std::string& name) {
+        if (out)
+            ++out->checks;
+        if (!covered(lat, lon)) {
+            ok = false;
+            if (out)
+                out->fails.push_back({"lod0-cover", name + " outside highest-res layer"});
+        }
+    };
+    one(a.arp_lat, a.arp_lon, "ARP");
+    for (const auto& rw : a.runways) {
+        one(rw.le_lat, rw.le_lon, rw.ident_le);
+        one(rw.he_lat, rw.he_lon, rw.ident_he);
+    }
+    return ok;
+}
+
+bool sample_cache_elev_m(const std::string& cache_dir, double lat, double lon, double& z_m) {
+    const auto tiles = scan_cache_tiles(cache_dir);
+    const CacheTileRef* best = nullptr;
+    for (const auto& t : tiles) {
+        const GeoBox b{t.west, t.south, t.east, t.north};
+        if (!box_contains(b, lat, lon, 0))
+            continue;
+        if (!best || t.lod < best->lod || (t.lod == best->lod && t.dem_w * t.dem_h > best->dem_w * best->dem_h))
+            best = &t;
+    }
+    if (best) {
+        try {
+            const DemGrid d = DemGrid::load(best->path + "/elev.s376dem");
+            return d.sample_m(lat, lon, z_m);
+        } catch (...) {
+        }
+    }
+    try {
+        const DemGrid root = DemGrid::load(cache_dir + "/elev.s376dem");
+        return root.sample_m(lat, lon, z_m);
+    } catch (...) {
+    }
+    return false;
 }
 
 std::string format_acc_report(const AccReport& r) {

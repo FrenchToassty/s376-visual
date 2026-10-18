@@ -522,33 +522,30 @@ DoctorReport run_doctor(const AppConfig& cfg, const std::string& config_path, bo
                             add(r, {"imagery-align", CheckStatus::Fail, format_acc_report(img),
                                     "north-up export; do not warp imagery off runway geometry"});
                     }
-                    try {
-                        auto dem = DemGrid::load(cfg.render.cache_dir + "/elev.s376dem");
-                        if (const FaaAirportRef* faa = faa_airport(id)) {
-                            int n = 0, bad = 0;
-                            std::ostringstream ed;
-                            for (const auto& e : faa->ends) {
-                                double z = 0;
-                                if (!dem.sample_m(e.lat, e.lon, z))
-                                    continue;
-                                ++n;
-                                const double faa_m = e.elev_ft * geo::kFtToM;
-                                if (std::fabs(z - faa_m) > kAccElevM) {
-                                    ++bad;
-                                    ed << e.ident << " " << z << " m vs FAA " << faa_m << " m; ";
-                                }
+                    if (const FaaAirportRef* faa = faa_airport(id)) {
+                        int n = 0, bad = 0;
+                        std::ostringstream ed;
+                        for (const auto& e : faa->ends) {
+                            double z = 0;
+                            if (!sample_cache_elev_m(cfg.render.cache_dir, e.lat, e.lon, z))
+                                continue;
+                            ++n;
+                            const double faa_m = e.elev_ft * geo::kFtToM;
+                            if (std::fabs(z - faa_m) > kAccElevM) {
+                                ++bad;
+                                ed << e.ident << " DEM " << z << " m vs FAA " << e.elev_ft << " ft ("
+                                   << faa_m << " m); ";
                             }
-                            if (n == 0)
-                                add(r, {"faa-elev", CheckStatus::Skip, "root DEM does not cover ends",
-                                        "re-fetch so lod0 tiles include every FAA end"});
-                            else if (bad)
-                                add(r, {"faa-elev", CheckStatus::Fail, ed.str(),
-                                        "1 m vs FAA orthometric; check geoid / 3DEP tile alignment"});
-                            else
-                                add(r, {"faa-elev", CheckStatus::Pass,
-                                        std::to_string(n) + " runway ends within 1 m of FAA", ""});
                         }
-                    } catch (...) {
+                        if (n == 0)
+                            add(r, {"faa-elev", CheckStatus::Skip, "no cache DEM covers the FAA ends",
+                                    "re-fetch so lod0 tiles include every FAA end"});
+                        else if (bad)
+                            add(r, {"faa-elev", CheckStatus::Fail, ed.str(),
+                                    "1 m vs FAA orthometric; sample lod0 tiles, not the coarse root"});
+                        else
+                            add(r, {"faa-elev", CheckStatus::Pass,
+                                    std::to_string(n) + " runway ends within 1 m of FAA", ""});
                     }
                 } catch (const std::exception&) {
                     add(r, {"faa-coverage", CheckStatus::Skip, "cache dir is not a known ICAO", ""});

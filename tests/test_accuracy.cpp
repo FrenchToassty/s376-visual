@@ -8,6 +8,7 @@
 #include <cmath>
 #include <iostream>
 #include <string>
+#include <vector>
 
 extern int g_fails;
 extern int g_passes;
@@ -57,6 +58,13 @@ void test_accuracy() {
     CHECK(r31r && r31r->als == "MALSR" && r31r->papi == "P4R");
     const auto* r04r = s376::faa_end(jfk_faa, "04R");
     CHECK(r04r && r04r->emas && r04r->emas_len_ft == 393.0);
+    const auto* r04l = s376::faa_end(jfk_faa, "04L");
+    CHECK(r04l);
+    CHECK_NEAR(r04l->elev_ft, 11.9, 1e-6);
+    CHECK_NEAR(jfk_faa.elev_ft, 13.0, 1e-6);
+    CHECK(r04l->elev_ft != jfk_faa.elev_ft); // ends are not the ARP copy
+    CHECK(r22 && r22->elev_ft != r04l->elev_ft);
+    CHECK_NEAR(11.9 * s376::geo::kFtToM, 3.62712, 1e-4); // doctor "3.62712 m" was FAA 11.9 ft
 
     const auto jfk = s376::kjfk_public();
     const auto ewr = s376::kewr_public();
@@ -129,6 +137,25 @@ void test_accuracy() {
     miss.icao = "KJFK";
     CHECK(!s376::highest_res_covers_airport(sw, jfk, &miss));
     CHECK(!miss.fails.empty());
+
+    // Union of opposite corners contains the ARP, but no single tile does.
+    std::vector<s376::CacheTileRef> hole;
+    s376::CacheTileRef a, b;
+    a.lod = 0;
+    a.west = -74.05;
+    a.east = -73.95;
+    a.south = 40.50;
+    a.north = 40.56;
+    b.lod = 0;
+    b.west = -73.65;
+    b.east = -73.55;
+    b.south = 40.70;
+    b.north = 40.76;
+    hole.push_back(a);
+    hole.push_back(b);
+    s376::AccReport hole_r;
+    hole_r.icao = "KJFK";
+    CHECK(!s376::highest_res_covers_tiles(hole, jfk, &hole_r));
 
     s376::FetchRequest req;
     req.icao = "KJFK";

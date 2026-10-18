@@ -1,8 +1,10 @@
+#include "s376/accuracy.hpp"
 #include "s376/dxt.hpp"
 #include "s376/fetch.hpp"
 #include "s376/safety.hpp"
 #include "s376/terrain.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <iostream>
@@ -141,12 +143,20 @@ void test_fetch() {
     tb.north = 47.52;
     const auto rast = s376::tile_raster(tb, 1.0, 4000);
     CHECK(rast.size() >= 4);
+    CHECK(rast.front().iy == 0);
+    CHECK_NEAR(rast.front().box.south, tb.south, 1e-9); // iy=0 is south
+    CHECK(rast.front().ix == 0);
+    CHECK_NEAR(rast.front().box.west, tb.west, 1e-9);
     for (const auto& t : rast) {
         CHECK(t.w <= 4000 && t.h <= 4000);
         CHECK(t.w >= 8 && t.h >= 8);
         CHECK(t.box.east > t.box.west);
         CHECK(t.box.north > t.box.south);
     }
+    CHECK(s376::clamp_export_px(4000) == s376::kMaxServiceExportPx);
+    CHECK(s376::clamp_export_px(0) == s376::kMaxServiceExportPx);
+    CHECK(s376::clamp_export_px(1024) == 1024);
+    CHECK(s376::kMaxServiceExportPx == 2048);
     const auto cov = s376::coverage_boxes(ksea, req);
     CHECK(cov.size() >= 2);
     const auto uni = s376::union_boxes(cov);
@@ -185,6 +195,62 @@ void test_fetch() {
     }
     CHECK(saw_nys);
     CHECK(plan.attribution.find("NYS") != std::string::npos);
+    CHECK(!plan.tiles.empty());
+    CHECK(plan.covers_faa);
+    {
+        s376::FetchRequest jfk_hangar;
+        jfk_hangar.icao = "KJFK";
+        jfk_hangar.dem = "3dep";
+        jfk_hangar.imagery = "nys";
+        jfk_hangar.near_m = 1.0;
+        jfk_hangar.near_dem_m = 1.0;
+        jfk_hangar.near_radius_km = 5.0;
+        jfk_hangar.approach_nm = 10.0;
+        jfk_hangar.radius_km = 35.0;
+        jfk_hangar.max_export = 4000; // clamped to 2048
+        const auto japt = s376::lookup_airport_ref("KJFK");
+        const auto jplan = s376::plan_fetch(jfk_hangar);
+        CHECK(jplan.covers_faa);
+        CHECK(jplan.uncovered.empty());
+        CHECK(!jplan.tiles.empty());
+        int max_px = 0, min_iy = 99, max_ix = -1, n0 = 0;
+        bool saw_arp = false;
+        for (const auto& t : jplan.tiles) {
+            max_px = std::max(max_px, std::max(t.dem_w, std::max(t.dem_h, std::max(t.img_w, t.img_h))));
+            if (t.lod != 0)
+                continue;
+            ++n0;
+            min_iy = std::min(min_iy, t.iy);
+            max_ix = std::max(max_ix, t.ix);
+            if (s376::box_contains(t.box, japt.lat, japt.lon, 0))
+                saw_arp = true;
+        }
+        CHECK(max_px <= s376::kMaxServiceExportPx);
+        CHECK(min_iy == 0);
+        CHECK(n0 >= 4);
+        CHECK(saw_arp);
+        const std::string text = s376::format_fetch_plan(jplan, japt, jfk_hangar);
+        CHECK(text.find("t0_0") != std::string::npos);
+        CHECK(text.find("COVERAGE ok") != std::string::npos);
+        CHECK(text.find("ARP") != std::string::npos);
+        // Dense ids: every (ix,iy) in the lod0 rectangle exists.
+        int nx = 0, ny = 0;
+        for (const auto& t : jplan.tiles) {
+            if (t.lod == 0) {
+                nx = std::max(nx, t.ix + 1);
+                ny = std::max(ny, t.iy + 1);
+            }
+        }
+        std::vector<int> seen(static_cast<std::size_t>(nx * ny), 0);
+        for (const auto& t : jplan.tiles) {
+            if (t.lod == 0)
+                seen[static_cast<std::size_t>(t.iy * nx + t.ix)] = 1;
+        }
+        int holes = 0;
+        for (int v : seen)
+            holes += v ? 0 : 1;
+        CHECK(holes == 0);
+    }
 
     auto src = s376::generate_ksea_cache();
     const auto tmp = (std::filesystem::temp_directory_path() / "s376-lod-test").string();

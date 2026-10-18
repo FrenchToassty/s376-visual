@@ -21,7 +21,7 @@ void usage() {
         << " — offline DEM / imagery packer (no RSI tiles)\n"
            "usage:\n"
            "  s376-cache fetch ICAO [--radius-km N] [--out DIR] [--dem auto|glo30|3dep]\n"
-           "                       [--imagery auto|nys|hro|naip|s2|hillshade] [--dry-run]\n"
+           "                       [--imagery auto|nys|hro|naip|s2|hillshade] [--dry-run] [--plan]\n"
            "                       [--near-m M] [--near-dem-m M] [--mid-m M] [--mid-dem-m M]\n"
            "                       [--far-m M] [--far-dem-m M]\n"
            "                       [--near-km N] [--mid-km N] [--approach-nm N] [--max-export N]\n"
@@ -37,9 +37,12 @@ void usage() {
            "fetch downloads Copernicus GLO-30 (or USGS 3DEP) plus NYS / NAIP / S2\n"
            "into BC1/BC7 tiles with mipmaps. Metres/px default to 0 = native for\n"
            "the source (NYS 0.15, HRO 0.30, NAIP 0.60, S2 10; 3DEP 1, GLO-30 30)\n"
-           "on the field and 12 nm finals; mid/far step up 4× / 16×. Disk is not\n"
-           "a constraint (pack may exceed Raster's 857 GB). The 980 Ti RAM/VRAM\n"
-           "pager still is. Downloaded rasters stay under cache/ (gitignored).\n"
+           "on the field and 12 nm finals; mid/far step up 4× / 16×. ImageServer\n"
+           "exports cap at 2048 px (3DEP/NYS 500/504 on ~4k). Re-run fetch to\n"
+           "resume: completed lodN/tY_X tiles are skipped. --plan prints every\n"
+           "tile bbox and FAA coverage with no download. Disk is not a constraint\n"
+           "(pack may exceed Raster's 857 GB). The 980 Ti RAM/VRAM pager still is.\n"
+           "Downloaded rasters stay under cache/ (gitignored).\n"
            "osm pulls Overpass aeroway=taxiway|apron + building=* (ODbL) into DIR/osm.json.\n"
            "geojson writes a FeatureCollection for the osgEarth airport layer.\n"
            "Never points at 10.1.95.0/24 or 192.168.173.0/24.\n";
@@ -102,9 +105,10 @@ int main(int argc, char** argv) {
     double near_km = 8.0;
     double mid_km = 40.0;
     double approach_nm = 12.0;
-    int max_export = 4000;
+    int max_export = 2048;
     bool lods = false;
     bool dry = false;
+    bool plan_only = false;
     std::string season = "summer";
     for (int i = 2; i < argc; ++i) {
         const std::string a = argv[i];
@@ -151,6 +155,8 @@ int main(int argc, char** argv) {
             lods = true;
         else if (a == "--dry-run")
             dry = true;
+        else if (a == "--plan")
+            plan_only = true;
         else if (a == "--season")
             season = need("--season");
         else if (a == "-h" || a == "--help") {
@@ -188,7 +194,8 @@ int main(int argc, char** argv) {
             req.imagery = img_kind;
             req.out_dir = out;
             req.season = season;
-            req.dry_run = dry;
+            req.dry_run = dry || plan_only;
+            req.plan_only = plan_only;
             req.near_m = near_m;
             req.near_dem_m = near_dem_m;
             req.mid_m = mid_m;
@@ -201,6 +208,23 @@ int main(int argc, char** argv) {
             req.max_export = max_export;
             s376::FetchPlan plan;
             const auto bytes = s376::fetch_and_pack(req, &plan);
+            const auto apt = s376::lookup_airport_ref(icao);
+            if (plan_only || dry) {
+                std::cout << s376::format_fetch_plan(plan, apt, req);
+                if (!plan_only) {
+                    int n = 0;
+                    for (const auto& u : plan.urls) {
+                        std::cout << "  url " << u << "\n";
+                        if (++n >= 8) {
+                            std::cout << "  … " << plan.urls.size() - 8 << " more urls\n";
+                            break;
+                        }
+                    }
+                }
+                std::cout << plan.attribution;
+                s376::log::shutdown();
+                return plan.covers_faa ? 0 : 1;
+            }
             std::cout << plan.icao << " dem=" << plan.dem_kind << " img=" << plan.img_kind
                       << " lods=" << plan.lods.size() << "\n";
             std::cout << "  estimate tiles img=" << plan.estimate.img_tiles
@@ -212,13 +236,7 @@ int main(int argc, char** argv) {
                           << lod.img_m << "m/px  dem " << lod.dem_m << "m/px"
                           << (lod.bc7 ? "  BC7" : "  BC1") << (lod.tiled ? "  tiled" : "") << "\n";
             }
-            for (const auto& u : plan.urls)
-                std::cout << "  url " << u << "\n";
             std::cout << plan.attribution;
-            if (dry) {
-                s376::log::shutdown();
-                return 0;
-            }
             std::cout << "wrote " << out << "  " << bytes << " bytes  "
                       << s376::count_cache_tiles(out) << " tiles (BC1/BC7 + s376dem + mips)\n";
             s376::log::shutdown();
