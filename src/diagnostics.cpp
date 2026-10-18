@@ -375,6 +375,15 @@ DoctorReport run_doctor(const AppConfig& cfg, const std::string& config_path, bo
         add(r, {"sim-lan-env", CheckStatus::Pass, "S376_ALLOW_SIM_LAN unset", ""});
     }
 
+    const auto caches = scan_airport_caches("cache", cfg.render.cache_dir);
+    auto cache_for = [&](const std::string& icao) -> const AirportCacheSize* {
+        for (const auto& s : caches) {
+            if (s.icao == icao && s.bytes > 0)
+                return &s;
+        }
+        return nullptr;
+    };
+
     for (const auto* faa : faa_all()) {
         try {
             const Airport a = airport_by_icao(faa->icao);
@@ -394,14 +403,46 @@ DoctorReport run_doctor(const AppConfig& cfg, const std::string& config_path, bo
         try {
             const Airport a = airport_by_icao(faa->icao);
             const CorrectionReport cr = plan_corrections(a, *faa);
-            const AccReport img = check_imagery_vs_official(a, *faa);
+            const GeoBox* boxp = nullptr;
+            GeoBox lod0{};
+            int iw = 0, ih = 0;
+            if (const AirportCacheSize* packed = cache_for(faa->icao)) {
+                const auto tiles = scan_cache_tiles(packed->path);
+                bool any = false;
+                for (const auto& t : tiles) {
+                    if (t.lod != 0)
+                        continue;
+                    if (!any) {
+                        lod0 = {t.west, t.south, t.east, t.north};
+                        any = true;
+                    } else {
+                        lod0.west = std::min(lod0.west, t.west);
+                        lod0.south = std::min(lod0.south, t.south);
+                        lod0.east = std::max(lod0.east, t.east);
+                        lod0.north = std::max(lod0.north, t.north);
+                    }
+                    iw = std::max(iw, t.dem_w);
+                    ih = std::max(ih, t.dem_h);
+                }
+                if (any) {
+                    boxp = &lod0;
+                    if (iw < 2 || ih < 2) {
+                        iw = 4000;
+                        ih = 4000;
+                    }
+                }
+            }
+            const AccReport img = check_imagery_vs_official(a, *faa, boxp, iw, ih);
             std::string name = "imagery-official-" + lower_icao(faa->icao);
+            std::ostringstream detail;
+            detail << cr.items.size() << " planned corrections; official wins";
+            if (boxp)
+                detail << "; lod0 geotransform vs official";
             if (img.ok() && cr.ok()) {
-                add(r, {name, CheckStatus::Pass,
-                        std::to_string(cr.items.size()) + " planned corrections; official wins",
-                        ""});
+                add(r, {name, CheckStatus::Pass, detail.str(), ""});
             } else {
-                add(r, {name, CheckStatus::Fail, format_correction_report(cr),
+                add(r, {name, CheckStatus::Fail,
+                        format_correction_report(cr) + format_acc_report(img),
                         "correct imagery to FAA/AIP; official data always wins"});
             }
         } catch (const std::exception& ex) {
@@ -410,7 +451,6 @@ DoctorReport run_doctor(const AppConfig& cfg, const std::string& config_path, bo
         }
     }
 
-    const auto caches = scan_airport_caches("cache", cfg.render.cache_dir);
     if (caches.empty()) {
         add(r, {"cache-size", CheckStatus::Skip, "no airport cache dirs",
                 "s376-cache fetch KSEA --out cache/ksea"});

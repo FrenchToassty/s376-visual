@@ -23,8 +23,11 @@ docs, or sample files.
 Geometry and lights always come from official FAA NASR / AIP AD 2,
 never from Raster. Imagery is only texture. When a photo disagrees
 with official data (old painted threshold, extension, demolished
-pavement), the correction layer repaints official surface / markings /
-EMAS over it. See [ACCURACY.md](ACCURACY.md).
+pavement), the correction layer is drawn over the packed tiles:
+official surface, markings, displaced-threshold arrows/bars, and
+EMAS, plus a blend-out of paint or pavement the official data says
+is not there. Each pack writes `cache/<ICAO>/corrections.txt`
+(feature, imagery vs official, action). See [ACCURACY.md](ACCURACY.md).
 
 ## Best free source per airport
 

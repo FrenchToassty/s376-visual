@@ -1,6 +1,7 @@
 #include "s376/fetch.hpp"
 #include "s376/accuracy.hpp"
 #include "s376/airport.hpp"
+#include "s376/correct.hpp"
 #include "s376/dxt.hpp"
 #include "s376/faa.hpp"
 #include "s376/geo.hpp"
@@ -834,12 +835,14 @@ std::uint64_t pack_lods(const CacheRegion& src, const std::string& dir, const st
     const double clat = (src.dem.north + src.dem.south) * 0.5;
     const double clon = (src.dem.east + src.dem.west) * 0.5;
     ImageRgb base = src.imagery.rgb.empty() ? ImageRgb::hillshade(src.dem) : src.imagery;
+    int painted = 0;
     for (const auto& lod : lods) {
         const GeoBox box = box_from_radius(clat, clon, lod.radius_km);
         DemGrid dem = resample_dem(src.dem, box, lod.dem_n, lod.dem_n);
         ImageRgb img = resample_rgb(base, lod.img_n, lod.img_n);
         if (img.rgb.empty())
             img = ImageRgb::hillshade(dem);
+        painted += apply_correction_overlay_icao(img, box, src.name);
         write_lod_dir(dir + "/lod" + std::to_string(lod.level), dem, img, lod.bc7, mips);
     }
     if (!lods.empty()) {
@@ -852,6 +855,7 @@ std::uint64_t pack_lods(const CacheRegion& src, const std::string& dir, const st
         root.imagery = resample_rgb(base, lod0.img_n, lod0.img_n);
         if (root.imagery.rgb.empty())
             root.imagery = ImageRgb::hillshade(root.dem);
+        painted += apply_correction_overlay_icao(root.imagery, box, src.name);
         write_cache(root, dir);
         if (lod0.bc7)
             dxt::write_dds_bc7(dir + "/imagery.dds", root.imagery.rgb.data(), root.imagery.w,
@@ -859,6 +863,7 @@ std::uint64_t pack_lods(const CacheRegion& src, const std::string& dir, const st
         else
             dxt::write_dds_bc1(dir + "/imagery.dds", root.imagery.rgb.data(), root.imagery.w,
                                root.imagery.h, mips);
+        write_airport_correction_report(dir, src.name, painted);
     }
     return directory_bytes(dir);
 }
@@ -954,6 +959,7 @@ std::uint64_t fetch_and_pack(const FetchRequest& in, FetchPlan* plan_out) {
             }
             if (tile_img.rgb.empty())
                 tile_img = ImageRgb::hillshade(tile_dem);
+            apply_correction_overlay_icao(tile_img, t.box, apt.icao);
             write_lod_dir(tdir, tile_dem, tile_img, t.lod == 0, req.mips);
             ++packed_tiles;
             dems.push_back(std::move(tile_dem));

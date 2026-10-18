@@ -45,10 +45,12 @@ fallback: **KRNO** (only NAIP is free), **SKRG**, **VNKT**. Local-only
 `s376-cache import-raster <dir> --out cache/<ICAO>`. Never commit RSI.
 
 When imagery conflicts with FAA/AIP, `plan_corrections` /
-`apply_correction_overlay` repaint official surface, markings,
-displaced-threshold arrows/bars, and EMAS. Doctor
-`imagery-official-<icao>` flags mismatches above the accuracy
-tolerances.
+`apply_correction_overlay` are drawn over packed tiles (fetch
+`pack_lods` and `import-raster`): official surface, markings,
+displaced-threshold arrows/bars, EMAS, and a blend-out of stale
+paint or pavement. Each pack writes `cache/<ICAO>/corrections.txt`.
+Doctor `imagery-official-<icao>` flags mismatches above the
+accuracy tolerances and, when a pack exists, the lod0 geotransform.
 
 **Queued after hangar priorities (do not interrupt):** once the
 current KJFK fetch validates (`faa-coverage`, `faa-elev`, 12k shot),
@@ -175,7 +177,7 @@ native). Pager still caps resident 2 GiB / 5 GiB. See
 Road traffic (`3e99c97`), accuracy core (`702adb3`), and the scenery
 checklist / raster-parity guard (`700659c`) are landed.
 
-This increment: unit tests **129670 passed, 0 failed**. Doctor
+This increment: unit tests **129684 passed, 0 failed**. Doctor
 `faa-*` + `imagery-official-*` pass for all 18 official airports.
 Hangar re-fetch is still priority 1 — use the resume command below
 (2048 px, do not pass `--max-export 4000`). KJFK `--near-m 0.3` is

@@ -1,6 +1,7 @@
 #include "s376/imagery.hpp"
 
 #include "s376/airport.hpp"
+#include "s376/correct.hpp"
 #include "s376/dxt.hpp"
 #include "s376/geo.hpp"
 #include "s376/log.hpp"
@@ -448,6 +449,7 @@ std::uint64_t import_raster(const ImportRequest& req, ImportScan* scan_out) {
             }
         }
         DemGrid td = resample_dem(dem, c.box, std::min(c.w, 512), std::min(c.h, 512));
+        apply_correction_overlay_icao(scratch.img, c.box, icao);
         const std::string tdir =
             out + "/lod0/t" + std::to_string(c.iy) + "_" + std::to_string(c.ix);
         std::filesystem::create_directories(tdir);

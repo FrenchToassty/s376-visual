@@ -263,6 +263,7 @@ void test_fetch() {
     CHECK(std::filesystem::exists(tmp + "/elev.s376dem"));
     CHECK(std::filesystem::exists(tmp + "/lod0/elev.s376dem"));
     CHECK(std::filesystem::exists(tmp + "/lod1/imagery.dds"));
+    CHECK(std::filesystem::exists(tmp + "/corrections.txt"));
     const auto dds0 = std::filesystem::file_size(tmp + "/lod0/imagery.dds");
     CHECK(dds0 > 128 + s376::dxt::bc7_size(4, 4)); // BC7 near field + header
 

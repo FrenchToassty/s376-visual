@@ -41,9 +41,12 @@ CI (`s376-tests` → `test_accuracy`) fails if any of these slip:
 it also fails if lod0 tiles miss the ARP or any runway end
 (`faa-coverage`), if the north-up imagery geotransform or DEM sample
 is off, and if imagery disagrees with official geometry above the
-tolerances (`imagery-official`). The correction layer then repaints
-official surface / markings / displaced-threshold / EMAS over the
-photo. Official always wins; imagery is only texture.
+tolerances (`imagery-official`). When a pack is present the same
+check uses the lod0 geotransform. The correction layer is drawn
+over packed tiles (fetch and `import-raster`): official surface,
+markings, displaced-threshold arrows/bars, and EMAS, then a blend-out
+of stale paint or pavement. `cache/<ICAO>/corrections.txt` logs every
+action. Official always wins; imagery is only texture.
 
 ## Sources
 
