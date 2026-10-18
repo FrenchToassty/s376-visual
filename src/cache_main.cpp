@@ -25,12 +25,14 @@ void usage() {
            "  s376-cache from-geotiff DEM.tif [--imagery FILE] [--out DIR] [--lods]\n"
            "  s376-cache pack-lods --from DIR --out DIR\n"
            "  s376-cache osm ICAO [--out DIR] [--radius-km N] [--dry-run]\n"
+           "  s376-cache geojson ICAO [--out DIR]\n"
            "  s376-cache info DIR\n"
            "\n"
            "fetch downloads Copernicus GLO-30 (or USGS 3DEP) plus NAIP / Sentinel-2\n"
            "cloudless into BC1/BC7 tiles with mipmaps. High-res LOD near the field,\n"
            "coarse far out. Downloaded rasters stay under cache/ (gitignored).\n"
            "osm pulls Overpass aeroway=taxiway|apron (ODbL) into DIR/osm.json.\n"
+           "geojson writes a FeatureCollection for the osgEarth airport layer.\n"
            "Never points at 10.1.95.0/24 or 192.168.173.0/24.\n";
 }
 
@@ -114,9 +116,9 @@ int main(int argc, char** argv) {
             s376::log::shutdown();
             return 0;
         }         else if (a[0] != '-' && icao.empty() &&
-                   (cmd == "fetch" || cmd == "osm" || cmd == "info" || cmd == "from-geotiff" ||
-                    cmd == "pack-lods")) {
-            if (cmd == "fetch" || cmd == "osm")
+                   (cmd == "fetch" || cmd == "osm" || cmd == "geojson" || cmd == "info" ||
+                    cmd == "from-geotiff" || cmd == "pack-lods")) {
+            if (cmd == "fetch" || cmd == "osm" || cmd == "geojson")
                 icao = a;
             else
                 dem_path = a;
@@ -186,7 +188,30 @@ int main(int argc, char** argv) {
             }
             s376::Airport apt = s376::airport_by_icao(ref.icao);
             const int n = s376::try_merge_osm_file(apt, json_path);
+            s376::write_airport_geojson(apt, dest + "/osm.geojson");
             std::cout << "wrote " << json_path << "  " << n << " aeroway ways (ODbL — © OSM)\n";
+            s376::log::shutdown();
+            return 0;
+        }
+        if (cmd == "geojson") {
+            if (icao.empty()) {
+                std::cerr << "geojson needs an ICAO (KSEA, KSFO, KLAS, …)\n";
+                s376::log::shutdown();
+                return 2;
+            }
+            s376::Airport apt = s376::airport_by_icao(icao);
+            std::string dest = out;
+            if (dest.empty() || dest == "cache/ksea")
+                dest = std::string("cache/") + apt.icao;
+            (void)s376::try_load_osm(apt, dest);
+            const std::string path = dest + "/osm.geojson";
+            if (!s376::write_airport_geojson(apt, path)) {
+                std::cerr << "could not write " << path << "\n";
+                s376::log::shutdown();
+                return 1;
+            }
+            std::cout << "wrote " << path << "  " << apt.runways.size() << " runways  "
+                      << apt.taxiways.size() << " taxi  " << apt.aprons.size() << " aprons\n";
             s376::log::shutdown();
             return 0;
         }
@@ -205,6 +230,7 @@ int main(int argc, char** argv) {
                                     std::filesystem::file_size(out + "/imagery.dds");
                 std::cout << "wrote " << out << "  " << packed << " bytes (BC1 + s376dem)\n";
             }
+            s376::write_airport_geojson(s376::ksea_public(), out + "/osm.geojson");
             std::cout << "RSI CERTS for a comparable region was ~857 GB uncompressed.\n";
             s376::log::shutdown();
             return 0;

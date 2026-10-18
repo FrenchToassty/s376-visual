@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iterator>
 #include <sstream>
 #include <stdexcept>
@@ -409,6 +410,61 @@ void generate_lights(Airport& a) {
     a.lights.clear();
     for (const auto& rw : a.runways)
         lights_for_runway(a, rw);
+}
+
+std::string airport_geojson(const Airport& a) {
+    std::ostringstream o;
+    o << std::fixed;
+    o << "{\"type\":\"FeatureCollection\",\"name\":\"" << a.icao
+      << "\",\"attribution\":\"" << a.attribution << "\",\"features\":[";
+    bool first = true;
+    auto feat = [&](const char* kind, const char* name,
+                    const std::vector<std::pair<double, double>>& pts, bool ring) {
+        if (pts.size() < 2)
+            return;
+        if (!first)
+            o << ',';
+        first = false;
+        o << "{\"type\":\"Feature\",\"properties\":{\"aeroway\":\"" << kind << "\",\"name\":\""
+          << name << "\"},\"geometry\":{\"type\":\"" << (ring ? "Polygon" : "LineString")
+          << "\",\"coordinates\":";
+        if (ring)
+            o << '[';
+        o << '[';
+        for (std::size_t i = 0; i < pts.size(); ++i) {
+            if (i)
+                o << ',';
+            o << '[' << pts[i].second << ',' << pts[i].first << ']';
+        }
+        if (ring && (pts.front().first != pts.back().first || pts.front().second != pts.back().second))
+            o << ",[" << pts.front().second << ',' << pts.front().first << ']';
+        o << ']';
+        if (ring)
+            o << ']';
+        o << "}}";
+    };
+    for (const auto& rw : a.runways) {
+        const std::string nm = rw.ident_le + "/" + rw.ident_he;
+        std::vector<std::pair<double, double>> line = {{rw.le_lat, rw.le_lon}, {rw.he_lat, rw.he_lon}};
+        feat("runway", nm.c_str(), line, false);
+    }
+    for (const auto& tx : a.taxiways)
+        feat("taxiway", tx.name.c_str(), tx.path, false);
+    for (const auto& ap : a.aprons)
+        feat("apron", ap.name.c_str(), ap.ring, true);
+    o << "]}";
+    return o.str();
+}
+
+int write_airport_geojson(const Airport& a, const std::string& path) {
+    const auto parent = std::filesystem::path(path).parent_path();
+    if (!parent.empty())
+        std::filesystem::create_directories(parent);
+    std::ofstream out(path);
+    if (!out)
+        return 0;
+    out << airport_geojson(a);
+    return out ? 1 : 0;
 }
 
 AirportMesh build_airport_mesh(const Airport& a) {

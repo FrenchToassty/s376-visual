@@ -192,5 +192,12 @@ void test_airport() {
     CHECK(s376::try_merge_osm_file(from_file, tmp + "/osm.json") == 2);
     CHECK(s376::try_merge_osm_file(from_file, tmp + "/missing.json") == 0);
     CHECK(s376::try_load_osm(from_file, tmp) >= 0);
+
+    const auto gj = s376::airport_geojson(s376::ksea_public());
+    CHECK(gj.find("FeatureCollection") != std::string::npos);
+    CHECK(gj.find("16L/34R") != std::string::npos);
+    CHECK(gj.find("\"aeroway\":\"taxiway\"") != std::string::npos);
+    CHECK(s376::write_airport_geojson(s376::ksea_public(), tmp + "/osm.geojson") == 1);
+    CHECK(std::filesystem::exists(tmp + "/osm.geojson"));
     std::filesystem::remove_all(tmp);
 }

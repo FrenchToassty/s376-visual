@@ -24,6 +24,14 @@ textures, databases, binaries, or packet captures.
 
 ## Linux Mint 22 install
 
+One command on the hangar box (apt, build, tests, synth KSEA cache, desktop launchers):
+
+```bash
+./scripts/setup-mint.sh
+```
+
+Or by hand:
+
 ```bash
 sudo apt update
 sudo apt install -y git cmake g++ libopenscenegraph-dev libgl-dev libglew-dev libgdal-dev
@@ -33,6 +41,14 @@ cd s376-visual
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
 cmake --build build -j"$(nproc)"
 ctest --test-dir build --output-on-failure
+```
+
+The renderer stays **GL 3.3-compatible** (apt OSG 3.6 compatibility profile) so the same binary runs on the hangar RTX 5060 Ti and a Maxwell GTX 980 Ti. Do not force a Core profile.
+
+osgEarth (optional, not in Ubuntu 24.04 apt):
+
+```bash
+./scripts/build-osgearth.sh          # installs to /opt/osgearth and rebuilds
 ```
 
 Use **g++**, not the default clang: Ubuntu 24.04 / Mint 22 clang often lacks a

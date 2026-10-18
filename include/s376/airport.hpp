@@ -102,6 +102,11 @@ int try_load_osm(Airport& a, const std::string& cache_dir);
 void generate_lights(Airport& a);
 AirportMesh build_airport_mesh(const Airport& a);
 
+// GeoJSON FeatureCollection (runways / taxi / aprons) for an osgEarth
+// feature_geom layer. Coordinates are lon,lat. Not an RSI extract.
+std::string airport_geojson(const Airport& a);
+int write_airport_geojson(const Airport& a, const std::string& path);
+
 // Offset a geodetic point by metres along a true heading (local WGS84).
 void offset_m(double lat, double lon, double heading_deg, double dist_m, double& olat,
               double& olon);
