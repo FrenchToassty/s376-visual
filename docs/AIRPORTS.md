@@ -74,10 +74,10 @@ scales colour and alpha by `step / 5`. Switch numbers are ours:
 | 3 | Approach (ALSF-2 / MALSR bars) |
 | 4 | Threshold / end |
 
-`s376::ksea_public()`, `ksfo_public()`, and `klas_public()` build the
-three priority-1 US fields from OurAirports runway ends plus
-FAA-charted ALS (ALSF-2 on KSEA 16L, KSFO 28R, KLAS 26R/26L; MALSR
-elsewhere). Edge / centreline / approach / threshold points use the
+`s376::ksea_public()`, `ksfo_public()`, `klas_public()`, `klax_public()`,
+and `kjfk_public()` build the five priority-1 US fields from OurAirports
+runway ends plus FAA-charted ALS (ALSF-2 on KSEA 16L, KSFO 28R, KLAS
+26R/26L, KLAX 24s/25s, KJFK 04L/22R/13L/13R/31L; MALSR elsewhere). Edge / centreline / approach / threshold points use the
 spacing rules above. Taxi and apron polygons start as schematic
 offsets from those runways; `s376-cache osm ICAO` replaces them with
 an Overpass `aeroway=taxiway|apron` pull (ODbL). The renderer loads
@@ -92,7 +92,7 @@ numbers. Do not paste RSI `.nx3` coordinates into them.
    `s376-synth`. In the tree.
 2. **KSFO** — complex ALS, water, hills. In the tree.
 3. **KLAS** — desert, lots of night light points. In the tree.
-4. **KLAX** then **KJFK** — parallel-runway ALSF-2.
+4. **KLAX** then **KJFK** — parallel-runway ALSF-2. In the tree.
 5. **EGLL / EDDF** — ICAO lighting, Sentinel-2.
 6. The rest in the table order.
 

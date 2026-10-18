@@ -26,6 +26,13 @@ account may stop mid-run — treat this file as the source of truth.
   (ubuntu-24.04, 1984 tests, doctor, headless demo, sim-LAN refusal,
   `s376-cache` smoke). Optional osgEarth job is `workflow_dispatch` only.
 
+## Milestone: KLAX / KJFK layouts (2026-10-18)
+
+Same generator as KSEA: OurAirports runway ends, FAA-charted ALS
+(ALSF-2 on KLAX 24R/24L/25R/25L and KJFK 04L/22R/13L/13R/31L), schematic
+taxi/apron, GPU lights on packet-112 switches 1–4. `data/airports/{klax,kjfk}.toml`
+holds the public numbers. `all_public_airports()` is now five fields.
+
 ## Milestone: KSEA earth file (2026-10-18)
 
 `data/earth/ksea.earth` is the osgEarth path: GDAL elevation and imagery
@@ -145,15 +152,15 @@ are unit-tested.
 |---|---|---|
 | osgEarth tiles | `data/earth/s376.earth` | Build osgEarth on the hangar box; add a Copernicus elevation layer |
 | HAT off-DEM | `sample_hat` | Stand-in elev=0 when the point is outside the packed region |
-| More airports | `docs/AIRPORTS.md` | KSEA / KSFO / KLAS are in. Next: KLAX / KJFK |
+| More airports | `docs/AIRPORTS.md` | KSEA / KSFO / KLAS / KLAX / KJFK are in. Next: EGLL / EDDF |
 | Off-axis frustum | camera is rotated by heading offset | Shared eyepoint + asymmetric projection later |
 | `--demo` Ctrl+C | `src/synth.cpp` `run_synth_sender` | Synth thread ignores SIGINT; use `--duration` |
 
 ## Next 5 concrete steps (in order)
 
-1. **KLAX / KJFK** layouts the same way as KSEA / KSFO / KLAS.
+1. **4-monitor desk config** (this round).
 2. **Asymmetric / off-axis projection** if ViewAngles overlap is not enough.
-3. **KLAX / KJFK** layouts the same way as KSEA / KSFO / KLAS.
+3. **EGLL / EDDF** layouts.
 4. **NLIM / edge blend** — later.
 5. **Loopback capture** (never commit the files).
 

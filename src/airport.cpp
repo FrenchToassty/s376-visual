@@ -287,6 +287,58 @@ Airport klas_public() {
     return a;
 }
 
+Airport klax_public() {
+    Airport a;
+    a.icao = "KLAX";
+    a.name = "Los Angeles International";
+    a.attribution =
+        "OurAirports runways.csv (public domain) + FAA charted ALS (ALSF-2 24R/24L/25R/25L, "
+        "MALSR 06s/07s); taxi/apron schematic + OSM aeroway=* (ODbL) when fetched";
+    a.arp_lat = 33.9425;
+    a.arp_lon = -118.4081;
+    a.elev_m = 128.0 * geo::kFtToM;
+    a.runways.push_back(make_runway("06L", "24R", 33.95020, -118.43190, 117.0, 68.9, 8926.0, 150.0,
+                                    "MALSR", "ALSF-2"));
+    a.runways.push_back(make_runway("06R", "24L", 33.94700, -118.43140, 115.0, 68.9, 10285.0, 150.0,
+                                    "MALSR", "ALSF-2"));
+    a.runways.push_back(make_runway("07L", "25R", 33.93620, -118.41990, 115.0, 68.9, 12923.0, 150.0,
+                                    "MALSR", "ALSF-2"));
+    a.runways.push_back(make_runway("07R", "25L", 33.93350, -118.41870, 102.0, 68.9, 11095.0, 200.0,
+                                    "MALSR", "ALSF-2"));
+    a.taxiways.push_back(parallel_taxi("B", a.runways[0], 80.0));
+    a.taxiways.push_back(parallel_taxi("C", a.runways[1], -80.0));
+    a.taxiways.push_back(parallel_taxi("S", a.runways[2], 70.0));
+    a.aprons.push_back(box_apron("TBIT", 33.9435, -118.4085, 69.0, 1200, 500, a.elev_m));
+    generate_lights(a);
+    return a;
+}
+
+Airport kjfk_public() {
+    Airport a;
+    a.icao = "KJFK";
+    a.name = "John F Kennedy International";
+    a.attribution =
+        "OurAirports runways.csv (public domain) + FAA charted ALS (ALSF-2 04L/22R/13L/13R/31L, "
+        "MALSR 04R/31R); taxi/apron schematic + OSM aeroway=* (ODbL) when fetched";
+    a.arp_lat = 40.6399;
+    a.arp_lon = -73.7787;
+    a.elev_m = 13.0 * geo::kFtToM;
+    a.runways.push_back(make_runway("04L", "22R", 40.62205, -73.78558, 12.0, 31.0, 12079.0, 200.0,
+                                    "ALSF-2", "ALSF-2"));
+    a.runways.push_back(make_runway("04R", "22L", 40.62524, -73.77626, 12.0, 31.0, 8400.0, 200.0,
+                                    "MALSR", "ALSF-2"));
+    a.runways.push_back(make_runway("13L", "31R", 40.64822, -73.79026, 12.0, 121.0, 10000.0, 150.0,
+                                    "ALSF-2", "MALSR"));
+    a.runways.push_back(make_runway("13R", "31L", 40.64096, -73.78864, 13.0, 121.0, 14511.0, 200.0,
+                                    "ALSF-2", "ALSF-2"));
+    a.taxiways.push_back(parallel_taxi("A", a.runways[0], 80.0));
+    a.taxiways.push_back(parallel_taxi("B", a.runways[1], -80.0));
+    a.taxiways.push_back(parallel_taxi("Z", a.runways[3], 80.0));
+    a.aprons.push_back(box_apron("T4", 40.6445, -73.7780, 40.0, 1000, 450, a.elev_m));
+    generate_lights(a);
+    return a;
+}
+
 Airport airport_by_icao(const std::string& icao) {
     std::string id = icao;
     for (char& c : id)
@@ -297,11 +349,15 @@ Airport airport_by_icao(const std::string& icao) {
         return ksfo_public();
     if (id == "KLAS")
         return klas_public();
+    if (id == "KLAX")
+        return klax_public();
+    if (id == "KJFK")
+        return kjfk_public();
     throw std::runtime_error("no built-in layout for " + icao);
 }
 
 std::vector<Airport> all_public_airports() {
-    return {ksea_public(), ksfo_public(), klas_public()};
+    return {ksea_public(), ksfo_public(), klas_public(), klax_public(), kjfk_public()};
 }
 
 std::string overpass_aeroway_url(double south, double west, double north, double east) {

@@ -89,6 +89,8 @@ struct AirportMesh {
 Airport ksea_public();
 Airport ksfo_public();
 Airport klas_public();
+Airport klax_public();
+Airport kjfk_public();
 Airport airport_by_icao(const std::string& icao);
 std::vector<Airport> all_public_airports();
 

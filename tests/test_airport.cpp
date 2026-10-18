@@ -144,6 +144,34 @@ void test_airport() {
 
     CHECK(s376::airport_by_icao("ksfo").icao == "KSFO");
     CHECK(s376::airport_by_icao("KLAS").runways.size() == 4);
+
+    auto lax = s376::klax_public();
+    CHECK(lax.icao == "KLAX");
+    CHECK(lax.runways.size() == 4);
+    CHECK(lax.runways[0].ident_le == "06L" && lax.runways[0].ident_he == "24R");
+    CHECK(lax.runways[0].approach_he == "ALSF-2");
+    CHECK(lax.runways[3].ident_le == "07R");
+    CHECK_NEAR(lax.arp_lat, 33.9425, 1e-4);
+    CHECK_NEAR(lax.runways[2].length_m, 12923.0 * s376::geo::kFtToM, 1.0);
+    CHECK(lax.taxiways.size() >= 3);
+    check_runway_length(lax.runways[0]);
+    check_lights(lax, 200, 400);
+    check_mesh(lax);
+
+    auto jfk = s376::kjfk_public();
+    CHECK(jfk.icao == "KJFK");
+    CHECK(jfk.runways.size() == 4);
+    CHECK(jfk.runways[0].ident_le == "04L" && jfk.runways[0].ident_he == "22R");
+    CHECK(jfk.runways[0].approach_le == "ALSF-2");
+    CHECK(jfk.runways[0].approach_he == "ALSF-2");
+    CHECK(jfk.runways[3].ident_le == "13R");
+    CHECK_NEAR(jfk.arp_lat, 40.6399, 1e-4);
+    CHECK_NEAR(jfk.runways[3].length_m, 14511.0 * s376::geo::kFtToM, 1.0);
+    check_runway_length(jfk.runways[0]);
+    check_runway_length(jfk.runways[3]);
+    check_lights(jfk, 200, 400);
+    check_mesh(jfk);
+
     bool threw = false;
     try {
         (void)s376::airport_by_icao("XXXX");
@@ -153,8 +181,9 @@ void test_airport() {
     CHECK(threw);
 
     const auto all = s376::all_public_airports();
-    CHECK(all.size() == 3);
+    CHECK(all.size() == 5);
     CHECK(all[0].icao == "KSEA" && all[1].icao == "KSFO" && all[2].icao == "KLAS");
+    CHECK(all[3].icao == "KLAX" && all[4].icao == "KJFK");
 
     const auto url = s376::overpass_aeroway_url(37.60, -122.40, 37.64, -122.35);
     CHECK(url.find("overpass-api.de") != std::string::npos);
