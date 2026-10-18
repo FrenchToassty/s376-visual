@@ -43,6 +43,13 @@ bool pixels_near_gradient(const RgbImage& im, int tol = 2);
 bool far_field_is_empty_sky(const RgbImage& im);
 // Sky-like fraction in a top-down RGB box, y0/y1 as 0..1 from the top.
 float sky_like_fraction(const RgbImage& im, float x0, float x1, float y0, float y1);
+// Mean luma step across the horizon band (y 0.40–0.58). A knife-edge
+// green/sky join is a single-row jump; haze is a ramp over several rows.
+float horizon_luma_step(const RgbImage& im);
+bool horizon_is_hard_edge(const RgbImage& im);
+// Foreground water wash: lower 28% mean luma + low chroma.
+float water_wash_luma(const RgbImage& im);
+bool water_is_washed_white(const RgbImage& im);
 
 // CPU self-test: write a gradient, read it back, check pixels. No GL.
 bool self_test_shot_files(const std::string& dir, std::string& err);

@@ -260,6 +260,63 @@ bool far_field_is_empty_sky(const RgbImage& im) {
     return far > 0.82f && stdev < 22.0;
 }
 
+float horizon_luma_step(const RgbImage& im) {
+    if (im.w < 16 || im.h < 16 ||
+        im.rgb.size() < static_cast<std::size_t>(im.w * im.h * 3))
+        return 0.f;
+    const int x0 = im.w / 3, x1 = (im.w * 2) / 3;
+    const int y0 = static_cast<int>(0.40f * im.h);
+    const int y1 = std::max(y0 + 4, static_cast<int>(0.58f * im.h));
+    float prev = 0.f;
+    float max_step = 0.f;
+    bool have = false;
+    for (int y = y0; y < y1 && y < im.h; ++y) {
+        double s = 0;
+        int n = 0;
+        for (int x = x0; x < x1 && x < im.w; ++x) {
+            const std::size_t o = static_cast<std::size_t>(y * im.w + x) * 3u;
+            s += 0.30 * im.rgb[o] + 0.59 * im.rgb[o + 1] + 0.11 * im.rgb[o + 2];
+            ++n;
+        }
+        if (n < 4)
+            continue;
+        const float luma = static_cast<float>(s / n);
+        if (have)
+            max_step = std::max(max_step, std::fabs(luma - prev));
+        prev = luma;
+        have = true;
+    }
+    return max_step;
+}
+
+bool horizon_is_hard_edge(const RgbImage& im) {
+    return horizon_luma_step(im) > 42.f;
+}
+
+float water_wash_luma(const RgbImage& im) {
+    if (im.w < 16 || im.h < 16 ||
+        im.rgb.size() < static_cast<std::size_t>(im.w * im.h * 3))
+        return 0.f;
+    const int y0 = static_cast<int>(0.72f * im.h);
+    double s = 0, chroma = 0;
+    int n = 0;
+    for (int y = y0; y < im.h; ++y) {
+        for (int x = im.w / 4; x < (im.w * 3) / 4; ++x) {
+            const std::size_t o = static_cast<std::size_t>(y * im.w + x) * 3u;
+            const int r = im.rgb[o], g = im.rgb[o + 1], b = im.rgb[o + 2];
+            s += 0.30 * r + 0.59 * g + 0.11 * b;
+            chroma += std::abs(b - r) + std::abs(b - g);
+            ++n;
+        }
+    }
+    (void)chroma;
+    return n > 0 ? static_cast<float>(s / n) : 0.f;
+}
+
+bool water_is_washed_white(const RgbImage& im) {
+    return water_wash_luma(im) > 198.f;
+}
+
 bool pixels_near_gradient(const RgbImage& im, int tol) {
     const auto expect = make_gradient_rgb(im.w, im.h);
     if (im.rgb.size() != expect.rgb.size())

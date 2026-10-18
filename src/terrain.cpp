@@ -731,6 +731,62 @@ void score_tiles_for_view(const std::vector<CacheTileRef>& index, double elat, d
               [](const TilePageWant& a, const TilePageWant& b) { return a.score < b.score; });
 }
 
+void kjfk_subset_land_rgb(double lat, double lon, std::uint8_t& r, std::uint8_t& g, std::uint8_t& b,
+                          bool& water) {
+    const float cover = geo::land_coverage(lat, lon);
+    water = cover < 0.35f;
+    const double n = std::fmod(std::sin(lat * 127.1 + lon * 311.7) * 43758.5453, 1.0);
+    const double n2 = std::fmod(std::sin(lat * 19.3 + lon * 47.1 + 3.7) * 24634.857, 1.0);
+    auto clamp8 = [](double v) -> std::uint8_t {
+        if (v < 0.0)
+            return 0;
+        if (v > 255.0)
+            return 255;
+        return static_cast<std::uint8_t>(v + 0.5);
+    };
+    if (water) {
+        const bool atlantic = lat < 40.545 || (lat < 40.575 && lon > -73.84);
+        const double base_r = atlantic ? 12.0 : 18.0;
+        const double base_g = atlantic ? 40.0 : 52.0;
+        const double base_b = atlantic ? 86.0 : 104.0;
+        r = clamp8(base_r + (n - 0.5) * 8.0);
+        g = clamp8(base_g + (n2 - 0.5) * 10.0);
+        b = clamp8(base_b + (n - 0.5) * 12.0);
+        return;
+    }
+    const bool beach = lat > 40.545 && lat < 40.592 && lon > -73.96 && lon < -73.73;
+    const bool manhattan = lat > 40.698 && lat < 40.882 && lon > -74.025 && lon < -73.928;
+    const bool field = lat > 40.626 && lat < 40.662 && lon > -73.828 && lon < -73.752;
+    const bool urban =
+        !field && lat > 40.598 && lat < 40.820 && lon > -74.060 && lon < -73.740;
+    const bool marsh = cover >= 0.35f && cover < 0.52f;
+    double br = 78, bg = 98, bb = 52;
+    if (beach) {
+        br = 188;
+        bg = 170;
+        bb = 128;
+    } else if (manhattan) {
+        br = 96;
+        bg = 94;
+        bb = 92;
+    } else if (urban) {
+        br = 90;
+        bg = 88;
+        bb = 82;
+    } else if (field) {
+        br = 86;
+        bg = 100;
+        bb = 64;
+    } else if (marsh) {
+        br = 70;
+        bg = 88;
+        bb = 50;
+    }
+    r = clamp8(br + (n - 0.5) * 16.0 + (n2 - 0.5) * 8.0);
+    g = clamp8(bg + (n2 - 0.5) * 14.0);
+    b = clamp8(bb + (n - 0.5) * 10.0);
+}
+
 bool write_kjfk_farfield_subset(const std::string& dir) {
     if (dir.empty())
         return false;
@@ -757,19 +813,14 @@ bool write_kjfk_farfield_subset(const std::string& dir) {
             for (int x = 0; x < dem.w; ++x) {
                 const double lon =
                     dem.west + (dem.east - dem.west) * x / std::max(1, dem.w - 1);
-                const float cover = geo::land_coverage(lat, lon);
-                const bool water = cover < 0.35f;
+                std::uint8_t r = 0, g = 0, b = 0;
+                bool water = false;
+                kjfk_subset_land_rgb(lat, lon, r, g, b, water);
                 dem.z_m[static_cast<std::size_t>(y * dem.w + x)] = water ? 0.f : 4.f;
                 const int o = (y * img.w + x) * 3;
-                if (water) {
-                    img.rgb[static_cast<std::size_t>(o + 0)] = 18;
-                    img.rgb[static_cast<std::size_t>(o + 1)] = 55;
-                    img.rgb[static_cast<std::size_t>(o + 2)] = 110;
-                } else {
-                    img.rgb[static_cast<std::size_t>(o + 0)] = 78;
-                    img.rgb[static_cast<std::size_t>(o + 1)] = 98;
-                    img.rgb[static_cast<std::size_t>(o + 2)] = 52;
-                }
+                img.rgb[static_cast<std::size_t>(o + 0)] = r;
+                img.rgb[static_cast<std::size_t>(o + 1)] = g;
+                img.rgb[static_cast<std::size_t>(o + 2)] = b;
             }
         }
     };

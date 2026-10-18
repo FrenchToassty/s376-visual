@@ -24,6 +24,7 @@
 #include <osg/MatrixTransform>
 #include <osg/DisplaySettings>
 #include <osg/GL>
+#include <osg/GLExtensions>
 #include <osg/Geode>
 #include <osg/Geometry>
 #include <osg/GraphicsContext>
@@ -68,6 +69,15 @@
 #endif
 #ifndef GL_COMPRESSED_RGBA_BPTC_UNORM_ARB
 #define GL_COMPRESSED_RGBA_BPTC_UNORM_ARB 0x8E8C
+#endif
+#ifndef GL_TIME_ELAPSED
+#define GL_TIME_ELAPSED 0x88BF
+#endif
+#ifndef GL_QUERY_RESULT
+#define GL_QUERY_RESULT 0x8866
+#endif
+#ifndef GL_QUERY_RESULT_AVAILABLE
+#define GL_QUERY_RESULT_AVAILABLE 0x8867
 #endif
 
 #ifdef S376_HAS_OSGEARTH
@@ -169,8 +179,12 @@ vec3 grade(vec3 x, float filmicOn) {
 }
 float aerial(float dist, vec3 n) {
     float g = 1.0 - clamp(abs(dot(normalize(n), normalize(uUp))), 0.0, 1.0);
-    float h = uFogDensity + uHaze * (0.10 + 0.55 * pow(g, 1.6));
-    return exp(-h * h * dist * dist);
+    // Beer plus a 40 nm far fade so the land/sky join is haze, not a knife.
+    float beer = exp(-uFogDensity * dist * 0.38);
+    float hz = exp(-uHaze * dist * (2.2 + 7.0 * pow(g, 1.15)));
+    float km = dist * 0.001;
+    float far = exp(-km * km * 0.00028);
+    return clamp(beer * hz * far, 0.0, 1.0);
 }
 float shadow_term(vec3 world) {
     if (uShadows < 0.5)
@@ -218,6 +232,9 @@ void main() {
         land = mix(mix(land, dirt, 0.18 * (1.0 - paved)), grass, gness * 0.42);
         land = mix(land, land * (0.50 + 0.95 * atlas), close);
         albedo = mix(albedo, land, uDetail * mid * (1.0 - wet));
+        // Distant land desaturates into haze so the horizon is not cartoon green.
+        float farland = clamp((vEyeDist - 6000.0) / 38000.0, 0.0, 1.0);
+        albedo = mix(albedo, mix(uFogColor, albedo, 0.42), farland);
     }
     vec3 col = albedo * (uAmbient + uDiffuse * ndl);
     if (wet > 0.01 && uWater > 0.5) {
@@ -226,20 +243,21 @@ void main() {
         float n1 = noise(wu * 520.0 + vec2(uTime * 0.07, uTime * 0.03));
         float n2 = noise(wu * 1280.0 + vec2(-uTime * 0.05, uTime * 0.09) + 11.0);
         vec3 wn = normalize(n + vec3((n1 - 0.5) * 0.22, (n2 - 0.5) * 0.22, 0.0));
-        float fres = pow(1.0 - clamp(dot(wn, view), 0.0, 1.0), 5.0);
-        vec3 deep = vec3(0.02, 0.08, 0.16);
-        vec3 shallow = vec3(0.05, 0.16, 0.24);
+        float fres = pow(1.0 - clamp(dot(wn, view), 0.0, 1.0), 4.0);
+        // Cap grazing Fresnel — Jamaica Bay at 3° is water, not a white slab.
+        fres *= mix(1.0, 0.38, smoothstep(0.55, 0.94, fres));
+        vec3 deep = vec3(0.02, 0.07, 0.14);
+        vec3 shallow = vec3(0.04, 0.13, 0.20);
         vec3 wcol = mix(deep, shallow, n1 * 0.40);
-        vec3 skyref = mix(uFogColor, vec3(0.32, 0.52, 0.78), 0.55);
-        wcol = mix(wcol, skyref, 0.20 + 0.58 * fres);
-        float glint = pow(max(dot(reflect(-sun, wn), view), 0.0), 72.0);
-        wcol += vec3(1.0, 0.95, 0.82) * glint * 0.90 * (1.0 - uNight * 0.85);
-        wcol *= (uAmbient + uDiffuse * (0.22 + 0.55 * max(dot(wn, sun), 0.0)));
+        vec3 skyref = mix(uFogColor * 0.52, vec3(0.14, 0.26, 0.40), 0.40);
+        wcol = mix(wcol, skyref, 0.10 + 0.34 * fres);
+        float glint = pow(max(dot(reflect(-sun, wn), view), 0.0), 86.0);
+        wcol += vec3(1.0, 0.95, 0.82) * glint * 0.55 * (1.0 - uNight * 0.90);
+        wcol *= (uAmbient + uDiffuse * (0.16 + 0.40 * max(dot(wn, sun), 0.0)));
         float foam = smoothstep(0.42, 0.68, wet) * (1.0 - smoothstep(0.78, 0.98, wet));
-        foam *= 0.55 + 0.45 * noise(wu * 900.0 + vec2(uTime * 0.15, 0.0));
-        wcol = mix(wcol, vec3(0.86, 0.90, 0.94), foam * 0.65);
-        // Keep ortho in the mix so an 8 m pack still reads as imagery, not a slab.
-        col = mix(col, wcol, wet * 0.68);
+        foam *= 0.40 + 0.35 * noise(wu * 900.0 + vec2(uTime * 0.15, 0.0));
+        wcol = mix(wcol, vec3(0.70, 0.76, 0.80), foam * 0.35);
+        col = mix(col, wcol, wet * 0.78);
     }
     if (uBloom > 0.5 && uNight > 0.25 && wet < 0.40) {
         float urban = smoothstep(0.14, 0.36, luma) * (1.0 - gness);
@@ -384,9 +402,11 @@ void main() {
         col += vec3(0.58, 0.60, 0.68) * sheen * (0.65 + 0.55 * fres);
     }
     float g = 1.0 - clamp(abs(dot(n, normalize(uUp))), 0.0, 1.0);
-    float h = uFogDensity + uHaze * (0.12 + 0.45 * g);
-    float f = exp(-h * h * vEyeDist * vEyeDist);
-    col = mix(uFogColor, col, clamp(f, 0.0, 1.0));
+    float beer = exp(-uFogDensity * vEyeDist * 0.38);
+    float hz = exp(-uHaze * vEyeDist * (2.2 + 7.0 * pow(g, 1.15)));
+    float km = vEyeDist * 0.001;
+    float f = clamp(beer * hz * exp(-km * km * 0.00028), 0.0, 1.0);
+    col = mix(uFogColor, col, f);
     // Distant hangar/jetbridge walls become hairline cards. Lift them
     // into aerial haze so they are not floating black slivers.
     if (mat > 2.5 && mat < 4.5 && vEyeDist > 2800.0) {
@@ -602,6 +622,7 @@ uniform float uTanHalfV;
 uniform float uFilmic;
 uniform float uAtmosphere;
 uniform vec2 uViewport;
+uniform vec3 uCityDir;
 varying vec2 vNdc;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 vec3 aces(vec3 x) {
@@ -628,16 +649,17 @@ void main() {
     float m = max(dot(d, sun), 0.0);
     float sunH = dot(sun, up);
     vec3 zenith = vec3(0.10, 0.38, 0.92);
-    vec3 horiz = vec3(0.55, 0.72, 0.95);
-    vec3 ground = vec3(0.28, 0.38, 0.52);
-    float elev = smoothstep(0.0, 1.0, pow(clamp(h, 0.0, 1.0), 0.62));
+    vec3 horiz = mix(uFogColor, vec3(0.52, 0.68, 0.88), 0.55);
+    vec3 ground = vec3(0.28, 0.36, 0.48);
+    float elev = smoothstep(0.0, 1.0, pow(clamp(h, 0.0, 1.0), 0.70));
     vec3 simple = mix(horiz, zenith, elev);
     if (h < 0.0)
         simple = mix(horiz, ground, smoothstep(0.0, 1.0, clamp(-h * 2.0, 0.0, 1.0)));
     simple += vec3(1.0, 0.96, 0.82) * smoothstep(0.9994, 0.99985, m) * 0.55;
     simple += vec3(1.0, 0.90, 0.70) * pow(m, 512.0) * 0.18;
-    float hz = pow(1.0 - abs(h), 1.25);
-    simple = mix(simple, uFogColor, 0.16 * hz);
+    float hz = pow(1.0 - abs(h), 1.05);
+    float band = smoothstep(0.12, 0.0, abs(h));
+    simple = mix(simple, uFogColor, 0.22 * hz + 0.28 * band);
     // Rayleigh / Mie as a modulation on the proven gradient (GLSL 120).
     // A full optical-depth integral goes brown at noon on Maxwell ALU.
     float cosT = dot(d, sun);
@@ -654,7 +676,7 @@ void main() {
     pbr += vec3(1.0, 0.96, 0.85) * smoothstep(0.9995, 0.99992, m) * clamp(sunH + 0.05, 0.0, 1.0);
     if (h < 0.0)
         pbr = mix(pbr, ground * (0.25 + 0.75 * max(sunH, 0.0)), clamp(-h * 2.2, 0.0, 1.0));
-    pbr = mix(pbr, uFogColor, 0.12 * hz);
+    pbr = mix(pbr, uFogColor, 0.18 * hz + 0.22 * band);
     vec3 sky = mix(simple, pbr, clamp(uAtmosphere, 0.0, 1.0));
     // 0 at +6° sun, 1 by −8° — 3 AM is navy, not a leftover dusk glow.
     float night = smoothstep(0.10, -0.14, sunH);
@@ -665,9 +687,15 @@ void main() {
     nightcol += vec3(0.28, 0.32, 0.42) * pow(mm, 8.0) * 0.05;
     float star = step(0.996, hash(d.xy * 90.0 + d.z * 17.0));
     nightcol += vec3(star) * step(0.05, h) * 0.85;
-    // Faint urban horizon (NYC is ~308° from 04R short final — barely in a 50° front).
-    float city = pow(clamp(1.0 - abs(h), 0.0, 1.0), 12.0) * 0.028;
-    nightcol += vec3(0.20, 0.13, 0.05) * city;
+    // NYC skyline glow from a real city direction (Manhattan ECEF), not a lattice.
+    // 04R front barely clips it; Left wrap sees the warm band.
+    float cityH = pow(clamp(1.0 - abs(h), 0.0, 1.0), 5.2);
+    float cityDot = 0.0;
+    if (dot(uCityDir, uCityDir) > 0.05)
+        cityDot = pow(max(dot(d, normalize(uCityDir)), 0.0), 3.2);
+    float city = cityH * (0.18 + 0.82 * cityDot);
+    nightcol += vec3(0.62, 0.36, 0.12) * city * 0.42;
+    sky += vec3(0.40, 0.24, 0.10) * city * 0.10 * (1.0 - night);
     sky = mix(sky, nightcol, night);
     gl_FragColor = vec4(grade(sky * uExposure, uFilmic), 1.0);
 }
@@ -924,6 +952,7 @@ struct ShaderEnv {
     osg::ref_ptr<osg::Uniform> origin;
     osg::ref_ptr<osg::Uniform> shadow_matrix;
     osg::ref_ptr<osg::Uniform> viewport;
+    osg::ref_ptr<osg::Uniform> city_dir;
 };
 
 constexpr unsigned kCastShadow = 0x2u;
@@ -961,6 +990,7 @@ void attach_env_uniforms(osg::StateSet* ss, ShaderEnv& env) {
     env.shadow_matrix = new osg::Uniform(osg::Uniform::FLOAT_MAT4, "uShadowMatrix");
     env.shadow_matrix->set(osg::Matrixf());
     env.viewport = new osg::Uniform("uViewport", osg::Vec2(1920.f, 1200.f));
+    env.city_dir = new osg::Uniform("uCityDir", osg::Vec3(0.f, 0.f, 0.f));
     ss->addUniform(env.sun_dir);
     ss->addUniform(env.ambient);
     ss->addUniform(env.diffuse);
@@ -987,6 +1017,7 @@ void attach_env_uniforms(osg::StateSet* ss, ShaderEnv& env) {
     ss->addUniform(env.origin);
     ss->addUniform(env.shadow_matrix);
     ss->addUniform(env.viewport);
+    ss->addUniform(env.city_dir);
     ss->addUniform(new osg::Uniform("sShadow", 2));
     strip_ff(ss);
 }
@@ -2924,7 +2955,41 @@ class OsgRenderer final : public Renderer {
             const ChannelConfig& ch = channels_.front();
             ensure_shot_fbo(std::max(8, ch.width), std::max(8, ch.height), host);
         }
+        const auto t_cpu0 = std::chrono::steady_clock::now();
+        begin_gpu_query();
         viewer_->frame();
+        end_gpu_query(false);
+        last_cpu_ms_ = static_cast<float>(
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_cpu0)
+                .count());
+        if (cfg_.render.auto_drop && last_gpu_ms_ > cfg_.render.gpu_budget_ms) {
+            if (apply_quality_autodrop(cfg_.render, last_gpu_ms_, cfg_.render.gpu_budget_ms,
+                                       &autodrop_log_)) {
+                apply_runtime_toggles();
+                S376_LOG_INFO("render", "gtx980ti autodrop  gpu=%.2f ms  budget=%.2f  now=%s",
+                              last_gpu_ms_, cfg_.render.gpu_budget_ms, autodrop_log_.c_str());
+            }
+        }
+    }
+
+    float last_gpu_ms() const override { return last_gpu_ms_; }
+    float last_cpu_ms() const override { return last_cpu_ms_; }
+    std::string autodrop_log() const override { return autodrop_log_; }
+    float measure_gpu_ms() override {
+        end_gpu_query(true);
+        return last_gpu_ms_;
+    }
+    void set_render_toggles(const RenderConfig& r) override {
+        cfg_.render.atmosphere = r.atmosphere;
+        cfg_.render.water = r.water;
+        cfg_.render.detail_textures = r.detail_textures;
+        cfg_.render.ssao = r.ssao;
+        cfg_.render.bloom = r.bloom;
+        cfg_.render.filmic = r.filmic;
+        cfg_.render.shadows = r.shadows;
+        cfg_.render.auto_drop = r.auto_drop;
+        cfg_.render.gpu_budget_ms = r.gpu_budget_ms;
+        apply_runtime_toggles();
     }
 
     bool ptt_key_down() const override { return ptt_key_down_; }
@@ -3445,9 +3510,31 @@ class OsgRenderer final : public Renderer {
             alt_k = std::min(1.f, static_cast<float>(host.eye.alt_ft) / 16000.f);
         float haze = 0.f;
         if (cfg_.render.atmosphere)
-            haze = 1.1e-6f + 2.4e-6f * alt_k;
+            haze = 3.2e-6f + 5.0e-6f * alt_k;
         if (env_u_.haze)
             env_u_.haze->set(haze);
+        if (env_u_.city_dir && host.have_eyepoint) {
+            // Lower Manhattan (public). Zeroed outside ~80 km so other fields
+            // do not pick up a fake NYC glow.
+            const double mlat = 40.7128, mlon = -74.0060;
+            const double dlat = host.eye.lat_deg - mlat;
+            const double dlon = (host.eye.lon_deg - mlon) *
+                                std::cos(geo::deg2rad(host.eye.lat_deg));
+            const double km = std::sqrt(dlat * dlat + dlon * dlon) * 111.32;
+            if (km < 80.0) {
+                const geo::Ecef eye = geo::lla_to_ecef(
+                    host.eye.lat_deg, host.eye.lon_deg, host.eye.alt_ft * geo::kFtToM);
+                const geo::Ecef city = geo::lla_to_ecef(mlat, mlon, 80.0);
+                osg::Vec3 d(static_cast<float>(city.x - eye.x),
+                            static_cast<float>(city.y - eye.y),
+                            static_cast<float>(city.z - eye.z));
+                if (d.length2() > 1e-6f)
+                    d.normalize();
+                env_u_.city_dir->set(d);
+            } else {
+                env_u_.city_dir->set(osg::Vec3(0.f, 0.f, 0.f));
+            }
+        }
         if (env_u_.viewport && !views_.empty()) {
             float vw = 1920.f, vh = 1200.f;
             if (auto* cam = views_.front()->getCamera()) {
@@ -3666,6 +3753,75 @@ class OsgRenderer final : public Renderer {
         }
     }
 
+    osg::GLExtensions* gl_ext() {
+        if (views_.empty() || !views_.front() || !views_.front()->getCamera())
+            return nullptr;
+        osg::GraphicsContext* gc = views_.front()->getCamera()->getGraphicsContext();
+        if (!gc || !gc->getState())
+            return nullptr;
+        return osg::GLExtensions::Get(gc->getState()->getContextID(), true);
+    }
+
+    void begin_gpu_query() {
+        osg::GLExtensions* ext = gl_ext();
+        if (!ext || !ext->isTimerQuerySupported)
+            return;
+        if (gpu_query_ == 0)
+            ext->glGenQueries(1, &gpu_query_);
+        if (gpu_query_ == 0)
+            return;
+        harvest_gpu_query(false);
+        ext->glBeginQuery(GL_TIME_ELAPSED, gpu_query_);
+        gpu_query_open_ = true;
+    }
+
+    void harvest_gpu_query(bool wait) {
+        if (!gpu_query_pending_ || gpu_query_ == 0)
+            return;
+        osg::GLExtensions* ext = gl_ext();
+        if (!ext)
+            return;
+        if (!wait) {
+            GLuint avail = 0;
+            ext->glGetQueryObjectuiv(gpu_query_, GL_QUERY_RESULT_AVAILABLE, &avail);
+            if (!avail)
+                return;
+        }
+        GLuint64 ns = 0;
+        ext->glGetQueryObjectui64v(gpu_query_, GL_QUERY_RESULT, &ns);
+        last_gpu_ms_ = static_cast<float>(static_cast<double>(ns) * 1e-6);
+        gpu_query_pending_ = false;
+    }
+
+    void end_gpu_query(bool wait) {
+        osg::GLExtensions* ext = gl_ext();
+        if (gpu_query_open_ && ext) {
+            ext->glEndQuery(GL_TIME_ELAPSED);
+            gpu_query_open_ = false;
+            gpu_query_pending_ = true;
+        }
+        harvest_gpu_query(wait);
+    }
+
+    void apply_runtime_toggles() {
+        if (env_u_.atmosphere)
+            env_u_.atmosphere->set(cfg_.render.atmosphere ? 1.f : 0.f);
+        if (env_u_.water)
+            env_u_.water->set(cfg_.render.water ? 1.f : 0.f);
+        if (env_u_.detail)
+            env_u_.detail->set(cfg_.render.detail_textures ? 1.f : 0.f);
+        if (env_u_.ssao)
+            env_u_.ssao->set(cfg_.render.ssao ? 1.f : 0.f);
+        if (env_u_.bloom)
+            env_u_.bloom->set(cfg_.render.bloom ? 1.f : 0.f);
+        if (env_u_.filmic)
+            env_u_.filmic->set(cfg_.render.filmic ? 1.f : 0.f);
+        if (env_u_.shadows)
+            env_u_.shadows->set(cfg_.render.shadows && shadow_cam_ ? 1.f : 0.f);
+        if (env_u_.haze && !cfg_.render.atmosphere)
+            env_u_.haze->set(0.f);
+    }
+
     AppConfig cfg_;
     std::vector<ChannelConfig> channels_;
     std::unique_ptr<osgViewer::CompositeViewer> viewer_;
@@ -3724,6 +3880,12 @@ class OsgRenderer final : public Renderer {
     EraUnlock unlock_;
     SkylineEra drawn_era_ = SkylineEra::Current;
     std::vector<Airport> scene_apts_;
+    GLuint gpu_query_ = 0;
+    bool gpu_query_open_ = false;
+    bool gpu_query_pending_ = false;
+    float last_gpu_ms_ = -1.f;
+    float last_cpu_ms_ = -1.f;
+    std::string autodrop_log_;
 };
 
 bool OsgRenderer::on_hud_click(float x, float y) {

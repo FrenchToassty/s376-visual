@@ -115,6 +115,37 @@ void test_image() {
             }
         }
         CHECK(!s376::far_field_is_empty_sky(mixed));
+        CHECK(s376::horizon_luma_step(sky) < 5.f);
+        CHECK(!s376::horizon_is_hard_edge(sky));
+        auto knife = s376::make_solid_rgb(64, 40, 140, 184, 242);
+        for (int y = 20; y < 40; ++y) {
+            for (int x = 0; x < 64; ++x) {
+                const std::size_t o = static_cast<std::size_t>(y * 64 + x) * 3u;
+                knife.rgb[o] = 40;
+                knife.rgb[o + 1] = 90;
+                knife.rgb[o + 2] = 40;
+            }
+        }
+        CHECK(s376::horizon_is_hard_edge(knife));
+        auto wash = s376::make_solid_rgb(64, 40, 230, 235, 240);
+        CHECK(s376::water_is_washed_white(wash));
+        auto bay = s376::make_solid_rgb(64, 40, 18, 55, 110);
+        CHECK(!s376::water_is_washed_white(bay));
+    }
+    {
+        std::uint8_t r = 0, g = 0, b = 0;
+        bool water = false;
+        s376::kjfk_subset_land_rgb(40.620, -73.774, r, g, b, water);
+        CHECK(water);
+        CHECK(b > r && b > g);
+        s376::kjfk_subset_land_rgb(40.640, -73.779, r, g, b, water);
+        CHECK(!water);
+        s376::kjfk_subset_land_rgb(40.72, -74.00, r, g, b, water);
+        CHECK(!water);
+        CHECK(std::abs(static_cast<int>(r) - static_cast<int>(g)) < 16); // urban gray
+        s376::kjfk_subset_land_rgb(40.565, -73.85, r, g, b, water);
+        CHECK(!water);
+        CHECK(r > 140 && g > 120); // Rockaway sand
     }
 #ifdef S376_HAS_OSG
     if (std::getenv("DISPLAY")) {

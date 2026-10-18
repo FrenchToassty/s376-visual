@@ -123,6 +123,10 @@ void score_tiles_for_view(const std::vector<CacheTileRef>& index, double elat, d
 // Public-source KJFK subset in Joey's hangar layout (ATTRIBUTION.txt,
 // coverage.toml, elev.*, imagery.*, lod0/lod1/lod2, region.toml).
 bool write_kjfk_farfield_subset(const std::string& dir);
+// Public land_coverage plus borough/beach/marsh classes for the synth pack.
+// Not surveyed imagery — only used when no ortho is on disk.
+void kjfk_subset_land_rgb(double lat_deg, double lon_deg, std::uint8_t& r, std::uint8_t& g,
+                          std::uint8_t& b, bool& water);
 
 // Index lodN/ and lodN/tY_X without loading rasters.
 std::vector<CacheTileRef> scan_cache_tiles(const std::string& dir);
