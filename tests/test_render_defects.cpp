@@ -91,6 +91,16 @@ void test_render_defects() {
     const auto* rw13l = rwy(jfk, "13L");
     CHECK(rw04r && rw13l);
     CHECK_NEAR(rw04r->heading_deg, 30.768, 0.01);
+    // Root cause of 13L-all-dark at --tod 19: cover*12 m land pad buried the
+    // ~4 m field. 04R ALS over the bay still cleared the water. Lights must
+    // sit above the schematic pad.
+    {
+        const double field = jfk.elev_m;
+        const double pad = s376::geo::local_ground_alt_m(0.75f, 1.0, field);
+        CHECK(pad < field);
+        CHECK(field + 0.85 > pad + 0.2);
+        CHECK(s376::geo::local_ground_alt_m(0.2f, 1.0, field) < field - 1.0);
+    }
 
     // --at eyepoint: true heading, −3° pitch, 3° path height.
     for (double nm : {3.0, 1.0, 0.5}) {
