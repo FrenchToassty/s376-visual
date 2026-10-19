@@ -111,12 +111,7 @@ s376::HostState host_from_shot(const s376::ShotPose& p) {
     h.have_eyepoint = true;
     h.eye.csn = s376::xt4::kEyepointCsn;
     h.eye.minor_csn = -1;
-    h.eye.lat_deg = p.lat;
-    h.eye.lon_deg = p.lon;
-    h.eye.alt_ft = p.alt_ft;
-    h.eye.heading_deg = static_cast<float>(-p.hdg_true_deg);
-    h.eye.pitch_deg = static_cast<float>(p.pitch_deg);
-    h.eye.roll_deg = static_cast<float>(p.roll_deg);
+    h.eye.set_true_pose(p.lat, p.lon, p.alt_ft, p.hdg_true_deg, p.pitch_deg, p.roll_deg);
     h.eyepoints = 1;
     h.datagrams = 0;
     h.last_peer = "shot";

@@ -1,11 +1,14 @@
 #include "s376/airport.hpp"
+#include "s376/config.hpp"
 #include "s376/geo.hpp"
 #include "s376/lights.hpp"
 #include "s376/state.hpp"
+#include "s376/xt4.hpp"
 
 #include <cmath>
 #include <iostream>
 #include <string>
+#include <vector>
 
 extern int g_fails;
 extern int g_passes;
@@ -57,10 +60,21 @@ double along_m(double lat0, double lon0, double hdg, double lat, double lon) {
     return d * std::cos(s376::geo::deg2rad(s376::geo::wrap180(brg - hdg)));
 }
 
+s376::ChannelConfig front_channel() {
+    const auto chans = s376::select_channels(s376::default_config(), "mid_left");
+    return chans.empty() ? s376::ChannelConfig{} : chans.front();
+}
+
 s376::geo::ChannelView front_view(const s376::ShotPose& pose) {
-    return s376::geo::make_channel_view(pose.lat, pose.lon, pose.alt_ft * s376::geo::kFtToM,
-                                        pose.hdg_true_deg, pose.pitch_deg, pose.roll_deg, 0, 0, 0,
-                                        50, 32.5, 1920, 1200);
+    const auto ch = front_channel();
+    s376::xt4::Dcs eye;
+    eye.set_true_pose(pose.lat, pose.lon, pose.alt_ft, pose.hdg_true_deg, pose.pitch_deg,
+                      pose.roll_deg);
+    return s376::geo::make_channel_view(
+        eye.lat_deg, eye.lon_deg, eye.alt_ft * s376::geo::kFtToM, eye.true_heading_deg(),
+        eye.pitch_deg, eye.roll_deg, ch.heading_offset_deg, ch.pitch_offset_deg,
+        ch.roll_offset_deg, ch.hfov_deg, ch.vfov_deg, ch.width, ch.height, ch.eye_fwd_m,
+        ch.eye_right_m, ch.eye_up_m);
 }
 
 float lamp_k(const s376::LightPoint& L, const s376::HostState& hs, const s376::ShotPose& pose) {
@@ -102,7 +116,21 @@ void test_render_defects() {
         CHECK(s376::geo::local_ground_alt_m(0.2f, 1.0, field) < field - 1.0);
     }
 
-    // --at eyepoint: true heading, −3° pitch, 3° path height.
+    // Raster front (mid_left): 0° yaw, 50°×32.5° on 1920×1200.
+    {
+        const auto ch = front_channel();
+        CHECK(ch.name == "mid_left");
+        CHECK_NEAR(ch.heading_offset_deg, 0.0, 1e-9);
+        CHECK_NEAR(ch.pitch_offset_deg, 0.0, 1e-9);
+        CHECK_NEAR(ch.roll_offset_deg, 0.0, 1e-9);
+        CHECK_NEAR(ch.hfov_deg, 50.0, 1e-9);
+        CHECK_NEAR(ch.vfov_deg, 32.5, 1e-9);
+        CHECK(ch.width == 1920 && ch.height == 1200);
+        CHECK_NEAR(ch.eye_right_m, 0.0, 1e-9);
+    }
+
+    // --at eyepoint: true heading 30.768°, −3° pitch, 3° path height.
+    // Front-channel THR must sit within a few pixels of frame centre.
     for (double nm : {3.0, 1.0, 0.5}) {
         s376::ShotPose p;
         CHECK(s376::runway_shot_pose(jfk, "04R", nm, p));
@@ -110,33 +138,73 @@ void test_render_defects() {
         CHECK_NEAR(p.pitch_deg, -3.0, 1e-9);
         const double want_alt = rw04r->le_elev_m * s376::geo::kMToFt + 14.0 + nm * 318.0;
         CHECK_NEAR(p.alt_ft, want_alt, 2.0);
-    }
 
-    // Front channel: landing THR projects near frame centre (mid_left yaw is 0).
-    {
-        s376::ShotPose p;
-        CHECK(s376::runway_shot_pose(jfk, "04R", 3.0, p));
+        s376::xt4::Dcs eye;
+        eye.set_true_pose(p.lat, p.lon, p.alt_ft, p.hdg_true_deg, p.pitch_deg, p.roll_deg);
+        CHECK_NEAR(eye.heading_deg, -30.768, 0.01);
+        CHECK_NEAR(eye.true_heading_deg(), 30.768, 0.01);
+        CHECK_NEAR(eye.pitch_deg, -3.0, 1e-3);
+
         double tlat, tlon, hdg, elev;
         landing(*rw04r, true, tlat, tlon, hdg, elev);
         const auto view = front_view(p);
         CHECK_NEAR(view.heading_deg, 30.768, 0.01);
+        CHECK_NEAR(view.hfov_deg, 50.0, 1e-9);
+        CHECK_NEAR(view.vfov_deg, 32.5, 1e-9);
         const auto pr = s376::geo::project_lla(view, tlat, tlon, elev, 1920, 1200);
         CHECK(pr.in_frame);
-        CHECK_NEAR(pr.pix_x, 960.0, 40.0);
-        CHECK_NEAR(pr.pix_y, 600.0, 40.0);
-        CHECK_NEAR(pr.ndc_x, 0.0, 0.05);
-        CHECK_NEAR(pr.ndc_y, 0.0, 0.08);
+        // 14 ft TCH is ~2 px at 3 nm and ~10 px at 0.5 nm below centre.
+        const double pix_tol = nm >= 2.5 ? 8.0 : (nm >= 0.9 ? 10.0 : 12.0);
+        CHECK_NEAR(pr.pix_x, 960.0, pix_tol);
+        CHECK_NEAR(pr.pix_y, 600.0, pix_tol);
+        CHECK_NEAR(pr.ndc_x, 0.0, pix_tol / 960.0);
+        CHECK_NEAR(pr.ndc_y, 0.0, pix_tol / 600.0);
     }
     {
         s376::ShotPose p;
         CHECK(s376::runway_shot_pose(jfk, "13L", 3.0, p));
         CHECK_NEAR(p.hdg_true_deg, rw13l->heading_deg, 0.05);
+        CHECK_NEAR(p.pitch_deg, -3.0, 1e-9);
         double tlat, tlon, hdg, elev;
         landing(*rw13l, true, tlat, tlon, hdg, elev);
         const auto pr = s376::geo::project_lla(front_view(p), tlat, tlon, elev, 1920, 1200);
         CHECK(pr.in_frame);
-        CHECK_NEAR(pr.pix_x, 960.0, 40.0);
-        CHECK_NEAR(pr.pix_y, 600.0, 40.0);
+        CHECK_NEAR(pr.pix_x, 960.0, 8.0);
+        CHECK_NEAR(pr.pix_y, 600.0, 8.0);
+    }
+
+    // 04R 1 nm night: both HIRL lines in the front frustum (not a horizon sliver).
+    {
+        s376::ShotPose p;
+        CHECK(s376::runway_shot_pose(jfk, "04R", 1.0, p));
+        const auto view = front_view(p);
+        s376::HostState hs;
+        hs.have_env = true;
+        hs.have_eyepoint = true;
+        hs.env.tod_hours = 19.f;
+        int n_left = 0, n_right = 0;
+        double y0 = 1e9, y1 = -1e9, xL = 0, xR = 0;
+        for (const auto& L : jfk.lights) {
+            if (L.runway_k != 2 || L.kind != s376::LightKind::Edge)
+                continue;
+            const auto pr = s376::geo::project_lla(view, L.lat, L.lon, L.alt_m, 1920, 1200);
+            if (!pr.in_frame || lamp_k(L, hs, p) <= 0.f)
+                continue;
+            y0 = std::min(y0, pr.pix_y);
+            y1 = std::max(y1, pr.pix_y);
+            if (pr.pix_x < 960.0) {
+                xL += pr.pix_x;
+                ++n_left;
+            } else {
+                xR += pr.pix_x;
+                ++n_right;
+            }
+        }
+        CHECK(n_left >= 20);
+        CHECK(n_right >= 20);
+        CHECK(xL / n_left < 950.0);
+        CHECK(xR / n_right > 970.0);
+        CHECK(y1 - y0 >= 40.0);
     }
 
     // 04R 0.5 nm: four PAPI boxes in the front frustum.
