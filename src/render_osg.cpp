@@ -286,8 +286,8 @@ void main() {
         vec3 wcol = mix(deep, shallow, n1 * 0.40);
         vec3 skyref = mix(uFogColor * 0.52, vec3(0.14, 0.26, 0.40), 0.40);
         wcol = mix(wcol, skyref, 0.10 + 0.34 * fres);
-        float glint = pow(max(dot(reflect(-sun, wn), view), 0.0), 86.0);
-        wcol += vec3(1.0, 0.95, 0.82) * glint * 0.55 * (1.0 - uNight * 0.90);
+        float glint = pow(max(dot(reflect(-sun, wn), view), 0.0), 220.0);
+        wcol += vec3(1.0, 0.95, 0.82) * glint * 0.16 * (1.0 - uNight * 0.90);
         wcol *= (uAmbient + uDiffuse * (0.16 + 0.40 * max(dot(wn, sun), 0.0)));
         float foam = smoothstep(0.42, 0.68, wet) * (1.0 - smoothstep(0.78, 0.98, wet));
         foam *= 0.40 + 0.35 * noise(wu * 900.0 + vec2(uTime * 0.15, 0.0));
@@ -2793,8 +2793,10 @@ class OsgRenderer final : public Renderer {
             for (Airport apt : all_public_airports()) {
                 const int osm_n = try_load_osm(apt, cfg.render.cache_dir);
                 if (osm_n > 0)
-                    S376_LOG_INFO("render", "%s OSM aeroway  %d ways (osm.bin)", apt.icao.c_str(),
-                                  osm_n);
+                    S376_LOG_INFO("render",
+                                  "%s OSM  %d ways  taxi=%zu apron=%zu bldg=%zu road=%zu (osm.bin)",
+                                  apt.icao.c_str(), osm_n, apt.taxiways.size(), apt.aprons.size(),
+                                  apt.buildings.size(), apt.roads.size());
                 else if (!cfg.render.cache_dir.empty() &&
                          std::filesystem::exists(cfg.render.cache_dir + "/osm.json") &&
                          apt.icao.size() >= 3 &&

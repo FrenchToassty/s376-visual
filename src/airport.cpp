@@ -454,6 +454,11 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
 
 void lights_for_taxi(Airport& a) {
     for (const auto& tw : a.taxiways) {
+        // OSM ways are pavement. Lighting them (every 30 m, both edges + CL)
+        // turned a KJFK bake into a 67k-lamp night lattice and a sky wireframe
+        // when Overpass highways were mis-read as taxiways.
+        if (tw.from_osm || tw.name == "osm")
+            continue;
         if (tw.path.size() < 2)
             continue;
         for (std::size_t s = 1; s < tw.path.size(); ++s) {
@@ -1186,6 +1191,127 @@ std::string overpass_aeroway_query(double south, double west, double north, doub
     return o.str();
 }
 
+namespace {
+
+std::size_t json_skip_ws(const std::string& s, std::size_t i) {
+    while (i < s.size() &&
+           (s[i] == ' ' || s[i] == '\n' || s[i] == '\r' || s[i] == '\t'))
+        ++i;
+    return i;
+}
+
+// Brace match that ignores braces inside JSON strings.
+std::size_t json_match_object(const std::string& s, std::size_t open) {
+    if (open >= s.size() || s[open] != '{')
+        return std::string::npos;
+    int depth = 0;
+    bool in_str = false;
+    for (std::size_t i = open; i < s.size(); ++i) {
+        const char c = s[i];
+        if (in_str) {
+            if (c == '\\' && i + 1 < s.size()) {
+                ++i;
+                continue;
+            }
+            if (c == '"')
+                in_str = false;
+            continue;
+        }
+        if (c == '"') {
+            in_str = true;
+            continue;
+        }
+        if (c == '{')
+            ++depth;
+        else if (c == '}') {
+            --depth;
+            if (depth == 0)
+                return i;
+        }
+    }
+    return std::string::npos;
+}
+
+// Overpass `out geom` emits tags AFTER the geometry array. Test fixtures
+// and GeoJSON-ish samples put `"tags"` first. Take the object that belongs
+// to this way only — never the next element's tags.
+std::string osm_way_tags(const std::string& json, std::size_t geom_key, std::size_t geom_end) {
+    if (geom_end < json.size()) {
+        std::size_t i = json_skip_ws(json, geom_end + 1);
+        if (i < json.size() && json[i] == ',') {
+            i = json_skip_ws(json, i + 1);
+            if (i + 6 <= json.size() && json.compare(i, 6, "\"tags\"") == 0) {
+                const auto brace = json.find('{', i);
+                if (brace != std::string::npos) {
+                    const auto close = json_match_object(json, brace);
+                    if (close != std::string::npos)
+                        return json.substr(brace, close - brace + 1);
+                }
+            }
+        }
+    }
+    // Tags-before-geometry (test fixtures). Scope to this way: after its
+    // `"type"` and before this `"geometry"`. A file-wide find() stole the
+    // previous way's tags and turned aprons/buildings into taxiways.
+    const auto typ = json.rfind("\"type\"", geom_key);
+    if (typ != std::string::npos) {
+        const auto t = json.find("\"tags\"", typ);
+        if (t != std::string::npos && t < geom_key) {
+            const auto brace = json.find('{', t);
+            if (brace != std::string::npos && brace < geom_key) {
+                const auto close = json_match_object(json, brace);
+                if (close != std::string::npos && close < geom_key)
+                    return json.substr(brace, close - brace + 1);
+            }
+        }
+    }
+    // Stream slices often start at the tags `{` (nearest brace before
+    // geometry) and drop the `"tags"` / `"type"` keys. Accept that object
+    // only when it looks like tags, never Overpass `"bounds"`.
+    const auto nearest = json.rfind('{', geom_key);
+    if (nearest != std::string::npos && nearest < geom_key) {
+        const auto close = json_match_object(json, nearest);
+        if (close != std::string::npos && close < geom_key) {
+            const auto cand = json.substr(nearest, close - nearest + 1);
+            if (cand.find("\"building\"") != std::string::npos ||
+                cand.find("\"aeroway\"") != std::string::npos ||
+                cand.find("\"highway\"") != std::string::npos ||
+                cand.find("\"water\"") != std::string::npos ||
+                cand.find("coastline") != std::string::npos)
+                return cand;
+        }
+    }
+    return {};
+}
+
+// Stream slices used to end at the geometry `]`, dropping Overpass tags.
+// Returns npos when the way may still continue past the current buffer.
+std::size_t osm_include_trailing_tags(const std::string& s, std::size_t geom_end) {
+    std::size_t i = json_skip_ws(s, geom_end + 1);
+    if (i >= s.size())
+        return std::string::npos;
+    if (s[i] == '}')
+        return geom_end;
+    if (s[i] != ',')
+        return geom_end;
+    i = json_skip_ws(s, i + 1);
+    if (i >= s.size())
+        return std::string::npos;
+    if (i + 6 > s.size())
+        return std::string::npos;
+    if (s.compare(i, 6, "\"tags\"") != 0)
+        return geom_end;
+    const auto brace = s.find('{', i);
+    if (brace == std::string::npos)
+        return std::string::npos;
+    const auto close = json_match_object(s, brace);
+    if (close == std::string::npos)
+        return std::string::npos;
+    return close;
+}
+
+} // namespace
+
 std::string overpass_aeroway_url(double south, double west, double north, double east) {
     const std::string q = overpass_aeroway_query(south, west, north, east);
     std::ostringstream o;
@@ -1210,11 +1336,23 @@ int merge_osm_json(Airport& a, const std::string& json) {
         auto g = json.find("\"geometry\"", pos);
         if (g == std::string::npos)
             break;
+        auto arr = json.find('[', g);
+        if (arr == std::string::npos)
+            break;
+        int depth = 0;
+        std::size_t end = arr;
+        for (; end < json.size(); ++end) {
+            if (json[end] == '[')
+                ++depth;
+            else if (json[end] == ']') {
+                --depth;
+                if (depth == 0)
+                    break;
+            }
+        }
         std::string kind = "taxiway";
         float bldg_h = kDefaultBuildingHeightM;
-        const auto window = json.rfind("{", g);
-        const std::string tags =
-            window != std::string::npos && g > window ? json.substr(window, g - window) : "";
+        const std::string tags = osm_way_tags(json, g, end);
         if (tags.find("\"building\"") != std::string::npos)
             kind = "building";
         else if (osm_tags_are_road(tags))
@@ -1247,20 +1385,6 @@ int merge_osm_json(Airport& a, const std::string& json) {
         }
         if (bldg_h < 3.f)
             bldg_h = kDefaultBuildingHeightM;
-        auto arr = json.find('[', g);
-        if (arr == std::string::npos)
-            break;
-        int depth = 0;
-        std::size_t end = arr;
-        for (; end < json.size(); ++end) {
-            if (json[end] == '[')
-                ++depth;
-            else if (json[end] == ']') {
-                --depth;
-                if (depth == 0)
-                    break;
-            }
-        }
         const std::string geom = json.substr(arr, end - arr + 1);
         std::vector<std::pair<double, double>> pts;
         std::size_t p = 0;
@@ -1319,6 +1443,7 @@ int merge_osm_json(Airport& a, const std::string& json) {
                 Taxiway t;
                 t.name = "osm";
                 t.path = std::move(pts);
+                t.from_osm = true;
                 a.taxiways.push_back(std::move(t));
             }
             ++added;
@@ -1383,6 +1508,12 @@ int merge_osm_file_stream(Airport& a, const std::string& path, std::uint64_t max
                 carry.erase(0, g);
                 break;
             }
+            const auto tagged_end = osm_include_trailing_tags(carry, end);
+            if (tagged_end == std::string::npos) {
+                carry.erase(0, g);
+                break;
+            }
+            end = tagged_end;
             const auto win = carry.rfind('{', g);
             const std::size_t start = win != std::string::npos && win < g ? win : g;
             const auto chunk = carry.substr(start, end - start + 1);
@@ -1540,6 +1671,7 @@ int read_osm_bin(Airport& a, const std::string& path) {
         if (!read_poly(i, t.name, w, t.path))
             break;
         t.width_m = w;
+        t.from_osm = true;
         a.taxiways.push_back(std::move(t));
         ++added;
     }

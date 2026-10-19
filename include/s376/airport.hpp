@@ -126,6 +126,8 @@ struct Taxiway {
     std::string name;
     std::vector<std::pair<double, double>> path; // lat, lon
     double width_m = 23;
+    // osm.bin pavement only — FAA edge/CL/stop bars stay on official taxi.
+    bool from_osm = false;
 };
 
 enum class RoadClass { Motorway, Trunk, Primary, Secondary };

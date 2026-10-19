@@ -677,6 +677,68 @@ void test_airport() {
     CHECK(s376::merge_osm_json(osm, hwy) == 1);
     CHECK(!osm.roads.empty());
     CHECK(osm.roads.back().cls == s376::RoadClass::Motorway);
+    // Overpass `out geom` puts `"tags"` AFTER geometry. A 442 MB KJFK dump
+    // used to classify every highway/building as a taxiway (800-cap, 0
+    // buildings, 67k taxi lamps).
+    {
+        const char* overpass =
+            "{\n  \"elements\": [\n"
+            "{\n  \"type\": \"way\",\n  \"id\": 1,\n"
+            "  \"bounds\": { \"minlat\": 40.64, \"minlon\": -73.78, \"maxlat\": 40.65, "
+            "\"maxlon\": -73.77 },\n"
+            "  \"geometry\": [\n    { \"lat\": 40.641, \"lon\": -73.778 },\n"
+            "    { \"lat\": 40.642, \"lon\": -73.777 }\n  ],\n"
+            "  \"tags\": { \"aeroway\": \"taxiway\", \"ref\": \"B\" }\n},\n"
+            "{\n  \"type\": \"way\",\n  \"id\": 2,\n"
+            "  \"geometry\": [\n    { \"lat\": 40.644, \"lon\": -73.780 },\n"
+            "    { \"lat\": 40.6445, \"lon\": -73.780 },\n"
+            "    { \"lat\": 40.6445, \"lon\": -73.779 },\n"
+            "    { \"lat\": 40.644, \"lon\": -73.779 }\n  ],\n"
+            "  \"tags\": { \"building\": \"terminal\", \"height\": \"22\" }\n},\n"
+            "{\n  \"type\": \"way\",\n  \"id\": 3,\n"
+            "  \"geometry\": [\n    { \"lat\": 40.66, \"lon\": -73.80 },\n"
+            "    { \"lat\": 40.65, \"lon\": -73.795 }\n  ],\n"
+            "  \"tags\": { \"highway\": \"primary\", \"name\": \"Rockaway Boulevard\" }\n}\n"
+            "]}";
+        s376::Airport op;
+        op.icao = "KJFK";
+        CHECK(s376::merge_osm_json(op, overpass) == 3);
+        CHECK(op.taxiways.size() == 1);
+        CHECK(op.taxiways[0].from_osm);
+        CHECK(op.buildings.size() == 1);
+        CHECK(op.buildings[0].type == "terminal");
+        CHECK_NEAR(op.buildings[0].height_m, 22.0, 0.1);
+        CHECK(op.roads.size() == 1);
+        CHECK(op.roads[0].cls == s376::RoadClass::Primary);
+        const auto tmp_op = (std::filesystem::temp_directory_path() / "s376-osm-overpass").string();
+        std::filesystem::remove_all(tmp_op);
+        std::filesystem::create_directories(tmp_op);
+        {
+            std::ofstream out(tmp_op + "/osm.json");
+            out << overpass;
+        }
+        s376::Airport streamed;
+        streamed.icao = "KJFK";
+        CHECK(s376::merge_osm_file_stream(streamed, tmp_op + "/osm.json", 0) == 3);
+        CHECK(streamed.taxiways.size() == 1);
+        CHECK(streamed.buildings.size() == 1);
+        CHECK(streamed.roads.size() == 1);
+        CHECK(s376::bake_osm_bin(tmp_op + "/osm.json", tmp_op + "/osm.bin") == 3);
+        s376::Airport baked = s376::kjfk_public();
+        const auto lights0 = baked.lights.size();
+        CHECK(s376::try_load_osm(baked, tmp_op) == 3);
+        CHECK(baked.buildings.size() >= 8); // official terminals + OSM
+        s376::generate_lights(baked);
+        // OSM taxiways must not multiply FAA edge/CL lamps.
+        CHECK(baked.lights.size() < lights0 + 80);
+        int n_osm_taxi = 0;
+        for (const auto& tw : baked.taxiways) {
+            if (tw.from_osm)
+                ++n_osm_taxi;
+        }
+        CHECK(n_osm_taxi == 1);
+        std::filesystem::remove_all(tmp_op);
+    }
     CHECK(osm.taxiways.size() == taxis0 + 1);
     CHECK(osm.aprons.size() == aprons0 + 1);
     CHECK(!osm.buildings.empty());
