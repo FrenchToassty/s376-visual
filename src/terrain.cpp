@@ -18,6 +18,19 @@
 #include <cpl_conv.h>
 #include <cpl_string.h>
 #endif
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <psapi.h>
+#ifdef _MSC_VER
+#pragma comment(lib, "psapi.lib")
+#endif
+#endif
 
 namespace s376 {
 namespace {
@@ -641,7 +654,9 @@ std::vector<CacheTileRef> scan_cache_tiles(const std::string& dir) {
             return;
         try {
             CacheTileRef t;
-            t.path = path;
+            // generic_string() keeps `/` on Windows so tests and
+            // `path + "/elev.s376dem"` stay comparable with POSIX joins.
+            t.path = std::filesystem::path(path).generic_string();
             t.lod = lod;
             const auto hdr = DemGrid::peek(elev);
             t.west = hdr.west;
@@ -669,7 +684,7 @@ std::vector<CacheTileRef> scan_cache_tiles(const std::string& dir) {
                 const std::string name = e.path().filename().string();
                 if (name.size() < 2 || name[0] != 't')
                     continue;
-                leaves.push_back(e.path().string());
+                leaves.push_back(e.path().generic_string());
             }
         }
         if (!leaves.empty()) {
@@ -872,6 +887,14 @@ bool write_kjfk_farfield_subset(const std::string& dir) {
 #include <unistd.h>
 #endif
 
+#ifdef _WIN32
+static bool win_process_memory(PROCESS_MEMORY_COUNTERS& pmc) {
+    pmc = {};
+    pmc.cb = sizeof(pmc);
+    return GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc)) != 0;
+}
+#endif
+
 static std::uint64_t proc_status_kb(const char* key) {
 #ifndef _WIN32
     std::ifstream in("/proc/self/status");
@@ -886,16 +909,32 @@ static std::uint64_t proc_status_kb(const char* key) {
             return 0;
         return std::strtoull(line.c_str() + i, nullptr, 10);
     }
+#else
+    (void)key;
 #endif
     return 0;
 }
 
 std::uint64_t current_rss_bytes() {
+#ifdef _WIN32
+    PROCESS_MEMORY_COUNTERS pmc;
+    if (win_process_memory(pmc))
+        return static_cast<std::uint64_t>(pmc.WorkingSetSize);
+    return 0;
+#else
     return proc_status_kb("VmRSS:") * 1024ull;
+#endif
 }
 std::uint64_t peak_rss_bytes() {
+#ifdef _WIN32
+    PROCESS_MEMORY_COUNTERS pmc;
+    if (win_process_memory(pmc))
+        return static_cast<std::uint64_t>(pmc.PeakWorkingSetSize);
+    return 0;
+#else
     const auto kb = proc_status_kb("VmHWM:");
     return kb * 1024ull;
+#endif
 }
 
 void limit_gdal_cache_mb(int mb) {

@@ -119,8 +119,11 @@ std::vector<AirportCacheSize> scan_airport_caches(const std::string& root,
     for (const auto& a : all_public_airports()) {
         const std::string low = lower_icao(a.icao);
         std::string path;
+        // Lowercase first: packs are written as cache/<icao>. On Windows
+        // cache/KSEA and cache/ksea are the same directory, so checking
+        // ICAO first would report the invented uppercase spelling.
         const std::string candidates[] = {
-            root + "/" + a.icao, root + "/" + low, extra_dir,
+            root + "/" + low, root + "/" + a.icao, extra_dir,
         };
         for (const auto& c : candidates) {
             if (!c.empty() && std::filesystem::is_directory(c) &&

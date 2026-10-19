@@ -156,12 +156,16 @@ void test_terrain() {
                                    std::filesystem::copy_options::overwrite_existing);
         const auto scanned = s376::scan_cache_tiles(cdir);
         bool saw_leaf = false, saw_parent = false, saw_root = false;
+        // path::operator== treats `/` and `\` as the same element separator.
+        const auto same = [](const std::string& a, const std::string& b) {
+            return std::filesystem::path(a) == std::filesystem::path(b);
+        };
         for (const auto& t : scanned) {
-            if (t.path == leaf)
+            if (same(t.path, leaf))
                 saw_leaf = true;
-            if (t.path == cdir + "/lod0")
+            if (same(t.path, cdir + "/lod0"))
                 saw_parent = true;
-            if (t.path == cdir)
+            if (same(t.path, cdir))
                 saw_root = true;
         }
         CHECK(saw_leaf);
@@ -180,11 +184,9 @@ void test_terrain() {
     CHECK(paged < 2ull * 1024ull * 1024ull);
     CHECK(naive > 500ull * 1024ull * 1024ull);
     CHECK(paged * 14ull < (2ull << 30));
-#ifndef _WIN32
     const auto rss = s376::peak_rss_bytes();
     CHECK(rss > 0);
     CHECK(rss < (2ull << 30)); // unit tests must stay under the 980 Ti RAM budget
-#endif
 
     const auto hat = s376::sample_hat(&src, 47.463684, -122.307751, 447.0);
     CHECK(hat.covered);

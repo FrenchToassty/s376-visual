@@ -140,7 +140,8 @@ bool cache_dir_looks_packed(const std::string& dir);
 // Header + payload present (not a fetch-in-progress truncated write).
 bool dem_file_complete(const std::string& path);
 
-// Process RSS (Linux VmRSS / VmHWM). 0 if unavailable.
+// Process RSS: Linux VmRSS / VmHWM, Windows WorkingSet / PeakWorkingSet.
+// 0 if unavailable.
 std::uint64_t current_rss_bytes();
 std::uint64_t peak_rss_bytes();
 // Cap GDAL's block cache so a long fetch cannot grow it with tile count.

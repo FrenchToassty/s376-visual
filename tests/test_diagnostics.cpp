@@ -2,6 +2,8 @@
 #include "s376/diagnostics.hpp"
 #include "s376/terrain.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -70,7 +72,11 @@ void test_diagnostics() {
     for (const auto& s : packed) {
         if (s.icao == "KSEA") {
             ksea_ok = s.bytes > 100;
-            CHECK(s.path.find("ksea") != std::string::npos);
+            auto g = std::filesystem::path(s.path).generic_string();
+            std::transform(g.begin(), g.end(), g.begin(), [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
+            CHECK(g.find("ksea") != std::string::npos);
         }
         if (s.icao == "EGLL")
             egll_ok = s.bytes > 0;
@@ -176,11 +182,9 @@ void test_diagnostics() {
     CHECK(text.find("aip-stale-skrg") == std::string::npos);
     CHECK(report.fails == 0);
     CHECK(report.warns >= 2);
-#ifndef _WIN32
     CHECK(s376::current_rss_bytes() > 0);
     CHECK(s376::peak_rss_bytes() >= s376::current_rss_bytes());
     CHECK(s376::peak_rss_bytes() < (2ull << 30));
-#endif
 
     {
         s376::HostState shot;
