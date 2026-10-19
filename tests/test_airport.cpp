@@ -752,8 +752,7 @@ void test_airport() {
         pad.ring = {{40.644, -73.780}, {40.644, -73.778}, {40.646, -73.778}, {40.646, -73.780}};
         huge.aprons.push_back(pad);
         const auto after = s376::build_airport_mesh(huge).verts.size();
-        CHECK(after > before);          // small pad meshed
-        CHECK(after < before + 200);    // 2 km slab skipped
+        CHECK(after == before); // OSM aprons are imagery, not a mesh fan
     }
     CHECK(osm.taxiways.size() == taxis0 + 1);
     CHECK(osm.aprons.size() == aprons0 + 1);

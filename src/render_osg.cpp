@@ -656,7 +656,7 @@ void main() {
     if (r2 > 1.0)
         discard;
     float core = exp(-r2 * 3.2);
-    float halo = exp(-r2 * 0.40) * mix(0.20, 0.85, uNight) * uBloom;
+    float halo = exp(-r2 * 0.40) * mix(0.05, 0.85, uNight) * uBloom;
     float fogH = exp(-uFogDensity * vEyeDist * 0.12);
     float f = exp(-uFogDensity * uFogDensity * vEyeDist * vEyeDist);
     float a = vCol.a * (core + halo * fogH) * clamp(f, 0.0, 1.0);
