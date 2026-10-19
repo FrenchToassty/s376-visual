@@ -10,7 +10,7 @@ namespace {
 
 constexpr const char* kNasrSrc =
     "FAA Chart Supplement / NFDC NASR (28-day family), cross-checked OurAirports";
-constexpr const char* kNasrEff = "2026-10-02";
+constexpr const char* kNasrEff = "2026-10-01";
 constexpr const char* kNasrRet = "2026-10-18";
 
 std::string up(std::string s) {
@@ -81,30 +81,51 @@ const FaaAirportRef& faa_kjfk() {
     a.retrieved = kNasrRet;
     // Physical ends from FAA AIP AD 2.12. Displaced / ALS / PAPI from
     // AD 2.14 + chart supplement. EMAS from AIP general remarks (DER 4R / 22L).
+    // True bearings are WGS-84 geodesics between the surveyed ends (NASR
+    // TRUE_ALIGNMENT is the integer rounding). VGSI TCH from NASR
+    // THR_CROSSING_HGT; ILS TCH from the d-TPP plates.
     a.ends.push_back(end("KJFK", "04L", geo::dms_to_deg(40, 37, 19.2754),
-                         geo::dms_to_deg(73, 47, 8.1029, true), 11.9, 31, 12079, 200, 460, "NONE",
-                         "P4L", 3.00, false, false, false, 0, 0));
+                         geo::dms_to_deg(73, 47, 8.1029, true), 11.9, 30.7583, 12079, 200, 460,
+                         "NONE", "P4L", 3.00, false, true, false, 0, 0));
+    a.ends.back().vgsi_tch_ft = 75;
+    a.ends.back().ils_tch_ft = 0;
     a.ends.push_back(end("KJFK", "22R", geo::dms_to_deg(40, 39, 1.8338),
-                         geo::dms_to_deg(73, 45, 47.9596, true), 12.5, 211, 12079, 200, 3424, "NONE",
-                         "P4L", 3.00, false, false, false, 0, 0));
+                         geo::dms_to_deg(73, 45, 47.9596, true), 12.5, 210.7728, 12079, 200, 3424,
+                         "NONE", "P4L", 3.00, false, false, false, 0, 0));
+    a.ends.back().vgsi_tch_ft = 77;
+    a.ends.back().papi_usable_right_deg = 8; // unusable beyond 8° right of CL
     a.ends.push_back(end("KJFK", "04R", geo::dms_to_deg(40, 37, 31.5418),
-                         geo::dms_to_deg(73, 46, 13.2441, true), 11.9, 31, 8400, 200, 0, "ALSF-2",
-                         "P4L", 3.00, false, true, true, 393, 226));
+                         geo::dms_to_deg(73, 46, 13.2441, true), 11.9, 30.7680, 8400, 200, 0,
+                         "ALSF-2", "P4L", 3.00, false, true, true, 393, 226));
+    a.ends.back().vgsi_tch_ft = 69;
+    a.ends.back().ils_tch_ft = 53;
     a.ends.push_back(end("KJFK", "22L", geo::dms_to_deg(40, 38, 42.8531),
-                         geo::dms_to_deg(73, 45, 17.5027, true), 11.9, 211, 8400, 200, 0, "ALSF-2",
-                         "P4L", 3.00, false, true, true, 405, 226));
+                         geo::dms_to_deg(73, 45, 17.5027, true), 11.9, 210.7781, 8400, 200, 0,
+                         "ALSF-2", "P4L", 3.00, false, true, true, 405, 226));
+    a.ends.back().vgsi_tch_ft = 66;
+    a.ends.back().papi_rotate_deg = -4; // horizontal offset 4° left
     a.ends.push_back(end("KJFK", "13L", geo::dms_to_deg(40, 39, 27.952),
-                         geo::dms_to_deg(73, 47, 24.8606, true), 12.9, 121, 10000, 200, 907, "ALSF-2",
-                         "P4L", 3.00, false, true, false, 0, 0));
+                         geo::dms_to_deg(73, 47, 24.8606, true), 12.9, 120.7546, 10000, 200, 907,
+                         "ALSF-2", "P4L", 3.00, false, true, false, 0, 0));
+    a.ends.back().vgsi_tch_ft = 74;
+    a.ends.back().ils_tch_ft = 58;
+    a.ends.back().rlls_lead_in = true;
+    a.ends.back().papi_rotate_deg = 10;      // rotated 10° right of CL
+    a.ends.back().papi_usable_left_deg = 0; // unusable left of CL
     a.ends.push_back(end("KJFK", "31R", geo::dms_to_deg(40, 38, 37.4085),
-                         geo::dms_to_deg(73, 45, 33.3818, true), 12.6, 301, 10000, 200, 1027,
-                         "MALSR", "P4R", 3.00, false, false, false, 0, 0));
+                         geo::dms_to_deg(73, 45, 33.3818, true), 12.6, 300.7748, 10000, 200, 1027,
+                         "MALSR", "P4R", 3.00, false, true, false, 0, 0));
+    a.ends.back().vgsi_tch_ft = 54;
     a.ends.push_back(end("KJFK", "13R", geo::dms_to_deg(40, 38, 54.1008),
-                         geo::dms_to_deg(73, 49, 0.173, true), 12.5, 121, 14511, 200, 2044, "RLLS",
-                         "P4L+P4L", 3.00, false, false, false, 0, 0));
+                         geo::dms_to_deg(73, 49, 0.173, true), 12.5, 120.7382, 14511, 200, 2044,
+                         "RLLS", "P4L+P4L", 3.00, false, false, false, 0, 0));
+    a.ends.back().vgsi_tch_ft = 79;
+    a.ends.back().rlls_lead_in = true;
+    a.ends.back().papi_rotate_deg = -22; // first P4L offset 22° left
     a.ends.push_back(end("KJFK", "31L", geo::dms_to_deg(40, 37, 40.7799),
-                         geo::dms_to_deg(73, 46, 18.4107, true), 12.6, 301, 14511, 200, 3264, "NONE",
-                         "P4L", 3.00, false, false, false, 0, 0));
+                         geo::dms_to_deg(73, 46, 18.4107, true), 12.6, 300.7674, 14511, 200, 3264,
+                         "NONE", "P4L", 3.00, false, false, false, 0, 0));
+    a.ends.back().vgsi_tch_ft = 74;
     stamp(a, a.source.c_str(), a.effective.c_str(), a.retrieved.c_str());
     return a;
 }

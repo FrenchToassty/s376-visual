@@ -357,7 +357,7 @@ HAT+segment, 10 k house sample, WTC era.
 **Official geometry + lights for every shipped airport; imagery
 correction layer; `docs/IMAGERY_SOURCES.md`.** Geometry and lights
 always come from FAA NASR (Chart Supplement / NFDC, cycle
-**2026-10-02**, retrieved **2026-10-18**) or national AIP AD 2
+**2026-10-01**, retrieved **2026-10-18**) or national AIP AD 2
 (DFS / NATS / ENAIRE / DGAC Ecuador / Aerocivil / CAAN) — never
 Raster. OurAirports is a cross-check only. Every value carries
 source + effective + retrieved. `check_airport_vs_faa` runs in CI

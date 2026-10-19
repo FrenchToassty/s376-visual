@@ -152,7 +152,7 @@ void test_diagnostics() {
     CHECK(text.find("frame-far_right") != std::string::npos);
     CHECK(text.find("rss") != std::string::npos);
     CHECK(text.find("budget") != std::string::npos);
-    CHECK(text.find("vs FAA 2026-10-02") != std::string::npos);
+    CHECK(text.find("vs FAA 2026-10-01") != std::string::npos);
     CHECK(text.find("vs DFS 2026-10-02") != std::string::npos);
     CHECK(text.find("vs NATS 2025-04-17") != std::string::npos);
     CHECK(text.find("vs ENAIRE 2026-10-02") != std::string::npos);

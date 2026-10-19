@@ -73,12 +73,21 @@ struct LightPoint {
     float r = 1;
     float g = 1;
     float b = 1;
+    // Reverse-direction colour for bidirectional HIRL / RCL. r2 < 0 = unused.
+    float r2 = -1.f;
+    float g2 = 0;
+    float b2 = 0;
+    float color_hdg_deg = 0; // looking along this heading uses r/g/b
     int switch_num = kSwRunwayEdge;
     LightKind kind = LightKind::Edge;
     int runway_k = 0; // 1..7, 0 = taxi / airport-wide
     int seq = -1;     // sequenced-flasher index, −1 = none
     int papi_box = -1;     // 0..3 inboard→outboard; −1 = not a PAPI unit
     float papi_gs_deg = 3.f;
+    float papi_rotate_deg = 0;
+    float papi_usable_left_deg = 15.f;
+    float papi_usable_right_deg = 15.f;
+    float papi_rwy_hdg_deg = 0;
 };
 
 struct DataSource {
@@ -108,8 +117,20 @@ struct Runway {
     std::string papi_he = "P4L";
     double papi_deg_le = 3.0;
     double papi_deg_he = 3.0;
+    double vgsi_tch_ft_le = 0;
+    double vgsi_tch_ft_he = 0;
+    double ils_tch_ft_le = 0;
+    double ils_tch_ft_he = 0;
+    double papi_rotate_le = 0;
+    double papi_rotate_he = 0;
+    double papi_usable_left_le = 15;
+    double papi_usable_right_le = 15;
+    double papi_usable_left_he = 15;
+    double papi_usable_right_he = 15;
     int papi_count_le = 1;
     int papi_count_he = 1;
+    bool rlls_lead_in_le = false;
+    bool rlls_lead_in_he = false;
     bool reil_le = false;
     bool reil_he = false;
     bool tdz_le = false;

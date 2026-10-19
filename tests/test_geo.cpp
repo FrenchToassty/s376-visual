@@ -90,6 +90,26 @@ void test_geo() {
     CHECK_NEAR(eq, 111319.5, 2.0); // 1° of longitude on the equator
     CHECK_NEAR(hdg, 90.0, 0.01);
     CHECK_NEAR(s376::geo::ground_distance_m(0.0, 0.0, 1.0, 0.0), 110574.4, 2.0);
+    {
+        // Vincenty direct is the inverse of inverse_wgs84.
+        double lat2 = 0, lon2 = 0, h2 = 0;
+        s376::geo::direct_wgs84(0.0, 0.0, 90.0, 111319.5, lat2, lon2, &h2);
+        CHECK_NEAR(lat2, 0.0, 1e-6);
+        CHECK_NEAR(lon2, 1.0, 1e-5);
+        double lat0 = 40.62542827, lon0 = -73.77034558; // 04R LE
+        double lat1 = 40.64523697, lon1 = -73.75486186; // 04R HE
+        double hdg = 0;
+        const double dist = s376::geo::inverse_wgs84(lat0, lon0, lat1, lon1, &hdg);
+        double glat = 0, glon = 0;
+        s376::geo::direct_wgs84(lat0, lon0, hdg, dist, glat, glon);
+        CHECK(s376::geo::ground_distance_m(glat, glon, lat1, lon1) < 0.05);
+        CHECK_NEAR(hdg, 30.768, 0.01);
+        CHECK_NEAR(s376::geo::wrap180(-190.0), 170.0, 1e-9);
+        double back_lat = 0, back_lon = 0, bh = 0;
+        s376::geo::direct_wgs84(lat0, lon0, hdg, -100.0, back_lat, back_lon);
+        CHECK_NEAR(s376::geo::inverse_wgs84(lat0, lon0, back_lat, back_lon, &bh), 100.0, 0.05);
+        CHECK_NEAR(s376::geo::wrap180(bh - (hdg + 180.0)), 0.0, 0.05);
+    }
 
     auto e0 = s376::geo::lla_to_ecef(40.639928, -73.778692, 4.0);
     double rlat = 0, rlon = 0, ralt = 0;

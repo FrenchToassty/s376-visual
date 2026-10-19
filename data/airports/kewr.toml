@@ -1,7 +1,7 @@
 # KEWR — FAA both physical ends.
 # Source: FAA NFDC airportDisplay + AIP AD 2 + chart supplement,
 # cross-checked AirNav / OurAirports.
-# Effective 2026-10-02, retrieved 2026-10-18.
+# Effective 2026-10-01, retrieved 2026-10-18.
 # Displaced 04L/22R use NFDC 2540.6 / 1440.9 ft (owner notes 2543 / 1423;
 # see docs/ACCURACY.md). 11/29 REIL + PAPI + EMAS.
 
@@ -10,11 +10,11 @@ name = "Newark Liberty International"
 arp_lat = 40.6925
 arp_lon = -74.1686666667
 elev_ft = 18
-attribution = "FAA NFDC / AIP AD 2 KEWR effective 2026-10-02, retrieved 2026-10-18"
+attribution = "FAA NFDC / AIP AD 2 KEWR effective 2026-10-01, retrieved 2026-10-18"
 
 [source]
 name = "FAA NFDC airportDisplay KEWR + AIP AD 2 + chart supplement, cross-checked AirNav/OurAirports"
-effective = "2026-10-02"
+effective = "2026-10-01"
 retrieved = "2026-10-18"
 
 [lights]

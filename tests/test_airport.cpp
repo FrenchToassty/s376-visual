@@ -299,7 +299,13 @@ void test_airport() {
     CHECK_NEAR(jfk.arp_lat, 40.639928, 1e-5);
     CHECK_NEAR(jfk.runways[3].length_m, 14511.0 * s376::geo::kFtToM, 8.0);
     CHECK(!jfk.source.name.empty());
-    CHECK(jfk.source.effective == "2026-10-02");
+    CHECK(jfk.source.effective == "2026-10-01");
+    CHECK(jfk.runways[0].tdz_le);  // 04L TDZL
+    CHECK(jfk.runways[2].tdz_he);  // 31R TDZL
+    CHECK(jfk.runways[2].rlls_lead_in_le);
+    CHECK_NEAR(jfk.runways[1].vgsi_tch_ft_le, 69.0, 0.1);
+    CHECK_NEAR(jfk.runways[2].vgsi_tch_ft_le, 74.0, 0.1);
+    CHECK_NEAR(jfk.runways[1].heading_deg, 30.768, 0.05);
     bool saw_c1 = false, saw_u1 = false, saw_cc = false, saw_t5 = false;
     for (const auto& t : jfk.taxiways) {
         if (t.name == "C1")

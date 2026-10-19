@@ -220,6 +220,7 @@ add_executable(s376-tests
     tests/test_display.cpp
     tests/test_lights.cpp
     tests/test_accuracy.cpp
+    tests/test_faa_audit.cpp
     tests/test_correct.cpp
     tests/test_parity.cpp
     tests/test_repo_guard.cpp

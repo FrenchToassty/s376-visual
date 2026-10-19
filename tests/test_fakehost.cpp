@@ -119,15 +119,19 @@ static void test_distance() {
 }
 
 static void test_profile_math() {
-    NEAR(fh::threshold_crossing_height_ft(3.0), 52.4, 0.5); // ~50 ft TCH
+    NEAR(fh::threshold_crossing_height_ft(3.0), 52.4, 0.5); // generic 1000 ft aim
     NEAR(fh::glidepath_height_ft(-6 * 6076.115, 3.0), 1963, 3);         // 6 nm
     NEAR(fh::glidepath_height_ft(-6 * 5280.0, 3.0), 1713, 3);           // 6 sm
     NEAR(fh::glidepath_height_ft(-10 * 6076.115, 3.0), 3237, 3);        // 10 nm
     const auto r04 = fh::runway_from_faa("KJFK", "04R");
     NEAR(r04.elev_ft, 11.9, 0.01);
-    NEAR(r04.brg_true, 31, 0.01);
+    NEAR(r04.brg_true, 30.768, 0.01);
+    NEAR(r04.ils_tch_ft, 53.0, 0.01);
+    NEAR(fh::aim_point_ft(r04, 3.0), 53.0 / std::tan(s376::geo::deg2rad(3.0)), 1.0);
     NEAR(r04.thr_lat, 40.625428, 1e-5);
     const auto r13 = fh::runway_from_faa("kjfk", "13l");
+    NEAR(r13.brg_true, 120.755, 0.01);
+    NEAR(r13.ils_tch_ft, 58.0, 0.01);
     NEAR(r13.displaced_ft, 907, 0.1);
     // Displaced threshold moved ~907 ft along 121 T from the physical end.
     NEAR(r13.thr_lat < 40.6577, 1, 0);
@@ -144,10 +148,12 @@ static void test_profile_math() {
             bool gear_at_1000 = false, flaps30_at_1000 = false;
             double max_bank = 0, td_pitch = 0, prev_wh = 1e9, max_pitch = -99, min_pitch = 99;
             fh::Frame f0 = ap.step(dt), f;
+            const double aim = fh::aim_point_ft(pc.rwy, 3.0);
+            const double tch_exp = fh::threshold_crossing_height_ft(3.0, aim);
             if (six) {
                 CHECK(f0.gear_down && f0.flaps == 30);
                 NEAR(f0.gs_kt, 145, 0.5);
-                NEAR(f0.wheel_agl_ft, 1963, 5);
+                NEAR(f0.wheel_agl_ft, fh::glidepath_height_ft(-6 * 6076.115, 3.0, aim), 5);
             } else {
                 CHECK(!f0.gear_down && f0.flaps == 15);
             }
@@ -169,13 +175,13 @@ static void test_profile_math() {
                     td_pitch = f.pitch;
                     // On glidepath above the flare.
                     if (f.wheel_agl_ft > 100)
-                        NEAR(f.wheel_agl_ft, fh::glidepath_height_ft(x, 3.0), 1.0);
+                        NEAR(f.wheel_agl_ft, fh::glidepath_height_ft(x, 3.0, aim), 1.0);
                 }
                 prev_x = x;
                 prev_wh = f.wheel_agl_ft;
             }
             CHECK(ap.done());
-            NEAR(tch, 52.4, 6); // threshold crossing ~50 ft
+            NEAR(tch, tch_exp, 6); // plate ILS TCH (04R 53 / 13L 58)
             CHECK(gear_at_1000 && flaps30_at_1000);
             NEAR(h1000_v, 145, 2);
             CHECK(max_bank < 3.0);
@@ -302,14 +308,14 @@ static void test_flight_model() {
         f = m.step(1.0 / 60, c);
     NEAR(f.gs_kt, 145, 3);
     // Still near the 3 deg path ~1.4 nm closer.
-    const double b = s376::geo::deg2rad(31.0);
+    const double b = s376::geo::deg2rad(rwy.brg_true);
     (void)b;
     {
         const double dist = s376::geo::ground_distance_m(rwy.thr_lat, rwy.thr_lon, f.lat, f.lon) * 3.28084;
-        NEAR(f.wheel_agl_ft, fh::glidepath_height_ft(-dist, 3.0), 40); // hands-off stays on the 3 deg path
+        NEAR(f.wheel_agl_ft, fh::glidepath_height_ft(-dist, 3.0, fh::aim_point_ft(rwy, 3.0)), 40);
     }
     NEAR(f.roll, 0, 0.1);
-    NEAR(f.hdg, 31, 0.1);
+    NEAR(f.hdg, rwy.brg_true, 0.1);
     // Speed stability: disturb, it returns.
     fh::Controls up = c; up.elevator = 0.3;
     for (int i = 0; i < 60; ++i) f = m.step(1.0 / 60, up); // +0.9 deg pitch

@@ -8,7 +8,7 @@ arp_lat_dms = "N40-41.55"
 arp_lon_dms = "W74-10.12"
 elev_ft = 18
 source = "FAA NFDC airportDisplay KEWR + AIP AD 2 + chart supplement, cross-checked AirNav/OurAirports"
-effective = "2026-10-02"
+effective = "2026-10-01"
 retrieved = "2026-10-18"
 
 [[ends]]

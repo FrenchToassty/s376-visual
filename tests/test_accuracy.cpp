@@ -45,7 +45,7 @@ void test_accuracy() {
     const auto& ewr_faa = s376::faa_kewr();
     CHECK(jfk_faa.ends.size() == 8);
     CHECK(ewr_faa.ends.size() == 6);
-    CHECK(jfk_faa.effective == "2026-10-02");
+    CHECK(jfk_faa.effective == "2026-10-01");
     CHECK(jfk_faa.retrieved == "2026-10-18");
     const auto* r22 = s376::faa_end(jfk_faa, "22R");
     CHECK(r22 && r22->displaced_ft == 3424.0);
@@ -199,7 +199,7 @@ void test_accuracy() {
     CHECK(s376::faa_airport("XXXX") == nullptr);
     CHECK(s376::faa_all().size() == 18);
     CHECK(s376::official_airport("KSEA") == &s376::faa_ksea());
-    CHECK(s376::faa_ksea().effective == "2026-10-02");
+    CHECK(s376::faa_ksea().effective == "2026-10-01");
     CHECK(s376::faa_egll().source.find("NATS") != std::string::npos);
     CHECK(s376::faa_skrg().source.find("Aerocivil") != std::string::npos);
     CHECK(s376::faa_vnkt().source.find("CAAN") != std::string::npos);

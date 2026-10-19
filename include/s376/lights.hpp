@@ -49,8 +49,12 @@ constexpr double kBeaconPeriodS = 1.5;
 constexpr double kBeaconOnS = 0.1;
 constexpr double kStrobePeriodS = 1.5;
 constexpr double kStrobeOnS = 0.066;
-// Sequenced flasher rate is unknown on the original, so use the FAA default.
+// JO 6850.2C §200.b: the whole sequence repeats twice per second (~0.5 s sweep).
 constexpr double kSflHz = 2.0;
+constexpr int kSflSlots = 15;
+// JO 6850.2C Table 5-2, Height Group 4 with a published GPA (arcmin).
+// Box 0 is the inboard unit (nearest the runway) and is the HIGHEST.
+constexpr std::array<float, 4> kPapiHg4Min = {35.f, 15.f, -15.f, -35.f};
 
 int runway_base(int k); // k = 1…7
 int runway_switch(int k, int offset);
@@ -75,11 +79,23 @@ float max_range_m();
 // Inverse-square-ish fade; approach/PAPI keep a readable floor at 3 nm.
 float range_visibility(LightKind kind, float range_m);
 
-// PAPI 4-box: box 0 inboard (lowest angle) … box 3 outboard. 20' of arc
-// between units. White when the eye is above that unit's setting.
+// PAPI 4-box: box 0 inboard (nearest the runway, HIGHEST) … box 3 outboard
+// (lowest). HG4 published-GPA aiming ±35′/±15′. White when the eye is
+// above that unit's setting. On path: 2 inner red, 2 outer white.
 bool papi_box_white(float eye_angle_deg, int box, float gs_deg);
 float papi_eye_angle_deg(double eye_lat, double eye_lon, double eye_alt_m, double papi_lat,
                          double papi_lon, double papi_alt_m);
+// Signed azimuth of the eye from the extended CL at the PAPI, degrees.
+// Positive = right of CL as seen on the approach (looking along rwy heading).
+float papi_azimuth_deg(double eye_lat, double eye_lon, double papi_lat, double papi_lon,
+                       float rwy_hdg_deg);
+// Chart-Supplement coverage: rotate is the optical-axis offset (+ right);
+// usable_left / usable_right are CL-relative limits (13L left = 0).
+bool papi_in_coverage(double eye_lat, double eye_lon, double papi_lat, double papi_lon,
+                      float rwy_hdg_deg, float rotate_deg, float usable_left_deg,
+                      float usable_right_deg);
+// Flat-runway PAPI distance past the landing THR: TCH / tan(GPA).
+double papi_distance_ft(double vgsi_tch_ft, double gs_deg);
 
 bool beacon_on(double t_s);
 bool strobe_on(double t_s);

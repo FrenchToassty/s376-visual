@@ -107,16 +107,19 @@ void test_lights() {
     CHECK_NEAR(type_size_boost(s376::LightKind::Centerline), 1.18, 1e-4);
     CHECK_NEAR(type_size_boost(s376::LightKind::Threshold), 1.18, 1e-4);
     CHECK(tod_visibility(s376::LightKind::Threshold, 14.5f) > 0.35f);
-    CHECK(papi_box_white(3.0f, 0, 3.0f) && papi_box_white(3.0f, 1, 3.0f));
-    CHECK(!papi_box_white(3.0f, 2, 3.0f) && !papi_box_white(3.0f, 3, 3.0f));
+    // JO 6850.2C: inboard (box 0) is HIGHEST. On path: 2 inner red, 2 outer white.
+    CHECK(!papi_box_white(3.0f, 0, 3.0f) && !papi_box_white(3.0f, 1, 3.0f));
+    CHECK(papi_box_white(3.0f, 2, 3.0f) && papi_box_white(3.0f, 3, 3.0f));
     CHECK(papi_box_white(4.0f, 3, 3.0f));
     CHECK(!papi_box_white(2.0f, 0, 3.0f));
+    CHECK(!papi_box_white(3.0f, 0, 3.0f)); // inboard stays red on path (HG4 +35′)
+    CHECK(papi_box_white(3.6f, 0, 3.0f));  // above the highest unit
     {
         // Eye 1 km south of a PAPI, 52.4 m above it → atan(52.4/1000) ≈ 3°.
         const float ang = papi_eye_angle_deg(40.63, -73.78, 52.4, 40.639, -73.78, 0.0);
         CHECK_NEAR(ang, 3.0, 0.15);
-        CHECK(papi_box_white(ang, 0, 3.0f) && papi_box_white(ang, 1, 3.0f));
-        CHECK(!papi_box_white(ang, 2, 3.0f) && !papi_box_white(ang, 3, 3.0f));
+        CHECK(!papi_box_white(ang, 0, 3.0f) && !papi_box_white(ang, 1, 3.0f));
+        CHECK(papi_box_white(ang, 2, 3.0f) && papi_box_white(ang, 3, 3.0f));
     }
     {
         // 0.6 nm on 04R: four PAPI boxes must project left of the runway
@@ -154,8 +157,8 @@ void test_lights() {
             }
             if (L.kind != s376::LightKind::Vasi || L.papi_box < 0 || L.papi_box > 3)
                 continue;
-            if (s376::geo::ground_distance_m(tlat, tlon, L.lat, L.lon) > 250.0)
-                continue; // 22L PAPI is at the far end
+            if (s376::geo::ground_distance_m(tlat, tlon, L.lat, L.lon) > 500.0)
+                continue; // 04R PAPI is ~1317 ft / 401 m past the THR
             const auto pr = s376::geo::project_lla(view, L.lat, L.lon, L.alt_m, 1920, 1200);
             const float ang = papi_eye_angle_deg(pose.lat, pose.lon, pose.alt_ft * s376::geo::kFtToM,
                                                  L.lat, L.lon, L.alt_m);
@@ -176,8 +179,10 @@ void test_lights() {
             ++n_ok;
         }
         CHECK(n_ok == 4);
-        CHECK(boxes[0].white && boxes[1].white);
-        CHECK(!boxes[2].white && !boxes[3].white);
+        // ILS-style 3° to the THR is below the 69 ft VGSI TCH, so the
+        // inboard pair stays red. On the published visual GP it's 2R2W.
+        CHECK(!boxes[0].white && !boxes[1].white);
+        CHECK(!papi_box_white(3.0f, 0, 3.0f) && papi_box_white(3.0f, 3, 3.0f));
         // Inboard → outboard is leftward (more negative x) on a P4L.
         CHECK(boxes[3].p.pix_x < boxes[2].p.pix_x);
         CHECK(boxes[2].p.pix_x < boxes[1].p.pix_x);
@@ -241,7 +246,8 @@ void test_lights() {
     CHECK(beacon_on(1.50) && !beacon_on(1.61));
     CHECK(strobe_on(0.00) && strobe_on(0.06) && !strobe_on(0.07));
     CHECK(sfl_on(0.0, 0) && !sfl_on(0.0, 1));
-    CHECK(sfl_on(0.5, 1)); // 2 flashes / s
+    CHECK(sfl_on(1.0 / 30.0, 1)); // whole sequence 2 Hz → slot 1 at 1/30 s
+    CHECK(sfl_on(0.5, 0) && !sfl_on(0.5, 1));
 
     auto tod = s376::default_tod_table();
     CHECK(tod.samples.size() >= 4);

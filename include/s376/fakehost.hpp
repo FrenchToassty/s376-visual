@@ -61,8 +61,11 @@ struct Runway {
     double elev_ft = 0;
     double brg_true = 0;
     double length_ft = 0, displaced_ft = 0;
+    double ils_tch_ft = 0; // plate TCH; 0 = generic 1000 ft aim
     std::string source;
 };
+// Aim point past the landing THR: TCH/tan(GPA) when the plate TCH is known.
+double aim_point_ft(const Runway& rwy, double gs_deg);
 Runway runway_from_faa(const std::string& icao, const std::string& ident);
 
 struct ProfileConfig {

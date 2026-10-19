@@ -250,6 +250,57 @@ void bar(Airport& a, double lat, double lon, double hdg, double alt_m, double ha
     }
 }
 
+void along_surveyed(const Runway& rw, double d_from_le_m, double& lat, double& lon) {
+    const double t = rw.length_m > 1.0 ? d_from_le_m / rw.length_m : 0.0;
+    geo::direct_wgs84(rw.le_lat, rw.le_lon, rw.heading_deg, t * rw.length_m, lat, lon);
+    // Land exactly on the surveyed HE when we ask for the far end.
+    if (t >= 1.0 - 1e-12) {
+        lat = rw.he_lat;
+        lon = rw.he_lon;
+    }
+}
+
+void set_bidir(Airport& a, float r, float g, float b, float r2, float g2, float b2, float hdg) {
+    auto& L = a.lights.back();
+    L.r = r;
+    L.g = g;
+    L.b = b;
+    L.r2 = r2;
+    L.g2 = g2;
+    L.b2 = b2;
+    L.color_hdg_deg = hdg;
+}
+
+void hirL_pair(double rem_ahead_m, double caution_m, float& r, float& g, float& b) {
+    if (rem_ahead_m <= caution_m) {
+        r = 1.f;
+        g = 0.78f;
+        b = 0.15f;
+    } else {
+        r = 1.f;
+        g = 1.f;
+        b = 0.85f;
+    }
+}
+
+void rcl_pair(double rem_ahead_m, int i, float& r, float& g, float& b) {
+    const double red_m = 1000.0 * geo::kFtToM;
+    const double alt_m = 3000.0 * geo::kFtToM;
+    if (rem_ahead_m <= red_m) {
+        r = 1.f;
+        g = 0.18f;
+        b = 0.12f;
+    } else if (rem_ahead_m <= alt_m && (i % 2) == 0) {
+        r = 1.f;
+        g = 0.18f;
+        b = 0.12f;
+    } else {
+        r = 1.f;
+        g = 1.f;
+        b = 0.95f;
+    }
+}
+
 void lights_for_runway(Airport& a, const Runway& rw, int k) {
     const int sw_app_a = lights::runway_switch(k, lights::kOffApproachA);
     const int sw_strobe_a = lights::runway_switch(k, lights::kOffStrobeA);
@@ -261,34 +312,39 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
     const int sw_strobe_b = lights::runway_switch(k, lights::kOffStrobeB);
     const double step_edge = 60.0; // HIRL ~200 ft
     const double step_cl = 15.0;   // CAT II/III centerline
+    const double caution_m = std::min(2000.0 * geo::kFtToM, rw.length_m * 0.5);
     const int n_edge = std::max(2, static_cast<int>(std::floor(rw.length_m / step_edge)));
     for (int i = 0; i <= n_edge; ++i) {
         const double d = rw.length_m * i / n_edge;
-        const bool last = d > rw.length_m - 600.0 || d < 600.0;
-        const float er = last ? 1.f : 1.f;
-        const float eg = last ? 0.78f : 1.f;
-        const float eb = last ? 0.15f : 0.85f;
+        float r_he, g_he, b_he, r_le, g_le, b_le;
+        hirL_pair(rw.length_m - d, caution_m, r_he, g_he, b_he); // looking toward HE
+        hirL_pair(d, caution_m, r_le, g_le, b_le);               // looking toward LE
         double clat, clon;
-        offset_m(rw.le_lat, rw.le_lon, rw.heading_deg, d, clat, clon);
+        along_surveyed(rw, d, clat, clon);
         const double elev = rw.le_elev_m + (rw.he_elev_m - rw.le_elev_m) * (d / rw.length_m);
         double llat, llon, rlat, rlon;
         offset_m(clat, clon, rw.heading_deg - 90.0, rw.width_m * 0.5, llat, llon);
         offset_m(clat, clon, rw.heading_deg + 90.0, rw.width_m * 0.5, rlat, rlon);
-        push_light(a, llat, llon, light_alt_m(llat, llon, elev), er, eg, eb, sw_edge,
+        push_light(a, llat, llon, light_alt_m(llat, llon, elev), r_he, g_he, b_he, sw_edge,
                    LightKind::Edge, k);
-        push_light(a, rlat, rlon, light_alt_m(rlat, rlon, elev), er, eg, eb, sw_edge,
+        set_bidir(a, r_he, g_he, b_he, r_le, g_le, b_le, static_cast<float>(rw.heading_deg));
+        push_light(a, rlat, rlon, light_alt_m(rlat, rlon, elev), r_he, g_he, b_he, sw_edge,
                    LightKind::Edge, k);
+        set_bidir(a, r_he, g_he, b_he, r_le, g_le, b_le, static_cast<float>(rw.heading_deg));
     }
 
     const int n_cl = std::max(2, static_cast<int>(std::floor(rw.length_m / step_cl)));
     for (int i = 0; i <= n_cl; ++i) {
         const double d = rw.length_m * i / n_cl;
+        float r_he, g_he, b_he, r_le, g_le, b_le;
+        rcl_pair(rw.length_m - d, i, r_he, g_he, b_he);
+        rcl_pair(d, i, r_le, g_le, b_le);
         double clat, clon;
-        offset_m(rw.le_lat, rw.le_lon, rw.heading_deg, d, clat, clon);
+        along_surveyed(rw, d, clat, clon);
         const double elev = rw.le_elev_m + (rw.he_elev_m - rw.le_elev_m) * (d / rw.length_m);
-        const bool red = d > rw.length_m - 300.0;
-        push_light(a, clat, clon, light_alt_m(clat, clon, elev), 1.f, red ? 0.2f : 1.f,
-                   red ? 0.15f : 0.95f, sw_cl, LightKind::Centerline, k);
+        push_light(a, clat, clon, light_alt_m(clat, clon, elev), r_he, g_he, b_he, sw_cl,
+                   LightKind::Centerline, k);
+        set_bidir(a, r_he, g_he, b_he, r_le, g_le, b_le, static_cast<float>(rw.heading_deg));
     }
 
     auto landing = [&](bool le, double& lat, double& lon, double& hdg, double& elev, double& disp_m) {
@@ -304,7 +360,15 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
     auto end_bar = [&](bool le, int sw) {
         double lat, lon, hdg, elev, disp_m;
         landing(le, lat, lon, hdg, elev, disp_m);
-        bar(a, lat, lon, hdg, elev, rw.width_m * 0.5, 8, 0.15f, 1.f, 0.25f, sw, LightKind::End, k);
+        const std::string sys = le ? rw.approach_le : rw.approach_he;
+        if (sys == "ALSF-2") {
+            // JO 6850.2C Fig 2-1: green lamps on 5 ft centres, 45 ft past each edge.
+            const double half = rw.width_m * 0.5 + 45.0 * geo::kFtToM;
+            const int n = std::max(9, static_cast<int>(std::lround((2.0 * half) / (5.0 * geo::kFtToM))) + 1);
+            bar(a, lat, lon, hdg, elev, half, n, 0.15f, 1.f, 0.25f, sw, LightKind::End, k);
+        } else {
+            bar(a, lat, lon, hdg, elev, rw.width_m * 0.5, 8, 0.15f, 1.f, 0.25f, sw, LightKind::End, k);
+        }
         // Red end lights facing the opposite direction (bidirectional pair).
         bar(a, le ? rw.le_lat : rw.he_lat, le ? rw.le_lon : rw.he_lon, hdg, elev, rw.width_m * 0.5, 6,
             1.f, 0.12f, 0.1f, sw, LightKind::End, k);
@@ -317,12 +381,20 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
             return;
         double lat, lon, hdg, elev, disp_m;
         landing(le, lat, lon, hdg, elev, disp_m);
-        const double reach = 900.0; // 3000 ft
+        // AC 150/5340-30J Fig A-35: two 3-lamp barrettes, inner lamp 36 ft
+        // from CL, 5 ft spacing, 30 bars every 100 ft from 100–3000 ft.
+        const double inner = 36.0 * geo::kFtToM;
+        const double lamp = 5.0 * geo::kFtToM;
         for (int i = 1; i <= 30; ++i) {
-            const double d = reach * i / 30.0;
+            const double d = 100.0 * i * geo::kFtToM;
             double clat, clon;
             offset_m(lat, lon, hdg, d, clat, clon);
-            bar(a, clat, clon, hdg, elev, 9.0, 3, 1.f, 1.f, 0.85f, sw_tdz, LightKind::Threshold, k);
+            for (int side = -1; side <= 1; side += 2) {
+                double blat, blon;
+                offset_m(clat, clon, hdg + 90.0 * side, inner + lamp, blat, blon);
+                bar(a, blat, blon, hdg, elev, lamp, 3, 1.f, 1.f, 0.85f, sw_tdz, LightKind::Threshold,
+                    k);
+            }
         }
     };
     tdz_bars(true, rw.tdz_le);
@@ -334,22 +406,36 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
             return;
         const int nsys = le ? rw.papi_count_le : rw.papi_count_he;
         const double gs = le ? rw.papi_deg_le : rw.papi_deg_he;
+        const double tch = le ? rw.vgsi_tch_ft_le : rw.vgsi_tch_ft_he;
         double lat, lon, hdg, elev, disp_m;
         landing(le, lat, lon, hdg, elev, disp_m);
         const bool right = side.find("P4R") != std::string::npos && side.find("P4L") == std::string::npos;
         const double sdir = right ? 1.0 : -1.0;
+        const double along0 = lights::papi_distance_ft(tch, gs) * geo::kFtToM;
+        const double inboard = 50.0 * geo::kFtToM; // JO 6850.2C §506.a, jet +25/−0
+        const double box_sp = 30.0 * geo::kFtToM;  // §506.b
+        const float rot0 = static_cast<float>(le ? rw.papi_rotate_le : rw.papi_rotate_he);
+        const float ul = static_cast<float>(le ? rw.papi_usable_left_le : rw.papi_usable_left_he);
+        const float ur = static_cast<float>(le ? rw.papi_usable_right_le : rw.papi_usable_right_he);
         for (int s = 0; s < std::max(1, nsys); ++s) {
             double plat, plon;
-            offset_m(lat, lon, hdg, 107.0 + s * 30.0, plat, plon); // ~350 ft past threshold
+            offset_m(lat, lon, hdg, along0 + s * 30.0, plat, plon);
+            // 13R first P4L is the 22° left system; the second is the on-CL set.
+            const float rot = (s == 0) ? rot0 : 0.f;
             for (int i = 0; i < 4; ++i) {
                 double qlat, qlon;
-                // 4 boxes perpendicular to the runway, inboard (i=0) to outboard.
-                const double x = sdir * (rw.width_m * 0.5 + 15.0 + i * 9.0 + s * 8.0);
+                const double x = sdir * (rw.width_m * 0.5 + inboard + i * box_sp + s * 8.0);
                 offset_m(plat, plon, hdg + 90.0, x, qlat, qlon);
-                const float g = i < 2 ? 1.f : 0.15f;
-                const float r = i < 2 ? 0.15f : 1.f;
+                // On-path default: inner red, outer white (overridden by the eye).
+                const float cr = i < 2 ? 1.f : 0.15f;
+                const float cg = i < 2 ? 0.12f : 1.f;
                 push_light(a, qlat, qlon, std::max(light_alt_m(qlat, qlon, elev), elev) + 0.9,
-                           r, g, 0.15f, sw_vasi, LightKind::Vasi, k, -1, i, static_cast<float>(gs));
+                           cr, cg, 0.15f, sw_vasi, LightKind::Vasi, k, -1, i, static_cast<float>(gs));
+                auto& L = a.lights.back();
+                L.papi_rotate_deg = rot;
+                L.papi_usable_left_deg = ul;
+                L.papi_usable_right_deg = ur;
+                L.papi_rwy_hdg_deg = static_cast<float>(hdg);
             }
         }
     };
@@ -379,52 +465,120 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
         double lat, lon, hdg, elev, disp_m;
         landing(le, lat, lon, hdg, elev, disp_m);
         const double back = wrap360(hdg + 180.0);
+        // JO 6850.2C Fig 2-1: 5 lamps at 40½ in → bar 13.5 ft, half-span 6.75 ft.
+        const double cl_half = 2.0 * 40.5 * 0.0254;
         auto bar5 = [&](double dist_ft, LightKind kind, int seq = -1) {
             double plat, plon;
             offset_m(lat, lon, back, dist_ft * geo::kFtToM, plat, plon);
-            bar(a, plat, plon, hdg, light_alt_m(plat, plon, elev), 6.0, 5, 1.f, 1.f, 0.92f, sw,
+            bar(a, plat, plon, hdg, light_alt_m(plat, plon, elev), cl_half, 5, 1.f, 1.f, 0.92f, sw,
                 kind, k);
             if (seq >= 0) {
                 push_light(a, plat, plon, light_alt_m(plat, plon, elev) + 0.3, 1.f, 1.f, 1.f, sw,
                            LightKind::Flasher, k, seq);
             }
         };
+        auto rlls_published = [&]() {
+            // Chart Supplement: 5 SFL 1200–2000 ft (on CL) and a 5-SFL group
+            // about 1 NM out; approach gate 35° south of the centreline.
+            if (sys != "ALSF-2") {
+                for (int i = 0; i < 5; ++i)
+                    bar5(1200.0 + 200.0 * i, LightKind::Flasher, i);
+            }
+            auto d180 = [](double h) {
+                double x = std::fabs(h - 180.0);
+                return x > 180.0 ? 360.0 - x : x;
+            };
+            const double plus = wrap360(back + 35.0);
+            const double minus = wrap360(back - 35.0);
+            const double gate = d180(plus) < d180(minus) ? plus : minus;
+            for (int i = 0; i < 5; ++i) {
+                double plat, plon;
+                offset_m(lat, lon, gate, (6076.0 - 200.0 * i) * geo::kFtToM, plat, plon);
+                push_light(a, plat, plon, light_alt_m(plat, plon, elev) + 0.3, 1.f, 1.f, 1.f, sw,
+                           LightKind::Flasher, k, i);
+            }
+        };
         if (sys == "ALSF-2") {
-            // FAA ALSF-2: 5-light bars every 100 ft to 2400 ft before the
-            // landing THR, 1000-ft crossbar, red side-row barrettes in the
-            // inner 1000 ft, sequenced flashers on the outer bars.
+            // 24 centreline bars 100–2400 ft; flashers on stations 10–24
+            // (1000–2400 ft), seq 0 = outermost.
             for (int i = 1; i <= 24; ++i)
                 bar5(100.0 * i, LightKind::Approach, (i >= 10) ? (24 - i) : -1);
+            // 1000 ft bar: CL 5 already placed; 8 white each side at 5 ft
+            // from 15 to 50 ft off CL → 21 lamps, 100 ft wide.
             double xlat, xlon;
             offset_m(lat, lon, back, 1000.0 * geo::kFtToM, xlat, xlon);
-            bar(a, xlat, xlon, hdg, light_alt_m(xlat, xlon, elev), 22.0, 15, 1.f, 1.f, 0.92f, sw,
-                LightKind::Approach, k);
-            for (int i = 1; i <= 10; ++i) {
+            for (int side = -1; side <= 1; side += 2) {
+                for (int j = 0; j < 8; ++j) {
+                    double blat, blon;
+                    offset_m(xlat, xlon, hdg + 90.0 * side, (15.0 + 5.0 * j) * geo::kFtToM, blat,
+                             blon);
+                    push_light(a, blat, blon, light_alt_m(blat, blon, elev), 1.f, 1.f, 0.92f, sw,
+                               LightKind::Approach, k);
+                }
+            }
+            // 500 ft bar: 4 white each side at 5 ft, between CL bar and side row.
+            double mlat, mlon;
+            offset_m(lat, lon, back, 500.0 * geo::kFtToM, mlat, mlon);
+            for (int side = -1; side <= 1; side += 2) {
+                for (int j = 0; j < 4; ++j) {
+                    double blat, blon;
+                    offset_m(mlat, mlon, hdg + 90.0 * side, (15.0 + 5.0 * j) * geo::kFtToM, blat,
+                             blon);
+                    push_light(a, blat, blon, light_alt_m(blat, blon, elev), 1.f, 1.f, 0.92f, sw,
+                               LightKind::Approach, k);
+                }
+            }
+            // Red side rows: 9 stations 100–900 ft, 3 lamps at 5 ft, inner 36 ft.
+            for (int i = 1; i <= 9; ++i) {
                 double slat, slon;
                 offset_m(lat, lon, back, 100.0 * i * geo::kFtToM, slat, slon);
                 for (int side = -1; side <= 1; side += 2) {
                     double blat, blon;
-                    offset_m(slat, slon, hdg + 90.0 * side, 18.0, blat, blon);
-                    bar(a, blat, blon, hdg, light_alt_m(blat, blon, elev), 2.2, 3, 1.f, 0.15f, 0.1f,
-                        sw, LightKind::Approach, k);
+                    offset_m(slat, slon, hdg + 90.0 * side, (36.0 + 5.0) * geo::kFtToM, blat, blon);
+                    bar(a, blat, blon, hdg, light_alt_m(blat, blon, elev), 5.0 * geo::kFtToM, 3, 1.f,
+                        0.15f, 0.1f, sw, LightKind::Approach, k);
                 }
             }
+            if (le ? rw.rlls_lead_in_le : rw.rlls_lead_in_he)
+                rlls_published();
         } else if (sys == "ALSF-1") {
             for (int i = 1; i <= 24; ++i)
                 bar5(100.0 * i, LightKind::Approach, (i >= 10) ? (24 - i) : -1);
             double xlat, xlon;
             offset_m(lat, lon, back, 1000.0 * geo::kFtToM, xlat, xlon);
-            bar(a, xlat, xlon, hdg, elev, 22.0, 15, 1.f, 1.f, 0.92f, sw, LightKind::Approach, k);
+            bar(a, xlat, xlon, hdg, elev, 50.0 * geo::kFtToM, 21, 1.f, 1.f, 0.92f, sw,
+                LightKind::Approach, k);
         } else if (sys == "MALSR") {
-            for (int i = 1; i <= 7; ++i)
-                bar5(200.0 * i, LightKind::Approach);
-            for (int i = 0; i < 5; ++i)
-                bar5(1600.0 + 200.0 * i, LightKind::Flasher, i);
+            // JO 6850.2C Fig 2-3/2-4: 7 MALS bars 200–1400 ft, 2.5 ft
+            // spacing; 66 ft crossbar at 1000 ft; RAIL = 5 single flashers.
+            const double mals_half = 5.0 * geo::kFtToM; // 5 lamps at 2.5 ft
+            for (int i = 1; i <= 7; ++i) {
+                if (i == 5)
+                    continue; // 1000 ft is the wide crossbar
+                double plat, plon;
+                offset_m(lat, lon, back, 200.0 * i * geo::kFtToM, plat, plon);
+                bar(a, plat, plon, hdg, light_alt_m(plat, plon, elev), mals_half, 5, 1.f, 1.f, 0.92f,
+                    sw, LightKind::Approach, k);
+            }
+            double xlat, xlon;
+            offset_m(lat, lon, back, 1000.0 * geo::kFtToM, xlat, xlon);
+            bar(a, xlat, xlon, hdg, light_alt_m(xlat, xlon, elev), 33.0 * geo::kFtToM, 27, 1.f, 1.f,
+                0.92f, sw, LightKind::Approach, k);
+            for (int i = 0; i < 5; ++i) {
+                double plat, plon;
+                offset_m(lat, lon, back, (1600.0 + 200.0 * i) * geo::kFtToM, plat, plon);
+                push_light(a, plat, plon, light_alt_m(plat, plon, elev) + 0.3, 1.f, 1.f, 1.f, sw,
+                           LightKind::Flasher, k, i);
+            }
         } else if (sys == "MALSF") {
             for (int i = 1; i <= 7; ++i)
                 bar5(200.0 * i, LightKind::Approach);
-            for (int i = 0; i < 5; ++i)
-                bar5(1400.0 + 200.0 * i, LightKind::Flasher, i);
+            for (int i = 0; i < 5; ++i) {
+                double plat, plon;
+                offset_m(lat, lon, back, (1400.0 + 200.0 * i) * geo::kFtToM, plat, plon);
+                push_light(a, plat, plon, light_alt_m(plat, plon, elev) + 0.3, 1.f, 1.f, 1.f, sw,
+                           LightKind::Flasher, k, i);
+            }
         } else if (sys == "MALS") {
             for (int i = 1; i <= 7; ++i)
                 bar5(200.0 * i, LightKind::Approach);
@@ -441,9 +595,7 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
             offset_m(lat, lon, back, 1000.0 * geo::kFtToM, xlat, xlon);
             bar(a, xlat, xlon, hdg, elev, 18.0, 11, 1.f, 1.f, 0.92f, sw, LightKind::Approach, k);
         } else if (sys == "RLLS") {
-            for (int i = 1; i <= 12; ++i) {
-                bar5(500.0 * i, LightKind::Approach, i - 1);
-            }
+            rlls_published();
         } else {
             bar5(1400.0, LightKind::Approach);
         }
@@ -514,8 +666,20 @@ Runway runway_from_faa_pair(const FaaEnd& le, const FaaEnd& he) {
     r.papi_he = he.papi;
     r.papi_deg_le = le.papi_deg;
     r.papi_deg_he = he.papi_deg;
+    r.vgsi_tch_ft_le = le.vgsi_tch_ft;
+    r.vgsi_tch_ft_he = he.vgsi_tch_ft;
+    r.ils_tch_ft_le = le.ils_tch_ft;
+    r.ils_tch_ft_he = he.ils_tch_ft;
+    r.papi_rotate_le = le.papi_rotate_deg;
+    r.papi_rotate_he = he.papi_rotate_deg;
+    r.papi_usable_left_le = le.papi_usable_left_deg;
+    r.papi_usable_right_le = le.papi_usable_right_deg;
+    r.papi_usable_left_he = he.papi_usable_left_deg;
+    r.papi_usable_right_he = he.papi_usable_right_deg;
     r.papi_count_le = (le.papi.find('+') != std::string::npos) ? 2 : 1;
     r.papi_count_he = (he.papi.find('+') != std::string::npos) ? 2 : 1;
+    r.rlls_lead_in_le = le.rlls_lead_in;
+    r.rlls_lead_in_he = he.rlls_lead_in;
     r.reil_le = le.reil;
     r.reil_he = he.reil;
     r.tdz_le = le.tdz;
@@ -712,11 +876,7 @@ Building jetbridge_building(const Jetbridge& j) {
 
 void offset_m(double lat, double lon, double heading_deg, double dist_m, double& olat,
               double& olon) {
-    const double n = dist_m * std::cos(geo::deg2rad(heading_deg));
-    const double e = dist_m * std::sin(geo::deg2rad(heading_deg));
-    olat = lat + geo::rad2deg(n / kR);
-    const double cl = std::max(std::cos(geo::deg2rad(lat)), 1e-6);
-    olon = lon + geo::rad2deg(e / (kR * cl));
+    geo::direct_wgs84(lat, lon, heading_deg, dist_m, olat, olon);
 }
 
 const char* light_kind_name(LightKind k) {

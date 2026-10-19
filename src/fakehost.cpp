@@ -35,7 +35,6 @@ namespace {
 constexpr double kFtPerNm = 6076.115;
 constexpr double kFtPerSm = 5280.0;
 constexpr double kKtToFps = 1.687810;
-constexpr double kEarthRft = 20925646.3; // mean radius, ft (same as synth)
 
 std::string lower(std::string s) {
     for (auto& c : s)
@@ -63,9 +62,11 @@ bool parse_v4(const std::string& h, std::uint32_t& out) {
 }
 
 void offset_ft(double& lat, double& lon, double north_ft, double east_ft) {
-    lat += geo::rad2deg(north_ft / kEarthRft);
-    const double c = std::max(std::cos(geo::deg2rad(lat)), 1e-6);
-    lon += geo::rad2deg(east_ft / (kEarthRft * c));
+    const double dist_m = std::hypot(north_ft, east_ft) * geo::kFtToM;
+    if (!(dist_m > 1e-9))
+        return;
+    const double hdg = geo::rad2deg(std::atan2(east_ft, north_ft));
+    geo::direct_wgs84(lat, lon, hdg, dist_m, lat, lon);
 }
 
 double clampd(double v, double lo, double hi) { return std::max(lo, std::min(hi, v)); }
@@ -204,6 +205,12 @@ double threshold_crossing_height_ft(double gs_deg, double aim_ft) {
     return glidepath_height_ft(0.0, gs_deg, aim_ft);
 }
 
+double aim_point_ft(const Runway& rwy, double gs_deg) {
+    if (rwy.ils_tch_ft > 0.5 && gs_deg > 0.25)
+        return rwy.ils_tch_ft / std::tan(geo::deg2rad(gs_deg));
+    return kAimPointFt;
+}
+
 Runway runway_from_faa(const std::string& icao_in, const std::string& ident) {
     std::string icao = icao_in;
     for (auto& c : icao)
@@ -224,6 +231,7 @@ Runway runway_from_faa(const std::string& icao_in, const std::string& ident) {
     r.brg_true = e->true_brg_deg;
     r.length_ft = e->length_ft;
     r.displaced_ft = e->displaced_ft;
+    r.ils_tch_ft = e->ils_tch_ft;
     r.source = a->source + " eff " + e->effective;
     r.thr_lat = e->lat;
     r.thr_lon = e->lon;
@@ -234,7 +242,7 @@ Runway runway_from_faa(const std::string& icao_in, const std::string& ident) {
 
 ApproachProfile::ApproachProfile(ProfileConfig c) : c_(std::move(c)) {
     x_ = -c_.start_nm * kFtPerNm;
-    h_ = glidepath_height_ft(x_, c_.gs_deg);
+    h_ = glidepath_height_ft(x_, c_.gs_deg, aim_point_ft(c_.rwy, c_.gs_deg));
     const double vapp = c_.vref_kt + c_.vapp_add_kt;
     if (c_.landing_config_at_start) {
         gear_ = true;
@@ -296,7 +304,7 @@ Frame ApproachProfile::step(double dt) {
         x_ += fps * dt;
         h_ += vs * dt;
         if (!flare_)
-            h_ = glidepath_height_ft(x_, c_.gs_deg);
+            h_ = glidepath_height_ft(x_, c_.gs_deg, aim_point_ft(c_.rwy, c_.gs_deg));
         if (h_ <= 0) {
             h_ = 0;
             td_ = true;
@@ -533,7 +541,7 @@ void ManualFlight::reposition(const Runway& rwy, double start_nm, double gs_deg,
     lon_ = rwy.thr_lon;
     const double b = geo::deg2rad(rwy.brg_true);
     offset_ft(lat_, lon_, x * std::cos(b), x * std::sin(b));
-    alt_ = rwy.elev_ft + (on_runway ? 0.0 : glidepath_height_ft(x, gs_deg));
+    alt_ = rwy.elev_ft + (on_runway ? 0.0 : glidepath_height_ft(x, gs_deg, aim_point_ft(rwy, gs_deg)));
     hdg_ = rwy.brg_true;
     roll_ = 0;
     vs_ = 0;

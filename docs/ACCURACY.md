@@ -60,7 +60,7 @@ action. Official always wins; imagery is only texture.
 | Elevation | USGS 3DEP (CONUS), Copernicus GLO-30 elsewhere | same |
 
 Every stored value carries `source`, `effective` (NASR / AIP cycle),
-and `retrieved`. Current US cycle: **2026-10-02** (Chart Supplement
+and `retrieved`. Current US cycle: **2026-10-01** (Chart Supplement
 NW/NE/SW/SE 3 SEP 2026 to 29 OCT 2026), retrieved **2026-10-18**.
 EGLL NATS AD 2 effective **2025-04-17**. SKRG Aerocivil AMDT 66-24
 (2024-11-28). SKBO still cites the 2016 Aerocivil AD 2 and VNKT the

@@ -309,6 +309,11 @@ double wrap360(double deg) {
     return deg;
 }
 
+double wrap180(double deg) {
+    deg = wrap360(deg + 180.0);
+    return deg - 180.0;
+}
+
 double dms_to_deg(int d, int m, double s, bool west_or_south) {
     double v = std::fabs(static_cast<double>(d)) + m / 60.0 + s / 3600.0;
     if (d < 0 || west_or_south)
@@ -414,6 +419,72 @@ double inverse_wgs84(double lat1, double lon1, double lat2, double lon2, double*
         *heading_deg = wrap360(rad2deg(std::atan2(cu2 * sl, cu1 * su2 - su1 * cu2 * cl)));
     }
     return dist;
+}
+
+void direct_wgs84(double lat1, double lon1, double heading_deg, double dist_m, double& lat2,
+                  double& lon2, double* heading2_deg) {
+    if (!std::isfinite(dist_m) || std::fabs(dist_m) < 1e-9) {
+        lat2 = lat1;
+        lon2 = lon1;
+        if (heading2_deg)
+            *heading2_deg = wrap360(heading_deg);
+        return;
+    }
+    if (dist_m < 0.0) {
+        direct_wgs84(lat1, lon1, wrap360(heading_deg + 180.0), -dist_m, lat2, lon2, heading2_deg);
+        if (heading2_deg)
+            *heading2_deg = wrap360(*heading2_deg + 180.0);
+        return;
+    }
+    const double f = (kWgsA - kWgsB) / kWgsA;
+    const double phi1 = deg2rad(lat1);
+    const double alpha1 = deg2rad(heading_deg);
+    const double sin_alpha1 = std::sin(alpha1);
+    const double cos_alpha1 = std::cos(alpha1);
+    const double tan_u1 = (1.0 - f) * std::tan(phi1);
+    const double cos_u1 = 1.0 / std::sqrt(1.0 + tan_u1 * tan_u1);
+    const double sin_u1 = tan_u1 * cos_u1;
+    const double sigma1 = std::atan2(tan_u1, cos_alpha1);
+    const double sin_alpha = cos_u1 * sin_alpha1;
+    const double cos2_alpha = 1.0 - sin_alpha * sin_alpha;
+    const double u2 = cos2_alpha * (kWgsA * kWgsA - kWgsB * kWgsB) / (kWgsB * kWgsB);
+    const double A = 1.0 + u2 / 16384.0 * (4096.0 + u2 * (-768.0 + u2 * (320.0 - 175.0 * u2)));
+    const double B = u2 / 1024.0 * (256.0 + u2 * (-128.0 + u2 * (74.0 - 47.0 * u2)));
+    double sigma = dist_m / (kWgsB * A);
+    double sin_sigma = 0, cos_sigma = 0, cos2sm = 0;
+    for (int i = 0; i < 80; ++i) {
+        const double sigma_prev = sigma;
+        cos2sm = std::cos(2.0 * sigma1 + sigma);
+        sin_sigma = std::sin(sigma);
+        cos_sigma = std::cos(sigma);
+        const double dsig =
+            B * sin_sigma *
+            (cos2sm +
+             B / 4.0 *
+                 (cos_sigma * (-1.0 + 2.0 * cos2sm * cos2sm) -
+                  B / 6.0 * cos2sm * (-3.0 + 4.0 * sin_sigma * sin_sigma) *
+                      (-3.0 + 4.0 * cos2sm * cos2sm)));
+        sigma = dist_m / (kWgsB * A) + dsig;
+        if (std::fabs(sigma - sigma_prev) < 1e-12)
+            break;
+    }
+    const double tmp = sin_u1 * sin_sigma - cos_u1 * cos_sigma * cos_alpha1;
+    const double phi2 = std::atan2(sin_u1 * cos_sigma + cos_u1 * sin_sigma * cos_alpha1,
+                                   (1.0 - f) * std::sqrt(sin_alpha * sin_alpha + tmp * tmp));
+    const double lam = std::atan2(sin_sigma * sin_alpha1,
+                                  cos_u1 * cos_sigma - sin_u1 * sin_sigma * cos_alpha1);
+    const double C = f / 16.0 * cos2_alpha * (2.0 + f * (4.0 - 3.0 * cos2_alpha));
+    const double L = lam - (1.0 - C) * f * sin_alpha *
+                               (sigma + C * sin_sigma * (cos2sm + C * cos_sigma * (-1.0 + 2.0 * cos2sm * cos2sm)));
+    lat2 = rad2deg(phi2);
+    lon2 = lon1 + rad2deg(L);
+    while (lon2 < -180.0)
+        lon2 += 360.0;
+    while (lon2 > 180.0)
+        lon2 -= 360.0;
+    if (heading2_deg) {
+        *heading2_deg = wrap360(rad2deg(std::atan2(sin_alpha, -tmp)));
+    }
 }
 
 double ground_distance_m(double lat1, double lon1, double lat2, double lon2) {

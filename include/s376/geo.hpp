@@ -42,6 +42,9 @@ double ellipsoid_to_orthometric_m(double ellipsoid_m, double lat_deg, double lon
 
 // Vincenty inverse on WGS84. Returns distance metres; heading LE→HE clockwise from north.
 double inverse_wgs84(double lat1, double lon1, double lat2, double lon2, double* heading_deg = nullptr);
+// Vincenty direct: walk `dist_m` along `heading_deg` (true) on WGS-84.
+void direct_wgs84(double lat1, double lon1, double heading_deg, double dist_m, double& lat2,
+                  double& lon2, double* heading2_deg = nullptr);
 double ground_distance_m(double lat1, double lon1, double lat2, double lon2);
 
 struct Utm {
@@ -54,6 +57,7 @@ Utm wgs84_to_utm(double lat_deg, double lon_deg);
 void utm_to_wgs84(const Utm& u, double& lat_deg, double& lon_deg);
 
 double wrap360(double deg);
+double wrap180(double deg);
 double dms_to_deg(int d, int m, double s, bool west_or_south = false);
 
 // Body axes: x forward, y right, z down. Heading clockwise from north.

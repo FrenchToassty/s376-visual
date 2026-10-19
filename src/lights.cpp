@@ -176,8 +176,8 @@ bool papi_box_white(float eye_angle_deg, int box, float gs_deg) {
         eye_angle_deg = gs_deg;
     if (!std::isfinite(gs_deg) || gs_deg < 0.5f)
         gs_deg = 3.f;
-    const float step = 20.f / 60.f; // FAA 20 arcmin between units
-    const float setting = gs_deg + (static_cast<float>(box) - 1.5f) * step;
+    // JO 6850.2C Table 5-2 HG4 published GPA: inboard unit is the highest.
+    const float setting = gs_deg + kPapiHg4Min[static_cast<std::size_t>(box)] / 60.f;
     return eye_angle_deg > setting;
 }
 
@@ -187,6 +187,36 @@ float papi_eye_angle_deg(double eye_lat, double eye_lon, double eye_alt_m, doubl
     if (!(dist > 1.0) || !std::isfinite(dist))
         return 90.f;
     return static_cast<float>(geo::rad2deg(std::atan2(eye_alt_m - papi_alt_m, dist)));
+}
+
+float papi_azimuth_deg(double eye_lat, double eye_lon, double papi_lat, double papi_lon,
+                       float rwy_hdg_deg) {
+    double brg = 0;
+    const double dist = geo::inverse_wgs84(papi_lat, papi_lon, eye_lat, eye_lon, &brg);
+    if (!(dist > 1.0) || !std::isfinite(dist))
+        return 0.f;
+    // From the PAPI, the approach is back along rwy_hdg + 180.
+    // atan2(across, toward-approach) so + is right of CL on the approach.
+    const double rel = geo::wrap180(brg - (static_cast<double>(rwy_hdg_deg) + 180.0));
+    return static_cast<float>(rel);
+}
+
+bool papi_in_coverage(double eye_lat, double eye_lon, double papi_lat, double papi_lon,
+                      float rwy_hdg_deg, float rotate_deg, float usable_left_deg,
+                      float usable_right_deg) {
+    const float az = papi_azimuth_deg(eye_lat, eye_lon, papi_lat, papi_lon, rwy_hdg_deg);
+    if (az < -usable_left_deg || az > usable_right_deg)
+        return false;
+    const float az_axis = az - rotate_deg;
+    return az_axis >= -10.f && az_axis <= 10.f;
+}
+
+double papi_distance_ft(double vgsi_tch_ft, double gs_deg) {
+    if (!(vgsi_tch_ft > 0.5) || !std::isfinite(vgsi_tch_ft))
+        vgsi_tch_ft = 50.0;
+    if (!(gs_deg > 0.25) || !std::isfinite(gs_deg))
+        gs_deg = 3.0;
+    return vgsi_tch_ft / std::tan(geo::deg2rad(gs_deg));
 }
 
 float type_size_boost(LightKind kind) {
@@ -248,9 +278,11 @@ bool sfl_on(double t_s, int index) {
         return true;
     if (!std::isfinite(t_s) || t_s < 0.0)
         t_s = 0.0;
-    constexpr int kCycle = 15;
-    const int slot = static_cast<int>(std::floor(std::fmod(t_s * kSflHz, kCycle)));
-    return slot == (index % kCycle);
+    // Whole sequence at kSflHz (2 Hz → 0.5 s sweep), not 2 Hz per slot.
+    const double phase = std::fmod(t_s * kSflHz * static_cast<double>(kSflSlots),
+                                   static_cast<double>(kSflSlots));
+    const int slot = static_cast<int>(std::floor(phase));
+    return slot == (index % kSflSlots);
 }
 
 } // namespace s376::lights

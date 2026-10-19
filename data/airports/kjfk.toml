@@ -1,6 +1,6 @@
 # KJFK — FAA both physical ends (not LE + heading + length).
 # Source: FAA AIP AD 2 KJFK + NFDC airportDisplay, cross-checked OurAirports.
-# Effective NASR / AIP cycle 2026-10-02, retrieved 2026-10-18.
+# Effective NASR / AIP cycle 2026-10-01, retrieved 2026-10-18.
 # Lighting: AIP AD 2.14. 04L/22R/31L NONE; 04R/22L/13L ALSF-2; 31R MALSR; 13R RLLS.
 # 13L/31R is 200 ft wide. 22R displaced threshold is 3424 ft.
 # Taxi / apron connectors in the binary are schematic offsets; replace with
@@ -12,11 +12,11 @@ name = "John F Kennedy International"
 arp_lat = 40.6399280556
 arp_lon = -73.7786922222
 elev_ft = 13
-attribution = "FAA AIP AD 2 KJFK / NFDC effective 2026-10-02, retrieved 2026-10-18; OurAirports cross-check"
+attribution = "FAA AIP AD 2 KJFK / NFDC effective 2026-10-01, retrieved 2026-10-18; OurAirports cross-check"
 
 [source]
 name = "FAA AIP AD 2 KJFK (faa.gov) + NFDC, cross-checked OurAirports"
-effective = "2026-10-02"
+effective = "2026-10-01"
 retrieved = "2026-10-18"
 
 [lights]
@@ -44,6 +44,9 @@ papi_le = "P4L"
 papi_he = "P4L"
 papi_deg_le = 3.00
 papi_deg_he = 3.00
+vgsi_tch_ft_le = 75
+vgsi_tch_ft_he = 77
+tdz_le = true
 
 [[runways]]
 ident_le = "04R"
@@ -64,6 +67,9 @@ papi_le = "P4L"
 papi_he = "P4L"
 papi_deg_le = 3.00
 papi_deg_he = 3.00
+vgsi_tch_ft_le = 69
+vgsi_tch_ft_he = 66
+ils_tch_ft_le = 53
 tdz_le = true
 tdz_he = true
 emas_le = true
@@ -91,7 +97,12 @@ papi_le = "P4L"
 papi_he = "P4R"
 papi_deg_le = 3.00
 papi_deg_he = 3.00
+vgsi_tch_ft_le = 74
+vgsi_tch_ft_he = 54
+ils_tch_ft_le = 58
+rlls_lead_in_le = true
 tdz_le = true
+tdz_he = true
 
 [[runways]]
 ident_le = "13R"
@@ -112,4 +123,7 @@ papi_le = "P4L+P4L"
 papi_he = "P4L"
 papi_deg_le = 3.00
 papi_deg_he = 3.00
+vgsi_tch_ft_le = 79
+vgsi_tch_ft_he = 74
+rlls_lead_in_le = true
 papi_count_le = 2

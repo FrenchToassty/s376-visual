@@ -1810,6 +1810,12 @@ struct LightGpu {
     std::vector<double> alt_m;
     std::vector<int> papi_box;
     std::vector<float> papi_gs;
+    std::vector<float> papi_rot;
+    std::vector<float> papi_ul;
+    std::vector<float> papi_ur;
+    std::vector<float> papi_hdg;
+    std::vector<osg::Vec4> rev;
+    std::vector<float> color_hdg;
 };
 
 LightGpu make_light_gpu(const Airport& apt) {
@@ -1833,6 +1839,12 @@ LightGpu make_light_gpu(const Airport& apt) {
         g.alt_m.push_back(L.alt_m);
         g.papi_box.push_back(L.papi_box);
         g.papi_gs.push_back(L.papi_gs_deg);
+        g.papi_rot.push_back(L.papi_rotate_deg);
+        g.papi_ul.push_back(L.papi_usable_left_deg);
+        g.papi_ur.push_back(L.papi_usable_right_deg);
+        g.papi_hdg.push_back(L.papi_rwy_hdg_deg);
+        g.rev.push_back(osg::Vec4(L.r2, L.g2, L.b2, L.r2 >= 0.f ? 1.f : -1.f));
+        g.color_hdg.push_back(L.color_hdg_deg);
         g.sizes->push_back(osg::Vec2(lights::kBaseSizePx, 0.f));
     }
     g.geom->setVertexArray(verts);
@@ -2330,8 +2342,21 @@ void apply_light_steps(LightGpu& g, const HostState& host) {
         if (kind == LightKind::Flasher && seq >= 0 && !lights::sfl_on(t_s, seq))
             k = 0.f;
         osg::Vec4 b = g.base[i];
+        if (have_eye && i < g.rev.size() && g.rev[i].a() >= 0.f) {
+            double brg = 0;
+            geo::inverse_wgs84(host.eye.lat_deg, host.eye.lon_deg, g.lat[i], g.lon[i], &brg);
+            const double rel = geo::wrap180(brg - g.color_hdg[i]);
+            if (std::fabs(rel) > 90.0)
+                b = osg::Vec4(g.rev[i].r(), g.rev[i].g(), g.rev[i].b(), 1.f);
+        }
         if (kind == LightKind::Vasi && i < g.papi_box.size() && g.papi_box[i] >= 0 &&
             host.have_eyepoint) {
+            if (i < g.papi_hdg.size() &&
+                !lights::papi_in_coverage(host.eye.lat_deg, host.eye.lon_deg, g.lat[i], g.lon[i],
+                                          g.papi_hdg[i], g.papi_rot[i], g.papi_ul[i],
+                                          g.papi_ur[i])) {
+                k = 0.f;
+            }
             const float ang = lights::papi_eye_angle_deg(
                 host.eye.lat_deg, host.eye.lon_deg, host.eye.alt_ft * geo::kFtToM, g.lat[i],
                 g.lon[i], g.alt_m[i]);

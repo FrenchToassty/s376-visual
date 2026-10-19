@@ -21,13 +21,19 @@ struct FaaEnd {
     double lat = 0;
     double lon = 0;
     double elev_ft = 0;
-    double true_brg_deg = 0;
+    double true_brg_deg = 0; // WGS-84 geodesic, not the integer NASR TRUE_ALIGNMENT
     double length_ft = 0;
     double width_ft = 0;
     double displaced_ft = 0;
     std::string als;  // NONE | ALSF-2 | ALSF-1 | MALSR | MALSF | MALS | SALS | RLLS | CAT-I | CAT-II
     std::string papi; // P4L | P4R | P4L+P4L
     double papi_deg = 3.0;
+    double vgsi_tch_ft = 0; // published VGSI TCH; 0 = default 50 ft
+    double ils_tch_ft = 0;  // plate ILS TCH; 0 = generic 1000 ft aim
+    double papi_rotate_deg = 0;       // + = right of CL (13L +10)
+    double papi_usable_left_deg = 15; // 0 = unusable left of CL
+    double papi_usable_right_deg = 15;
+    bool rlls_lead_in = false; // Chart Supplement LDIN (13L add-on / 13R)
     bool reil = false;
     bool tdz = false;
     bool emas = false;
