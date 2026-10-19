@@ -739,6 +739,22 @@ void test_airport() {
         CHECK(n_osm_taxi == 1);
         std::filesystem::remove_all(tmp_op);
     }
+    {
+        // Whole-airfield OSM apron must not become one beige fan.
+        s376::Airport huge = s376::kjfk_public();
+        const auto before = s376::build_airport_mesh(huge).verts.size();
+        s376::Apron slab;
+        slab.name = "osm-apron";
+        slab.ring = {{40.62, -73.82}, {40.62, -73.75}, {40.66, -73.75}, {40.66, -73.82}};
+        huge.aprons.push_back(slab);
+        s376::Apron pad;
+        pad.name = "osm-apron";
+        pad.ring = {{40.644, -73.780}, {40.644, -73.778}, {40.646, -73.778}, {40.646, -73.780}};
+        huge.aprons.push_back(pad);
+        const auto after = s376::build_airport_mesh(huge).verts.size();
+        CHECK(after > before);          // small pad meshed
+        CHECK(after < before + 200);    // 2 km slab skipped
+    }
     CHECK(osm.taxiways.size() == taxis0 + 1);
     CHECK(osm.aprons.size() == aprons0 + 1);
     CHECK(!osm.buildings.empty());

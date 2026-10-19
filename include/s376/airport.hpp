@@ -45,6 +45,9 @@ enum class LightKind {
 // OSM footprint goes into solids.bin / SolidBvh, independent of LOD.
 constexpr std::size_t kMaxOsmTaxiways = 800;
 constexpr std::size_t kMaxOsmAprons = 200;
+// OSM aeroway=apron can be the whole airfield. A centroid fan of that
+// ring becomes one beige slab over terminals and runways.
+constexpr double kMaxOsmApronSpanM = 900.0;
 constexpr std::size_t kMaxOsmBuildings = 12000;
 constexpr std::size_t kMaxOsmRoads = 400;
 // Airfield campus (≤ ~2.2 km of ARP): full-detail walls.

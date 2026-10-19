@@ -1927,6 +1927,22 @@ AirportMesh build_airport_mesh(const Airport& a, bool buildings, bool markings) 
     for (const auto& ap : a.aprons) {
         if (ap.ring.size() < 3)
             continue;
+        if (ap.name == "osm-apron" || ap.name.rfind("osm", 0) == 0) {
+            double min_lat = ap.ring[0].first, max_lat = ap.ring[0].first;
+            double min_lon = ap.ring[0].second, max_lon = ap.ring[0].second;
+            for (const auto& p : ap.ring) {
+                min_lat = std::min(min_lat, p.first);
+                max_lat = std::max(max_lat, p.first);
+                min_lon = std::min(min_lon, p.second);
+                max_lon = std::max(max_lon, p.second);
+            }
+            const double mid = (min_lat + max_lat) * 0.5;
+            const double dlat = (max_lat - min_lat) * geo::kDeg * kR;
+            const double dlon =
+                (max_lon - min_lon) * geo::kDeg * kR * std::max(0.2, std::cos(geo::deg2rad(mid)));
+            if (dlat > kMaxOsmApronSpanM || dlon > kMaxOsmApronSpanM)
+                continue;
+        }
         double clat = 0, clon = 0;
         for (const auto& p : ap.ring) {
             clat += p.first;

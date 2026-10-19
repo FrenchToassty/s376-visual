@@ -286,8 +286,8 @@ void main() {
         vec3 wcol = mix(deep, shallow, n1 * 0.40);
         vec3 skyref = mix(uFogColor * 0.52, vec3(0.14, 0.26, 0.40), 0.40);
         wcol = mix(wcol, skyref, 0.10 + 0.34 * fres);
-        float glint = pow(max(dot(reflect(-sun, wn), view), 0.0), 220.0);
-        wcol += vec3(1.0, 0.95, 0.82) * glint * 0.16 * (1.0 - uNight * 0.90);
+        float glint = pow(max(dot(reflect(-sun, wn), view), 0.0), 280.0);
+        wcol += vec3(1.0, 0.95, 0.82) * glint * 0.06 * (1.0 - uNight * 0.90);
         wcol *= (uAmbient + uDiffuse * (0.16 + 0.40 * max(dot(wn, sun), 0.0)));
         float foam = smoothstep(0.42, 0.68, wet) * (1.0 - smoothstep(0.78, 0.98, wet));
         foam *= 0.40 + 0.35 * noise(wu * 900.0 + vec2(uTime * 0.15, 0.0));
@@ -2316,8 +2316,10 @@ void apply_light_steps(LightGpu& g, const HostState& host) {
         if (night > 0.20f && (kind == LightKind::Edge || kind == LightKind::Centerline ||
                               kind == LightKind::Threshold)) {
             k *= 1.f + 0.28f * night; // HIRL / CL / TDZ over the asphalt sheen
-            sz = std::min(8.f, sz);
         }
+        // HAT boost is 12× at 0 ft. Uncapped, 0.15 nm night ALS became
+        // 66 px spheres. Keep every lamp at the 8 px disc budget.
+        sz = std::min(8.f, sz);
         if (g.sizes && i < g.sizes->size())
             (*g.sizes)[static_cast<unsigned>(i)] = osg::Vec2(sz, 0.f);
         if (kind == LightKind::Beacon && !lights::beacon_on(t_s))
