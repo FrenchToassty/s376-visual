@@ -69,6 +69,7 @@ struct FetchRequest {
     double approach_nm = 12.0; // native ortho along each final
     int max_export = 2048;     // ImageServer export cap (2048; 4000 500/504s)
     bool plan_only = false;    // --plan: print tile bboxes + coverage, no GET
+    int jobs = 1;              // parallel tile GETs (Mint: 16)
 };
 
 struct FetchEstimate {

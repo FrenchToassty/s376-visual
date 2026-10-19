@@ -45,11 +45,12 @@ cache_dir = ""            # packed region from s376-cache; empty = synth KSEA DE
 frame_rate = 60
 window_title = "s376-visual"
 vsync = true
-msaa = 4                  # 4x MSAA; one 980 Ti channel can do 8
+msaa = 0                  # TAA is the 980 Ti AA (GTA V). rtx keeps 4x MSAA.
 aniso = 16
 quality = "gtx980ti"      # gtx980ti | rtx | custom
 # gtx980ti: one channel on 6 GB Maxwell / 16 GB RAM — hdr/atmosphere/water/
-# markings/detail/buildings/ssao/bloom/fxaa/filmic on; shadows off.
+# markings/detail/buildings/ssao/bloom/fxaa/taa/clustered/lod_fade/filmic
+# and cheap 2-cascade CSM on; autodrop if GPU > 12.20 ms.
 # solar_astronomy = false  # default: host TOD buckets drive sun elevation
 #                          # true = date/lon sun_ecef (operator dusk may be day)
 # CPU tile budget 2 GB. Per-feature GPU ms: docs/QUALITY.md.

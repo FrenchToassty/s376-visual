@@ -31,22 +31,40 @@ done
 
 list="$(scripts/hangar-queue.sh --list)"
 echo "$list"
-for nn in 01 02 03 04 05 06 07 08 09 10; do
+for nn in 01 02 03 04 05 06 07 08 09 10 11 12; do
     echo "$list" | grep -q "^$nn " || bad "list missing $nn"
 done
 echo "$list" | grep -q 'review-now' || bad "list missing review-now"
-echo "$list" | grep -q 'fetch-us-next' || bad "list missing fetch-us-next"
-ok "list has 10 steps"
+echo "$list" | grep -q 'demo-kjfk-day' || bad "list missing demo-kjfk-day"
+echo "$list" | grep -q 'skyline-water' || bad "list missing skyline-water"
+if echo "$list" | grep -q 'fetch-kewr\|fetch-us-next'; then
+    bad "default list must not include KEWR / US-next"
+else
+    ok "default list is KJFK-only"
+fi
+ok "list has 12 KJFK steps"
+
+all="$(scripts/hangar-queue.sh --list --all-airports)"
+echo "$all" | grep -q '^13  fetch-kewr' || bad "all-airports missing 13 fetch-kewr"
+echo "$all" | grep -q '^14  fetch-us-next' || bad "all-airports missing 14 fetch-us-next"
+ok "opt-in --all-airports adds KEWR / US-next"
 
 help="$(scripts/hangar-queue.sh --help)"
 echo "$help" | grep -q 'usage: scripts/hangar-queue.sh \[--from NN\] \[--only NN\] \[--list\] \[--dry-run\]' \
     || bad "usage line mismatch"
+echo "$help" | grep -q -- '--all-airports' || bad "help missing --all-airports"
+echo "$help" | grep -q -- '-j, --jobs' || bad "help missing --jobs"
 ok "usage line"
 
 dry="$(scripts/hangar-queue.sh --dry-run --only 01 --out /tmp/s376-queue-dry --root "$ROOT")"
 echo "$dry" | grep -q 'cmake' || bad "dry 01 missing cmake"
-echo "$dry" | grep -q 'MemoryMax' || bad "dry 01 missing systemd-run MemoryMax"
+echo "$dry" | grep -q 'MemoryMax=12G' || bad "dry 01 missing systemd-run MemoryMax=12G"
 ok "dry-run 01"
+
+dry6="$(scripts/hangar-queue.sh --dry-run --only 06 --out /tmp/s376-queue-dry --root "$ROOT")"
+echo "$dry6" | grep -q -- '--jobs 16' || bad "dry 06 missing fetch --jobs 16"
+echo "$dry6" | grep -q 'MemoryMax=12G' || bad "dry 06 missing MemoryMax=12G"
+ok "dry-run 06 fetch --jobs"
 
 dry2="$(scripts/hangar-queue.sh --dry-run --only 02 --out /tmp/s376-queue-dry --root "$ROOT" --kjfk /tmp/fake-kjfk)"
 echo "$dry2" | grep -q 'hangar-review' || bad "dry 02 missing hangar-review"
@@ -54,7 +72,11 @@ ok "dry-run 02"
 
 dry3="$(scripts/hangar-queue.sh --dry-run --from 08 --out /tmp/s376-queue-dry --root "$ROOT")"
 echo "$dry3" | grep -q 'contact-sheet\|review-after-fetch\|hangar-review' || bad "dry from 08 missing review"
-echo "$dry3" | grep -q 'KEWR\|fetch KEWR\|kewr' || bad "dry from 08 missing later KEWR"
+echo "$dry3" | grep -q 'demo kjfk\|--demo kjfk\|demo-kjfk' || bad "dry from 08 missing KJFK demo"
+echo "$dry3" | grep -q 'manhattan\|skyline-water\|--hdg 310' || bad "dry from 08 missing skyline"
+if echo "$dry3" | grep -qiE 'KEWR|fetch KEWR'; then
+    bad "dry --from 08 must not fetch KEWR (opt-in only)"
+fi
 if echo "$dry3" | grep -q 'cmake -S'; then
     bad "dry --from 08 should not run build"
 fi
@@ -71,6 +93,7 @@ echo "$rev" | grep -q -- '--alt 12000' || bad "review dry missing 12k"
 echo "$rev" | grep -q -- '--rwy-cond 2' || bad "review dry missing wet"
 echo "$rev" | grep -q -- '--offscreen' || bad "review dry missing offscreen"
 echo "$rev" | grep -q -- '--bench' || bad "review dry missing bench"
+echo "$rev" | grep -q -- '--hdg 310' || bad "review dry missing Manhattan skyline"
 ok "hangar-review dry-run shot list"
 
 if [[ -e /tmp/s376-queue-dry/STATUS.txt ]]; then

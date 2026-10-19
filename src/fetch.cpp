@@ -10,6 +10,7 @@
 #include "s376/safety.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cmath>
@@ -18,6 +19,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <random>
 #include <sstream>
 #include <stdexcept>
@@ -1010,22 +1012,26 @@ std::uint64_t fetch_and_pack(const FetchRequest& in, FetchPlan* plan_out) {
                            plan.img_kind == "hro" || plan.img_kind == "sanmateo" ||
                            plan.img_kind == "kingco";
 
-    std::size_t packed_tiles = 0;
-    std::size_t missing = 0;
+    std::atomic<std::size_t> packed_tiles{0};
+    std::atomic<std::size_t> missing{0};
+    std::mutex imagery_mu;
     auto maybe_rss = [&]() {
-        if (packed_tiles == 1 || packed_tiles == plan.tiles.size() ||
-            packed_tiles % static_cast<std::size_t>(kFetchRssLogEvery) == 0)
-            log_fetch_rss("tile", packed_tiles, plan.tiles.size());
+        const auto n = packed_tiles.load();
+        if (n == 1 || n == plan.tiles.size() ||
+            n % static_cast<std::size_t>(kFetchRssLogEvery) == 0)
+            log_fetch_rss("tile", n, plan.tiles.size());
     };
     if (plan.dem_kind == "3dep" || tiled_img) {
-        for (const auto& t : plan.tiles) {
+        const int jobs = std::max(1, std::min(32, req.jobs));
+        S376_LOG_INFO("cache", "fetch workers  %d  tiles=%zu", jobs, plan.tiles.size());
+        auto one_tile = [&](const PlannedTile& t) {
             const std::string tdir = out + "/lod" + std::to_string(t.lod) + "/t" +
                                      std::to_string(t.iy) + "_" + std::to_string(t.ix);
             if (cache_tile_ready(tdir)) {
                 S376_LOG_INFO("cache", "resume skip %s", tdir.c_str());
-                ++packed_tiles;
+                packed_tiles.fetch_add(1);
                 maybe_rss();
-                continue;
+                return;
             }
             DemGrid tile_dem;
             ImageRgb tile_img;
@@ -1055,15 +1061,38 @@ std::uint64_t fetch_and_pack(const FetchRequest& in, FetchPlan* plan_out) {
                 }
             }
             if (tile_dem.empty()) {
-                ++missing;
-                continue;
+                missing.fetch_add(1);
+                return;
             }
-            if (imagery.rgb.empty() && !tile_img.rgb.empty())
-                imagery = resample_rgb(tile_img, 256, 256);
+            if (!tile_img.rgb.empty()) {
+                std::lock_guard<std::mutex> g(imagery_mu);
+                if (imagery.rgb.empty())
+                    imagery = resample_rgb(tile_img, 256, 256);
+            }
             write_streamed_cache_tile(tdir, std::move(tile_dem), std::move(tile_img), t.box,
                                       apt.icao, t.lod == 0, req.mips);
-            ++packed_tiles;
+            packed_tiles.fetch_add(1);
             maybe_rss();
+        };
+        if (jobs <= 1) {
+            for (const auto& t : plan.tiles)
+                one_tile(t);
+        } else {
+            std::atomic<std::size_t> next{0};
+            std::vector<std::thread> pool;
+            pool.reserve(static_cast<std::size_t>(jobs));
+            for (int w = 0; w < jobs; ++w) {
+                pool.emplace_back([&]() {
+                    for (;;) {
+                        const std::size_t i = next.fetch_add(1);
+                        if (i >= plan.tiles.size())
+                            break;
+                        one_tile(plan.tiles[i]);
+                    }
+                });
+            }
+            for (auto& th : pool)
+                th.join();
         }
     }
 
@@ -1101,15 +1130,15 @@ std::uint64_t fetch_and_pack(const FetchRequest& in, FetchPlan* plan_out) {
         }
     }
 
-    if (missing > 0 || (!plan.tiles.empty() && packed_tiles < plan.tiles.size())) {
+    if (missing.load() > 0 || (!plan.tiles.empty() && packed_tiles.load() < plan.tiles.size())) {
         std::ofstream covf(out + "/coverage.toml");
         covf << "icao = \"" << apt.icao << "\"\ncovers_faa = false\n";
-        covf << "planned = " << plan.tiles.size() << "\nready = " << packed_tiles << "\n";
-        covf << "missing = " << missing << "\n";
+        covf << "planned = " << plan.tiles.size() << "\nready = " << packed_tiles.load() << "\n";
+        covf << "missing = " << missing.load() << "\n";
         S376_LOG_WARN("cache",
                       "%s incomplete  ready=%zu planned=%zu missing=%zu — raw kept; re-run the "
                       "same fetch to resume",
-                      apt.icao.c_str(), packed_tiles, plan.tiles.size(), missing);
+                      apt.icao.c_str(), packed_tiles.load(), plan.tiles.size(), missing.load());
         throw std::runtime_error(apt.icao +
                                  " fetch incomplete (missing tiles). Re-run the same command; "
                                  "completed tiles are skipped. Not writing a success pack.");
@@ -1158,9 +1187,9 @@ std::uint64_t fetch_and_pack(const FetchRequest& in, FetchPlan* plan_out) {
     const auto bytes = pack_lods(region, out, default_lods(req.radius_km), req.mips);
     const auto packed = directory_bytes(out);
     S376_LOG_INFO("cache", "packed %s  %llu bytes  %zu tiles  dem=%s img=%s", apt.icao.c_str(),
-                  static_cast<unsigned long long>(packed), packed_tiles, plan.dem_kind.c_str(),
+                  static_cast<unsigned long long>(packed), packed_tiles.load(), plan.dem_kind.c_str(),
                   plan.img_kind.c_str());
-    log_fetch_rss("pack", packed_tiles, plan.tiles.size());
+    log_fetch_rss("pack", packed_tiles.load(), plan.tiles.size());
     (void)bytes;
 
     try {

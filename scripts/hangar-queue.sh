@@ -10,7 +10,7 @@
 # pbuffer only — no projector windows. If a game is running, wait and
 # retry every 5 minutes; never kill anything.
 #
-# usage: scripts/hangar-queue.sh [--from NN] [--only NN] [--list] [--dry-run] [--root DIR] [--out DIR] [--kjfk DIR]
+# usage: scripts/hangar-queue.sh [--from NN] [--only NN] [--list] [--dry-run] [--root DIR] [--out DIR] [--kjfk DIR] [--all-airports]
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -21,45 +21,53 @@ ONLY=""
 DRY=0
 LIST=0
 FORCE=0
-JOBS="$(nproc)"
+ALL_AIRPORTS=0
+# Mint redline: 16 fetch/build workers, one serial step at 12G, ~4G left
+# for the desktop (16 GB box). Override with -j / $S376_JOBS.
+JOBS="${S376_JOBS:-16}"
 WAIT_SEC="${S376_GPU_WAIT_SEC:-300}"
 
-# NN name mem
+# NN name mem. Default is KJFK-only (Joey demo). KEWR / other US fields
+# stay behind --all-airports so the hangar spends the night on JFK.
 STEPS=(
-    "01 build 6G"
+    "01 build 12G"
     "02 review-now 12G"
     "03 bench 12G"
     "04 video-day 12G"
     "05 video-night 12G"
-    "06 fetch-kjfk-far 8G"
-    "07 fetch-kjfk-near 8G"
+    "06 fetch-kjfk-far 12G"
+    "07 fetch-kjfk-near 12G"
     "08 review-after-fetch 12G"
-    "09 fetch-kewr 8G"
-    "10 fetch-us-next 8G"
+    "09 demo-kjfk-day 12G"
+    "10 demo-kjfk-night 12G"
+    "11 bench-repeat 12G"
+    "12 skyline-water 12G"
 )
 
 usage() {
     cat <<'EOF'
-usage: scripts/hangar-queue.sh [--from NN] [--only NN] [--list] [--dry-run] [--root DIR] [--out DIR] [--kjfk DIR]
+usage: scripts/hangar-queue.sh [--from NN] [--only NN] [--list] [--dry-run] [--root DIR] [--out DIR] [--kjfk DIR] [--all-airports] [-j N]
 
-  --from NN   start at this step (still skip any later step that has `done`)
-  --only NN   run only this step (skip if `done` unless --force)
-  --list      print the step table and exit 0
-  --dry-run   print commands, write nothing, exit 0
-  --force     ignore `done` markers for selected steps
-  --root DIR  repo (default: parent of this script, Joey: ~/s376-visual)
-  --out DIR   queue dir (default: ~/Downloads/s376-queue)
-  --kjfk DIR  existing 1 m KJFK pack (default: $ROOT/cache/KJFK)
+  --from NN         start at this step (still skip any later step that has `done`)
+  --only NN         run only this step (skip if `done` unless --force)
+  --list            print the step table and exit 0
+  --dry-run         print commands, write nothing, exit 0
+  --force           ignore `done` markers for selected steps
+  --root DIR        repo (default: parent of this script, Joey: ~/s376-visual)
+  --out DIR         queue dir (default: ~/Downloads/s376-queue)
+  --kjfk DIR        existing 1 m KJFK pack (default: $ROOT/cache/KJFK)
+  --all-airports    also run 13 fetch-kewr and 14 fetch-us-next (paused by default)
+  -j, --jobs N      make / fetch workers (default 16; $S376_JOBS)
 
-Steps: 01 build, 02 review-now, 03 bench, 04 video-day, 05 video-night,
-06 fetch-kjfk-far, 07 fetch-kjfk-near, 08 review-after-fetch,
-09 fetch-kewr, 10 fetch-us-next.
+Default steps (KJFK demo): 01 build, 02 review-now, 03 bench, 04 video-day,
+05 video-night, 06 fetch-kjfk-far, 07 fetch-kjfk-near, 08 review-after-fetch,
+09 demo-kjfk-day, 10 demo-kjfk-night, 11 bench-repeat, 12 skyline-water.
 
 Heavy work is memory-capped with:
   systemd-run --user --scope -p MemoryMax=… -p MemorySwapMax=0
 GPU steps wait if Steam / X-Plane / another fullscreen GL app is up.
 Fetch steps refuse to start when free disk is too low (300 GB floor
-for the US-next loop). ffmpeg is optional — PNG frames are kept.
+for the opt-in US-next loop). ffmpeg is optional — PNG frames are kept.
 EOF
 }
 
@@ -88,6 +96,7 @@ while [[ $# -gt 0 ]]; do
             KJFK="${2:?}"
             shift
             ;;
+        --all-airports) ALL_AIRPORTS=1 ;;
         -j|--jobs)
             JOBS="${2:?}"
             shift
@@ -120,6 +129,13 @@ normalize_nn() {
     [[ -z "$n" ]] && n=0
     printf '%02d' "$n"
 }
+
+if [[ "$ALL_AIRPORTS" -eq 1 ]]; then
+    STEPS+=(
+        "13 fetch-kewr 12G"
+        "14 fetch-us-next 12G"
+    )
+fi
 
 if [[ "$LIST" -eq 1 ]]; then
     echo "s376 hangar-queue"
@@ -371,7 +387,7 @@ fetch_pack() {
         need_disk 20 "$(dirname "$dest")" || return 1
     fi
     capped "$mem" "$CACHE_BIN" fetch "$icao" --out "$dest" --dem 3dep \
-        --imagery "$img" --max-export 2048 "$@"
+        --imagery "$img" --max-export 2048 --jobs "$JOBS" "$@"
     capped 4G "$CACHE_BIN" osm "$icao" --out "$dest" --radius-km 12 || true
 }
 
@@ -567,16 +583,21 @@ step_bench() {
 
 record_approach() {
     local d="$1" mem="$2" tod="$3" stem="$4"
+    local fps="${5:-30}"
+    local extra=()
+    if [[ "${6:-}" == "demo" ]]; then
+        extra+=(--demo kjfk)
+    fi
     wait_gpu
     local front="$d/${stem}-front.mp4"
     local wrap="$d/${stem}-wrap.mp4"
     if command -v ffmpeg >/dev/null 2>&1; then
         ig "$mem" --cache-dir "$KJFK" --quality gtx980ti --tod "$tod" \
             --channel mid_left --approach KJFK:04R --start-agl 2000 --gs 3.0 \
-            --kts 140 --fps 30 --record "$front"
+            --kts 140 --fps "$fps" "${extra[@]}" --record "$front"
         ig "$mem" --cache-dir "$KJFK" --quality gtx980ti --tod "$tod" \
             --channel all --approach KJFK:04R --start-agl 2000 --gs 3.0 \
-            --kts 140 --fps 30 --record "$wrap"
+            --kts 140 --fps "$fps" "${extra[@]}" --record "$wrap"
         append_summary "$stem" \
             "result: PASS" \
             "front: \`$front\`" \
@@ -585,10 +606,10 @@ record_approach() {
     else
         ig "$mem" --cache-dir "$KJFK" --quality gtx980ti --tod "$tod" \
             --channel mid_left --approach KJFK:04R --start-agl 2000 --gs 3.0 \
-            --kts 140 --fps 30 --record "$d/${stem}-front.png"
+            --kts 140 --fps "$fps" "${extra[@]}" --record "$d/${stem}-front.png"
         ig "$mem" --cache-dir "$KJFK" --quality gtx980ti --tod "$tod" \
             --channel all --approach KJFK:04R --start-agl 2000 --gs 3.0 \
-            --kts 140 --fps 30 --record "$d/${stem}-wrap.png"
+            --kts 140 --fps "$fps" "${extra[@]}" --record "$d/${stem}-wrap.png"
         echo "ffmpeg missing — kept PNG frames" | tee "$d/NO-FFMPEG.txt"
         append_summary "$stem" \
             "result: PASS" \
@@ -603,6 +624,77 @@ step_video_day() {
 
 step_video_night() {
     record_approach "$1" "$2" 3 "video-night"
+}
+
+step_demo_kjfk_day() {
+    # Live 60 Hz KJFK 04R demo (day). Repeat so Joey has a second take.
+    record_approach "$1" "$2" 12 "demo-kjfk-day" 60 demo
+    record_approach "$1" "$2" 12 "demo-kjfk-day-b" 60 demo
+}
+
+step_demo_kjfk_night() {
+    record_approach "$1" "$2" 3 "demo-kjfk-night" 60 demo
+    record_approach "$1" "$2" 3 "demo-kjfk-night-b" 60 demo
+}
+
+step_bench_repeat() {
+    local d="$1" mem="$2"
+    wait_gpu
+    for q in gtx980ti rtx; do
+        for tod in 12 3; do
+            if [[ "$DRY" -eq 1 ]]; then
+                echo "+ $VISUAL --offscreen --bench --quality $q --tod $tod --demo kjfk"
+                continue
+            fi
+            ig "$mem" --quality "$q" --bench --demo kjfk --tod "$tod" --cache-dir "$KJFK" \
+                | tee "$d/bench-$q-tod$tod.txt"
+            grep -E '^SUMMARY  s376 --bench' "$d/bench-$q-tod$tod.txt" \
+                | tee -a "$d/SUMMARY-LINE.txt" || true
+        done
+    done
+    append_summary "11 bench-repeat" \
+        "result: PASS" \
+        "day+night × gtx980ti/rtx under \`$d\`" \
+        "paste: \`$d/SUMMARY-LINE.txt\`"
+}
+
+step_skyline_water() {
+    local d="$1" mem="$2"
+    wait_gpu
+    # Manhattan skyline (NW of JFK), Jamaica Bay water, terminals on short final.
+    local tod hdg
+    for tod in 12 3; do
+        for hdg in 300 310 320; do
+            shot "$mem" "$d/shots/kjfk_manhattan_hdg${hdg}_tod${tod}_front.ppm" \
+                --cache-dir "$KJFK" --at KJFK --alt 2500 --hdg "$hdg" --tod "$tod" \
+                --channel mid_left --quality gtx980ti
+        done
+        shot "$mem" "$d/shots/kjfk_manhattan_hdg310_tod${tod}_wrap.ppm" \
+            --cache-dir "$KJFK" --at KJFK --alt 2500 --hdg 310 --tod "$tod" \
+            --channel all --quality gtx980ti
+        shot "$mem" "$d/shots/kjfk_04r_8nm_tod${tod}_front.ppm" \
+            --cache-dir "$KJFK" --at KJFK:04R:8 --tod "$tod" \
+            --channel mid_left --quality gtx980ti
+        shot "$mem" "$d/shots/kjfk_04r_2.99nm_tod${tod}_front.ppm" \
+            --cache-dir "$KJFK" --at KJFK:04R:2.99 --tod "$tod" \
+            --channel mid_left --quality gtx980ti
+        shot "$mem" "$d/shots/kjfk_04r_0.6nm_tod${tod}_front.ppm" \
+            --cache-dir "$KJFK" --at KJFK:04R:0.6 --tod "$tod" \
+            --channel mid_left --quality gtx980ti
+        shot "$mem" "$d/shots/kjfk_04r_0.15nm_tod${tod}_front.ppm" \
+            --cache-dir "$KJFK" --at KJFK:04R:0.15 --tod "$tod" \
+            --channel mid_left --quality gtx980ti
+    done
+    shot "$mem" "$d/shots/kjfk_12k_hdg036_tod12_front.ppm" \
+        --cache-dir "$KJFK" --at KJFK --alt 12000 --hdg 036 --tod 12 \
+        --channel mid_left --quality gtx980ti
+    append_summary "12 skyline-water" \
+        "result: PASS" \
+        "shots: \`$d/shots\`" \
+        "best frames: \`$d/shots/kjfk_manhattan_hdg310_tod12_front.png\`" \
+        "\`$d/shots/kjfk_manhattan_hdg310_tod3_front.png\`" \
+        "\`$d/shots/kjfk_04r_2.99nm_tod12_front.png\`" \
+        "\`$d/shots/kjfk_04r_0.15nm_tod12_front.png\`"
 }
 
 step_fetch_kjfk_far() {
@@ -691,7 +783,7 @@ step_fetch_kewr() {
         --far-m 32 --far-dem-m 32 --radius-km 74
     doctor_cache 4G "$dest" "$d/doctor.txt"
     kewr_shots "$d" 12G "$dest"
-    append_summary "09 fetch-kewr" \
+    append_summary "13 fetch-kewr (opt-in)" \
         "result: PASS" \
         "cache: \`$dest\`  size: $(dir_size "$dest")" \
         "doctor: \`$d/doctor.txt\`" \
@@ -730,7 +822,7 @@ step_fetch_us_next() {
         if [[ "$DRY" -eq 0 ]]; then
             if ! need_disk 300 "$(dirname "$dest")"; then
                 echo "stop US-next at $icao — free disk below 300 GB" | tee "$d/STOP-DISK.txt"
-                append_summary "10 fetch-us-next" \
+                append_summary "14 fetch-us-next (opt-in)" \
                     "stopped before $icao: free disk below 300 GB" \
                     "log: \`$d/STOP-DISK.txt\`"
                 return 0
@@ -751,7 +843,7 @@ step_fetch_us_next() {
             --cache-dir "$dest" --at "${icao}:${rwy}:0" --tod 12 --channel mid_left
         [[ "$DRY" -eq 0 ]] && echo "$icao PASS $(dir_size "$dest")" >>"$d/airports.txt"
     done
-    append_summary "10 fetch-us-next" \
+    append_summary "14 fetch-us-next (opt-in)" \
         "result: PASS" \
         "order: KLAS, KSFO, KLAX, KBOS, KSEA, KIAD, KMCO, KMIA" \
         "log: \`$d/airports.txt\`" \

@@ -81,7 +81,7 @@ struct RenderConfig {
     double frame_rate = 60.0;
     std::string window_title = "s376-visual";
     bool vsync = true;
-    int msaa = 4;  // 0 off; 4 is GL 3.3 / Maxwell-safe
+    int msaa = 0;  // 0: TAA is the 980 Ti AA (GTA V); 4 on `rtx`
     int aniso = 16; // 1 off; 16 is typical
     bool gl_debug = false; // OSG per-attribute GL error checks + notify
     std::string quality = "gtx980ti"; // gtx980ti | rtx | custom
@@ -92,9 +92,12 @@ struct RenderConfig {
     bool detail_textures = true;  // procedural / CC0 asphalt+grass
     bool buildings = true;        // OSM extruded footprints
     bool ssao = true;             // cheap baked AO; one 980 Ti channel can afford it
-    bool shadows = false;         // one-cascade sun CSM (off on gtx980ti)
+    bool shadows = true;          // 2-cascade sun CSM (512+512 on 980 Ti)
     bool bloom = true;            // Raster-style fog halo + city glow
-    bool fxaa = true;             // fullscreen FXAA (MSAA stays on the window)
+    bool fxaa = true;             // fallback AA if TAA drops
+    bool taa = true;              // temporal AA (GTA V); live path, not stills
+    bool clustered = true;        // 32 closest lights light the ground
+    bool lod_fade = true;         // dither-free fade on page-in (no pop-in)
     bool filmic = true;           // lift/gamma/gain after ACES
     bool solar_astronomy = false; // date/lon sun_ecef; default = visual TOD buckets
     float exposure = 1.0f;
@@ -103,14 +106,14 @@ struct RenderConfig {
     int vram_mb = 5120;           // GPU texture budget (6 GB Maxwell − headroom)
     int mesh_n = 96;              // DEM mesh samples per tile side
     bool auto_drop = true;        // gtx980ti: drop extras if GPU ms over budget
-    float gpu_budget_ms = 12.20f; // shadows-off hangar budget (60 Hz = 16.67)
+    float gpu_budget_ms = 12.20f; // live 60 Hz hangar budget (frame = 16.67)
     bool offscreen = false;       // pbuffer / FBO first — no projector window
 };
 
 void apply_quality_preset(RenderConfig& r, const std::string& name);
 
-// GTX 980 Ti / 1920×1200 / one channel. 16.67 ms is 60 Hz. Shadows are
-// extra and stay off on the default preset. Values are Maxwell ALU
+// GTX 980 Ti / 1920×1200 / one channel. 16.67 ms is 60 Hz. Cheap
+// 2-cascade CSM stays on until autodrop. Values are Maxwell ALU
 // budgets (hangar 980 Ti not on this box); llvmpipe is a relative proxy.
 struct QualityGpuBudget {
     const char* name;

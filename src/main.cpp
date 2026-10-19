@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <csignal>
@@ -49,7 +50,8 @@ void usage() {
            "                        Left|Front|Right strip at each channel's WxH\n"
            "  --cache-dir PATH      packed DEM/imagery from s376-cache\n"
            "  --headless            run the host receiver with no GL window\n"
-           "  --demo                in-process synth to 127.0.0.1 (no VAX needed)\n"
+           "  --demo [kjfk]         bare --demo: in-process synth to 127.0.0.1 (CI)\n"
+           "                        --demo kjfk: live 60 Hz KJFK 04R approach + landing\n"
            "  --demo-weather        demo plus 124/125/126/127/128 weather and a storm cell\n"
            "  --duration SEC        exit after SEC seconds (tests)\n"
            "  -v, --verbose         console DEBUG\n"
@@ -131,7 +133,9 @@ int main(int argc, char** argv) {
     std::string cache_override;
     bool headless = false;
     bool demo = false;
+    bool demo_kjfk = false;
     bool demo_weather = false;
+    std::string demo_preset;
     bool verbose = false;
     bool debug = false;
     bool gl_debug = false;
@@ -190,9 +194,14 @@ int main(int argc, char** argv) {
             cache_override = need(a.c_str());
         else if (a == "--headless")
             headless = true;
-        else if (a == "--demo")
+        else if (a == "--demo") {
             demo = true;
-        else if (a == "--demo-weather") {
+            if (i + 1 < argc && argv[i + 1][0] != '-')
+                demo_preset = argv[++i];
+        } else if (a.rfind("--demo=", 0) == 0) {
+            demo = true;
+            demo_preset = a.substr(7);
+        } else if (a == "--demo-weather") {
             demo = true;
             demo_weather = true;
         }
@@ -330,7 +339,38 @@ int main(int argc, char** argv) {
         cfg.control.bind = control_override;
     if (no_control)
         cfg.control.enabled = false;
-    if (demo) {
+    if (!demo_preset.empty()) {
+        std::string p = demo_preset;
+        for (char& c : p)
+            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        if (p == "KJFK" || p == "JFK")
+            demo_kjfk = true;
+        else {
+            std::cerr << "--demo preset must be kjfk (bare --demo is the synth CI path)\n";
+            return 2;
+        }
+    }
+    if (demo_kjfk) {
+        demo = true;
+        if (approach_spec.empty() && at_spec.empty())
+            approach_spec = "KJFK:04R";
+        if (quality_override.empty()) {
+            quality_override = "gtx980ti";
+            cfg.render.quality = "gtx980ti";
+            s376::apply_quality_preset(cfg.render, "gtx980ti");
+        }
+        if (channel_name.empty())
+            channel_name = "mid_left";
+        if (!have_shot_tod) {
+            have_shot_tod = true;
+            shot_tod = 12.f;
+        }
+        cfg.render.frame_rate = 60.0;
+        cfg.render.sync_to_host = false;
+        if (record_fps == 30.0)
+            record_fps = 60.0;
+    }
+    if (demo && !demo_kjfk) {
         cfg.host.bind = "127.0.0.1:2300";
         cfg.host.allow_sim_lan = false;
         cfg.host.allow_lan = false;
@@ -365,8 +405,10 @@ int main(int argc, char** argv) {
         s376::log::shutdown();
         return 2;
     }
-    if (!record_path.empty() || !screenshot_path.empty())
+    if (!record_path.empty() || !screenshot_path.empty()) {
         cfg.render.msaa = 0;
+        cfg.render.taa = false;
+    }
     if (!record_path.empty() && approach_spec.empty()) {
         std::cerr << "--record needs --approach ICAO:RWY\n";
         s376::log::shutdown();
@@ -550,13 +592,13 @@ int main(int argc, char** argv) {
     S376_LOG_INFO("ig", "HAT DEM %dx%d  %.3f,%.3f .. %.3f,%.3f", dem->w, dem->h, dem->west,
                   dem->south, dem->east, dem->north);
     std::thread synth_th;
-    // --at / --screenshot / --self-test-shot pose the eye themselves.
-    // Only --demo still opens a loopback socket (synth).
+    // --at / --screenshot / --self-test-shot / --demo kjfk pose the eye
+    // themselves. Bare --demo still opens a loopback socket (synth / CI).
     const bool live_host =
-        demo || (!have_shot && screenshot_path.empty() && self_test_shot.empty() &&
-                 record_path.empty());
-    if (have_shot && !demo)
-        S376_LOG_INFO("ig", "--at: no host socket (datagrams not required)");
+        (demo && !demo_kjfk) ||
+        (!have_shot && screenshot_path.empty() && self_test_shot.empty() && record_path.empty());
+    if (have_shot && !live_host)
+        S376_LOG_INFO("ig", "--at/--demo kjfk: no host socket (datagrams not required)");
     if (live_host) {
         try {
             rx.start();
@@ -570,6 +612,14 @@ int main(int argc, char** argv) {
     s376::SynthConfig demo_cfg;
     demo_cfg.weather = demo_weather;
     const double demo_duration = duration < 0 ? 3600.0 : duration;
+    if (demo_kjfk && have_shot) {
+        S376_LOG_INFO("ig",
+                      "demo kjfk: live 60 Hz %s:%s  tod=%.1f  quality=%s  cache=%s",
+                      approach.icao.empty() ? "KJFK" : approach.icao.c_str(),
+                      approach.rwy.empty() ? "04R" : approach.rwy.c_str(), shot_tod,
+                      cfg.render.quality.c_str(),
+                      cfg.render.cache_dir.empty() ? "(auto/synth)" : cfg.render.cache_dir.c_str());
+    }
     if (demo && live_host) {
         S376_LOG_INFO("ig", "demo: in-process synth -> 127.0.0.1:2300 for %.1fs", demo_duration);
         synth_th = std::thread([demo_cfg, demo_duration] {
@@ -724,7 +774,17 @@ int main(int argc, char** argv) {
             }
         }
         s376::HostState host = state.load();
-        if (have_shot)
+        if (demo_kjfk && !approach.icao.empty() && record_path.empty()) {
+            const double elapsed =
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+            const double t_end = s376::approach_time_s(approach);
+            const double t = std::min(elapsed, t_end);
+            const auto pose = s376::approach_sample(approach, t);
+            shot_host = host_from_shot(pose);
+            apply_shot_env(shot_host);
+            shot_host.script_dt = static_cast<float>(1.0 / std::max(1.0, cfg.render.frame_rate));
+            host = shot_host;
+        } else if (have_shot)
             host = shot_host;
         if (host.have_eyepoint && ptt.edge(host, cfg.egg, rend->ptt_key_down())) {
             (void)s376::try_fire_missile(host.eye.lat_deg, host.eye.lon_deg, host.eye.alt_ft,

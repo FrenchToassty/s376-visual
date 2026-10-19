@@ -126,6 +126,9 @@ void apply_quality_preset(RenderConfig& r, const std::string& name) {
         r.shadows = true;
         r.bloom = true;
         r.fxaa = true;
+        r.taa = true;
+        r.clustered = true;
+        r.lod_fade = true;
         r.filmic = true;
         r.exposure = 1.05f;
         r.ram_mb = std::max(r.ram_mb, 3072);
@@ -135,8 +138,9 @@ void apply_quality_preset(RenderConfig& r, const std::string& name) {
         r.gpu_budget_ms = 14.00f;
         return;
     }
-    // gtx980ti (default): 60 Hz × 1 on 6 GB Maxwell (one projector PC).
-    r.msaa = r.msaa > 0 ? std::min(std::max(r.msaa, 4), 8) : 4;
+    // gtx980ti (default): locked 60 Hz × 1 on 6 GB Maxwell (one projector PC).
+    // TAA replaces MSAA (GTA V). Cheap 2-cascade CSM stays on until autodrop.
+    r.msaa = 0;
     r.aniso = 16;
     r.hdr = true;
     r.atmosphere = true;
@@ -145,9 +149,12 @@ void apply_quality_preset(RenderConfig& r, const std::string& name) {
     r.detail_textures = true;
     r.buildings = true;
     r.ssao = true;
-    r.shadows = false;
+    r.shadows = true;
     r.bloom = true;
     r.fxaa = true;
+    r.taa = true;
+    r.clustered = true;
+    r.lod_fade = true;
     r.filmic = true;
     r.exposure = 1.0f;
     r.ram_mb = 2048;
@@ -161,14 +168,17 @@ namespace {
 const QualityGpuBudget kQualityBudgets[] = {
     {"atmosphere", "render.atmosphere", 0.45f}, // Rayleigh/Mie sky + aerial
     {"water", "render.water", 0.80f},           // Fresnel / glint / waves / foam
-    {"detail", "render.detail_textures", 0.55f},
-    {"buildings", "render.buildings", 1.10f}, // facades + night windows
-    {"runway_pbr", "render.markings", 0.30f}, // asphalt/concrete + wet
-    {"bloom", "render.bloom", 0.70f},         // light halo + city glow
+    {"detail", "render.detail_textures", 0.45f},
+    {"buildings", "render.buildings", 1.00f}, // facades + night windows
+    {"runway_pbr", "render.markings", 0.35f}, // asphalt/concrete + wet spec
+    {"bloom", "render.bloom", 0.55f},         // light halo + city glow
     {"filmic", "render.filmic", 0.15f},
-    {"fxaa", "render.fxaa", 0.35f},
-    {"msaa4", "render.msaa", 1.80f},     // window only
-    {"shadows", "render.shadows", 1.80f} // one cascade; off on gtx980ti
+    {"taa", "render.taa", 0.40f},             // temporal AA (live path)
+    {"fxaa", "render.fxaa", 0.20f},           // fallback if TAA drops
+    {"clustered", "render.clustered", 0.60f}, // 32 night lights on the ground
+    {"shadows", "render.shadows", 0.85f},     // 2-cascade 512 CSM
+    {"ssao", "render.ssao", 0.25f},
+    {"lod_fade", "render.lod_fade", 0.15f} // page-in fade, no pop
 };
 } // namespace
 
@@ -191,12 +201,15 @@ float quality_gpu_budget_total_ms(bool shadows_on) {
 
 namespace {
 const QualityGpuBudget kAutodropOrder[] = {
-    {"ssao", "render.ssao", 0.20f},
-    {"bloom", "render.bloom", 0.70f},
-    {"fxaa", "render.fxaa", 0.35f},
-    {"detail", "render.detail_textures", 0.55f},
+    {"ssao", "render.ssao", 0.25f},
+    {"shadows", "render.shadows", 0.85f},
+    {"bloom", "render.bloom", 0.55f},
+    {"fxaa", "render.fxaa", 0.20f},
+    {"taa", "render.taa", 0.40f},
+    {"lod_fade", "render.lod_fade", 0.15f},
+    {"detail", "render.detail_textures", 0.45f},
     {"filmic", "render.filmic", 0.15f},
-    {"shadows", "render.shadows", 1.80f},
+    {"clustered", "render.clustered", 0.60f},
 };
 
 bool* autodrop_flag(RenderConfig& r, const char* name) {
@@ -206,6 +219,12 @@ bool* autodrop_flag(RenderConfig& r, const char* name) {
         return &r.bloom;
     if (std::strcmp(name, "fxaa") == 0)
         return &r.fxaa;
+    if (std::strcmp(name, "taa") == 0)
+        return &r.taa;
+    if (std::strcmp(name, "clustered") == 0)
+        return &r.clustered;
+    if (std::strcmp(name, "lod_fade") == 0)
+        return &r.lod_fade;
     if (std::strcmp(name, "detail") == 0)
         return &r.detail_textures;
     if (std::strcmp(name, "filmic") == 0)
@@ -341,6 +360,12 @@ static void fill_render(RenderConfig& r, const std::unordered_map<std::string, s
         parse_bool(kv.at("render.bloom"), r.bloom);
     if (kv.count("render.fxaa"))
         parse_bool(kv.at("render.fxaa"), r.fxaa);
+    if (kv.count("render.taa"))
+        parse_bool(kv.at("render.taa"), r.taa);
+    if (kv.count("render.clustered"))
+        parse_bool(kv.at("render.clustered"), r.clustered);
+    if (kv.count("render.lod_fade"))
+        parse_bool(kv.at("render.lod_fade"), r.lod_fade);
     if (kv.count("render.filmic"))
         parse_bool(kv.at("render.filmic"), r.filmic);
     if (kv.count("render.solar_astronomy"))
@@ -496,6 +521,9 @@ std::string dump_config(const AppConfig& cfg, const std::vector<std::string>& se
     o << "render.shadows=" << (cfg.render.shadows ? "true" : "false") << "\n";
     o << "render.bloom=" << (cfg.render.bloom ? "true" : "false") << "\n";
     o << "render.fxaa=" << (cfg.render.fxaa ? "true" : "false") << "\n";
+    o << "render.taa=" << (cfg.render.taa ? "true" : "false") << "\n";
+    o << "render.clustered=" << (cfg.render.clustered ? "true" : "false") << "\n";
+    o << "render.lod_fade=" << (cfg.render.lod_fade ? "true" : "false") << "\n";
     o << "render.filmic=" << (cfg.render.filmic ? "true" : "false") << "\n";
     o << "render.solar_astronomy=" << (cfg.render.solar_astronomy ? "true" : "false") << "\n";
     o << "render.sync_to_host=" << (cfg.render.sync_to_host ? "true" : "false") << "\n";

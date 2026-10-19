@@ -138,6 +138,7 @@ const char* kLitTexFS = R"(
 uniform sampler2D sTex;
 uniform sampler2D sDetail;
 uniform sampler2D sShadow;
+uniform sampler2D sShadowFar;
 uniform vec3 uSunDir;
 uniform vec3 uAmbient;
 uniform vec3 uDiffuse;
@@ -155,6 +156,12 @@ uniform float uFilmic;
 uniform float uAtmosphere;
 uniform float uShadows;
 uniform mat4 uShadowMatrix;
+uniform mat4 uShadowMatrixFar;
+uniform int uLightCount;
+uniform vec4 uLightPosR[32];
+uniform vec3 uLightCol[32];
+uniform float uClustered;
+uniform float uLodFade;
 varying vec3 vN;
 varying vec2 vUV;
 varying vec2 vWorld;
@@ -186,18 +193,40 @@ float aerial(float dist, vec3 n) {
     float far = exp(-km * km * 0.00028);
     return clamp(beer * hz * far, 0.0, 1.0);
 }
-float shadow_term(vec3 world) {
-    if (uShadows < 0.5)
-        return 1.0;
-    vec4 sp = uShadowMatrix * vec4(world, 1.0);
+float shadow_sample(sampler2D smp, mat4 M, vec3 world) {
+    vec4 sp = M * vec4(world, 1.0);
     if (sp.w <= 0.0)
         return 1.0;
     vec3 sc = sp.xyz / sp.w;
     sc = sc * 0.5 + 0.5;
     if (sc.x <= 0.001 || sc.x >= 0.999 || sc.y <= 0.001 || sc.y >= 0.999 || sc.z >= 0.999)
-        return 1.0;
-    float d = texture2D(sShadow, sc.xy).r;
+        return -1.0;
+    float d = texture2D(smp, sc.xy).r;
     return sc.z > d + 0.004 ? 0.38 : 1.0;
+}
+float shadow_term(vec3 world) {
+    if (uShadows < 0.5)
+        return 1.0;
+    float n = shadow_sample(sShadow, uShadowMatrix, world);
+    if (n >= 0.0)
+        return n;
+    float f = shadow_sample(sShadowFar, uShadowMatrixFar, world);
+    return f < 0.0 ? 1.0 : f;
+}
+vec3 cluster_light(vec3 world, vec3 n) {
+    if (uClustered < 0.5)
+        return vec3(0.0);
+    vec3 acc = vec3(0.0);
+    for (int i = 0; i < 32; ++i) {
+        float on = step(float(i) + 0.5, float(uLightCount));
+        vec3 L = uLightPosR[i].xyz - world;
+        float r = max(uLightPosR[i].w, 1.0);
+        float d2 = dot(L, L);
+        float att = clamp(1.0 - d2 / (r * r), 0.0, 1.0);
+        att *= att;
+        acc += uLightCol[i] * att * max(dot(n, normalize(L + vec3(1e-5))), 0.0) * on;
+    }
+    return acc * uClustered;
 }
 void main() {
     vec3 n = normalize(vN);
@@ -242,6 +271,7 @@ void main() {
         albedo = mix(albedo, mix(uFogColor, albedo, 0.42), farland);
     }
     vec3 col = albedo * (uAmbient + uDiffuse * ndl);
+    col += albedo * cluster_light(vPos, n);
     if (wet > 0.01 && uWater > 0.5) {
         vec3 view = normalize(vView);
         vec3 sun = normalize(uSunDir);
@@ -271,6 +301,7 @@ void main() {
     }
     float f = aerial(vEyeDist, n);
     col = mix(uFogColor, col, clamp(f, 0.0, 1.0));
+    col = mix(uFogColor, col, clamp(uLodFade, 0.0, 1.0));
     gl_FragColor = vec4(grade(col * uExposure, uFilmic), 1.0);
 }
 )";
@@ -311,7 +342,14 @@ uniform float uWetness;
 uniform float uFilmic;
 uniform float uShadows;
 uniform sampler2D sShadow;
+uniform sampler2D sShadowFar;
 uniform mat4 uShadowMatrix;
+uniform mat4 uShadowMatrixFar;
+uniform int uLightCount;
+uniform vec4 uLightPosR[32];
+uniform vec3 uLightCol[32];
+uniform float uClustered;
+uniform float uLodFade;
 varying vec3 vN;
 varying vec4 vCol;
 varying float vEyeDist;
@@ -332,18 +370,40 @@ vec3 grade(vec3 x, float filmicOn) {
     vec3 f = pow(max(t, vec3(0.0)), vec3(0.96)) * 1.03 + vec3(0.008);
     return mix(t, clamp(f, 0.0, 1.0), filmicOn);
 }
-float shadow_term(vec3 world) {
-    if (uShadows < 0.5)
-        return 1.0;
-    vec4 sp = uShadowMatrix * vec4(world, 1.0);
+float shadow_sample(sampler2D smp, mat4 M, vec3 world) {
+    vec4 sp = M * vec4(world, 1.0);
     if (sp.w <= 0.0)
         return 1.0;
     vec3 sc = sp.xyz / sp.w;
     sc = sc * 0.5 + 0.5;
     if (sc.x <= 0.001 || sc.x >= 0.999 || sc.y <= 0.001 || sc.y >= 0.999 || sc.z >= 0.999)
-        return 1.0;
-    float d = texture2D(sShadow, sc.xy).r;
+        return -1.0;
+    float d = texture2D(smp, sc.xy).r;
     return sc.z > d + 0.004 ? 0.38 : 1.0;
+}
+float shadow_term(vec3 world) {
+    if (uShadows < 0.5)
+        return 1.0;
+    float n = shadow_sample(sShadow, uShadowMatrix, world);
+    if (n >= 0.0)
+        return n;
+    float f = shadow_sample(sShadowFar, uShadowMatrixFar, world);
+    return f < 0.0 ? 1.0 : f;
+}
+vec3 cluster_light(vec3 world, vec3 n) {
+    if (uClustered < 0.5)
+        return vec3(0.0);
+    vec3 acc = vec3(0.0);
+    for (int i = 0; i < 32; ++i) {
+        float on = step(float(i) + 0.5, float(uLightCount));
+        vec3 L = uLightPosR[i].xyz - world;
+        float r = max(uLightPosR[i].w, 1.0);
+        float d2 = dot(L, L);
+        float att = clamp(1.0 - d2 / (r * r), 0.0, 1.0);
+        att *= att;
+        acc += uLightCol[i] * att * max(dot(n, normalize(L + vec3(1e-5))), 0.0) * on;
+    }
+    return acc * uClustered;
 }
 void main() {
     vec3 n = normalize(vN);
@@ -401,6 +461,7 @@ void main() {
     }
     float lit = (mat < 0.5 || (mat > 1.5 && mat < 2.5)) ? mix(0.72, ndl, 0.28) : ndl;
     vec3 col = albedo * (uAmbient + uDiffuse * lit);
+    col += albedo * cluster_light(vPos, n);
     if (mat < 0.5 && uNight > 0.05) {
         // Faint HIRL/CL wash so CAT II/III asphalt reads as lit, not a black wedge.
         float sheen = (0.07 + 0.09 * noise(vPos.xy * 0.18)) * uNight;
@@ -420,6 +481,7 @@ void main() {
         col = mix(col, uFogColor, k);
         col = max(col, uFogColor * 0.28);
     }
+    col = mix(uFogColor, col, clamp(uLodFade, 0.0, 1.0));
     gl_FragColor = vec4(grade(col * uExposure, uFilmic), 1.0);
 }
 )";
@@ -747,6 +809,30 @@ void main() {
 }
 )";
 
+const char* kTaaFS = R"(
+#version 120
+uniform sampler2D sColor;
+uniform sampler2D sHist;
+uniform vec2 uInvRes;
+uniform float uTaa;
+varying vec2 vUV;
+void main() {
+    vec3 c = texture2D(sColor, vUV).rgb;
+    if (uTaa < 0.5) {
+        gl_FragColor = vec4(c, 1.0);
+        return;
+    }
+    vec3 n0 = texture2D(sColor, vUV + vec2(-uInvRes.x, -uInvRes.y)).rgb;
+    vec3 n1 = texture2D(sColor, vUV + vec2( uInvRes.x, -uInvRes.y)).rgb;
+    vec3 n2 = texture2D(sColor, vUV + vec2(-uInvRes.x,  uInvRes.y)).rgb;
+    vec3 n3 = texture2D(sColor, vUV + vec2( uInvRes.x,  uInvRes.y)).rgb;
+    vec3 nmin = min(c, min(min(n0, n1), min(n2, n3)));
+    vec3 nmax = max(c, max(max(n0, n1), max(n2, n3)));
+    vec3 h = clamp(texture2D(sHist, vUV).rgb, nmin, nmax);
+    gl_FragColor = vec4(mix(c, h, 0.86), 1.0);
+}
+)";
+
 void strip_ff(osg::StateSet* ss) {
     if (!ss)
         return;
@@ -957,6 +1043,12 @@ struct ShaderEnv {
     osg::ref_ptr<osg::Uniform> shadows;
     osg::ref_ptr<osg::Uniform> origin;
     osg::ref_ptr<osg::Uniform> shadow_matrix;
+    osg::ref_ptr<osg::Uniform> shadow_matrix_far;
+    osg::ref_ptr<osg::Uniform> light_count;
+    osg::ref_ptr<osg::Uniform> light_pos;
+    osg::ref_ptr<osg::Uniform> light_col;
+    osg::ref_ptr<osg::Uniform> clustered;
+    osg::ref_ptr<osg::Uniform> lod_fade;
     osg::ref_ptr<osg::Uniform> viewport;
     osg::ref_ptr<osg::Uniform> city_dir;
 };
@@ -995,6 +1087,17 @@ void attach_env_uniforms(osg::StateSet* ss, ShaderEnv& env) {
     env.origin = new osg::Uniform("uOrigin", osg::Vec3(0.f, 0.f, 0.f));
     env.shadow_matrix = new osg::Uniform(osg::Uniform::FLOAT_MAT4, "uShadowMatrix");
     env.shadow_matrix->set(osg::Matrixf());
+    env.shadow_matrix_far = new osg::Uniform(osg::Uniform::FLOAT_MAT4, "uShadowMatrixFar");
+    env.shadow_matrix_far->set(osg::Matrixf());
+    env.light_count = new osg::Uniform("uLightCount", 0);
+    env.light_pos = new osg::Uniform(osg::Uniform::FLOAT_VEC4, "uLightPosR", 32);
+    env.light_col = new osg::Uniform(osg::Uniform::FLOAT_VEC3, "uLightCol", 32);
+    for (int i = 0; i < 32; ++i) {
+        env.light_pos->setElement(i, osg::Vec4(0.f, 0.f, 0.f, 1.f));
+        env.light_col->setElement(i, osg::Vec3(0.f, 0.f, 0.f));
+    }
+    env.clustered = new osg::Uniform("uClustered", 0.f);
+    env.lod_fade = new osg::Uniform("uLodFade", 1.f);
     env.viewport = new osg::Uniform("uViewport", osg::Vec2(1920.f, 1200.f));
     env.city_dir = new osg::Uniform("uCityDir", osg::Vec3(0.f, 0.f, 0.f));
     ss->addUniform(env.sun_dir);
@@ -1022,9 +1125,16 @@ void attach_env_uniforms(osg::StateSet* ss, ShaderEnv& env) {
     ss->addUniform(env.shadows);
     ss->addUniform(env.origin);
     ss->addUniform(env.shadow_matrix);
+    ss->addUniform(env.shadow_matrix_far);
+    ss->addUniform(env.light_count);
+    ss->addUniform(env.light_pos);
+    ss->addUniform(env.light_col);
+    ss->addUniform(env.clustered);
+    ss->addUniform(env.lod_fade);
     ss->addUniform(env.viewport);
     ss->addUniform(env.city_dir);
     ss->addUniform(new osg::Uniform("sShadow", 2));
+    ss->addUniform(new osg::Uniform("sShadowFar", 3));
     strip_ff(ss);
 }
 
@@ -1073,6 +1183,113 @@ osg::Camera* make_fxaa_cam(osg::Texture2D* color, int w, int h) {
     cam->setCullingActive(false);
     no_shadow(cam);
     return cam;
+}
+
+osg::Camera* make_taa_cam(osg::Texture2D* color, osg::Texture2D* hist, int w, int h,
+                          osg::Uniform*& taa_u, osg::StateSet*& out_ss) {
+    auto* cam = new osg::Camera;
+    cam->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
+    cam->setProjectionMatrix(osg::Matrix::identity());
+    cam->setViewMatrix(osg::Matrix::identity());
+    cam->setComputeNearFarMode(osg::CullSettings::DO_NOT_COMPUTE_NEAR_FAR);
+    cam->setCullingMode(osg::CullSettings::NO_CULLING);
+    cam->setClearMask(0);
+    cam->setAllowEventFocus(false);
+    cam->setRenderOrder(osg::Camera::POST_RENDER, 20);
+    cam->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER);
+    cam->setViewport(0, 0, w, h);
+    auto* geode = new osg::Geode;
+    auto* geom = new osg::Geometry;
+    auto* verts = new osg::Vec3Array;
+    verts->push_back(osg::Vec3(-1.f, -1.f, 0.f));
+    verts->push_back(osg::Vec3(1.f, -1.f, 0.f));
+    verts->push_back(osg::Vec3(1.f, 1.f, 0.f));
+    verts->push_back(osg::Vec3(-1.f, 1.f, 0.f));
+    auto* idx = new osg::DrawElementsUInt(GL_TRIANGLES);
+    idx->push_back(0);
+    idx->push_back(1);
+    idx->push_back(2);
+    idx->push_back(0);
+    idx->push_back(2);
+    idx->push_back(3);
+    geom->setVertexArray(verts);
+    geom->addPrimitiveSet(idx);
+    geom->setCullingActive(false);
+    auto* ss = geom->getOrCreateStateSet();
+    ss->setTextureAttributeAndModes(0, color, osg::StateAttribute::ON);
+    ss->addUniform(new osg::Uniform("sColor", 0));
+    ss->setTextureAttributeAndModes(1, hist, osg::StateAttribute::ON);
+    ss->addUniform(new osg::Uniform("sHist", 1));
+    ss->addUniform(new osg::Uniform("uInvRes", osg::Vec2(1.f / float(std::max(1, w)),
+                                                         1.f / float(std::max(1, h)))));
+    taa_u = new osg::Uniform("uTaa", 1.f);
+    ss->addUniform(taa_u);
+    ss->setAttributeAndModes(make_program(kFxaaVS, kTaaFS), osg::StateAttribute::ON);
+    ss->setMode(GL_BLEND, osg::StateAttribute::OFF);
+    ss->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
+    ss->setAttributeAndModes(new osg::Depth(osg::Depth::ALWAYS, 0, 1, false));
+    strip_ff(ss);
+    out_ss = ss;
+    geode->addDrawable(geom);
+    geode->setCullingActive(false);
+    cam->addChild(geode);
+    cam->setCullingActive(false);
+    no_shadow(cam);
+    return cam;
+}
+
+osg::Texture2D* make_csm_tex(int n) {
+    auto* t = new osg::Texture2D;
+    t->setTextureSize(n, n);
+    t->setInternalFormat(GL_DEPTH_COMPONENT24);
+    t->setSourceFormat(GL_DEPTH_COMPONENT);
+    t->setSourceType(GL_FLOAT);
+    t->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
+    t->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
+    t->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_BORDER);
+    t->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_BORDER);
+    t->setBorderColor(osg::Vec4(1.f, 1.f, 1.f, 1.f));
+    t->setResizeNonPowerOfTwoHint(false);
+    return t;
+}
+
+osg::Camera* make_csm_cam(osg::Texture2D* tex, osg::Node* casters, int n, int order) {
+    auto* cam = new osg::Camera;
+    cam->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
+    cam->setRenderOrder(osg::Camera::PRE_RENDER, order);
+    cam->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
+    cam->attach(osg::Camera::DEPTH_BUFFER, tex);
+    cam->setClearMask(GL_DEPTH_BUFFER_BIT);
+    cam->setClearColor(osg::Vec4(1.f, 1.f, 1.f, 1.f));
+    cam->setViewport(0, 0, n, n);
+    cam->setComputeNearFarMode(osg::CullSettings::DO_NOT_COMPUTE_NEAR_FAR);
+    cam->setCullingActive(false);
+    if (casters)
+        cam->addChild(casters);
+    no_shadow(cam);
+    return cam;
+}
+
+float cluster_radius_m(LightKind k) {
+    switch (k) {
+    case LightKind::Approach:
+    case LightKind::Strobe:
+    case LightKind::Threshold:
+    case LightKind::Reil:
+        return 120.f;
+    case LightKind::Edge:
+    case LightKind::Centerline:
+    case LightKind::End:
+        return 90.f;
+    case LightKind::Vasi:
+        return 160.f;
+    case LightKind::Beacon:
+        return 220.f;
+    case LightKind::Night:
+        return 40.f;
+    default:
+        return 50.f;
+    }
 }
 
 osg::Node* make_sky_dome() {
@@ -2675,33 +2892,18 @@ class OsgRenderer final : public Renderer {
             }
         }
         if (cfg.render.shadows && casters_) {
-            shadow_tex_ = new osg::Texture2D;
-            shadow_tex_->setTextureSize(1024, 1024);
-            shadow_tex_->setInternalFormat(GL_DEPTH_COMPONENT24);
-            shadow_tex_->setSourceFormat(GL_DEPTH_COMPONENT);
-            shadow_tex_->setSourceType(GL_FLOAT);
-            shadow_tex_->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
-            shadow_tex_->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
-            shadow_tex_->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_BORDER);
-            shadow_tex_->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_BORDER);
-            shadow_tex_->setBorderColor(osg::Vec4(1.f, 1.f, 1.f, 1.f));
-            shadow_tex_->setResizeNonPowerOfTwoHint(false);
-            shadow_cam_ = new osg::Camera;
-            shadow_cam_->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
-            shadow_cam_->setRenderOrder(osg::Camera::PRE_RENDER, -20);
-            shadow_cam_->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
-            shadow_cam_->attach(osg::Camera::DEPTH_BUFFER, shadow_tex_.get());
-            shadow_cam_->setClearMask(GL_DEPTH_BUFFER_BIT);
-            shadow_cam_->setClearColor(osg::Vec4(1.f, 1.f, 1.f, 1.f));
-            shadow_cam_->setViewport(0, 0, 1024, 1024);
-            shadow_cam_->setComputeNearFarMode(osg::CullSettings::DO_NOT_COMPUTE_NEAR_FAR);
-            shadow_cam_->setCullingActive(false);
-            shadow_cam_->addChild(casters_);
-            no_shadow(shadow_cam_.get());
+            const int csm = cfg.render.quality == "rtx" ? 1024 : 512;
+            shadow_tex_ = make_csm_tex(csm);
+            shadow_tex_far_ = make_csm_tex(csm);
+            shadow_cam_ = make_csm_cam(shadow_tex_.get(), casters_, csm, -20);
+            shadow_cam_far_ = make_csm_cam(shadow_tex_far_.get(), casters_, csm, -21);
             root->addChild(shadow_cam_);
+            root->addChild(shadow_cam_far_);
             root->getOrCreateStateSet()->setTextureAttributeAndModes(2, shadow_tex_.get(),
                                                                      osg::StateAttribute::ON);
-            S376_LOG_INFO("render", "shadows  one-cascade 1024 CSM (sun)");
+            root->getOrCreateStateSet()->setTextureAttributeAndModes(3, shadow_tex_far_.get(),
+                                                                     osg::StateAttribute::ON);
+            S376_LOG_INFO("render", "shadows  2-cascade %d+%d CSM (sun ±400 / ±2200 m)", csm, csm);
         }
         if (sky_xf_) {
             struct SkyViewCallback : public osg::NodeCallback {
@@ -2839,14 +3041,18 @@ class OsgRenderer final : public Renderer {
                 no_shadow(hud.get());
                 if (auto* cam = view->getCamera())
                     cam->addChild(hud);
-                if (cfg.render.fxaa && !prefer_rgb_textures()) {
+                if ((cfg.render.taa || cfg.render.fxaa) && !prefer_rgb_textures()) {
                     if (auto* cam = view->getCamera()) {
-                        auto* color = new osg::Texture2D;
-                        color->setTextureSize(win_w, win_h);
-                        color->setInternalFormat(GL_RGBA8);
-                        color->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
-                        color->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
-                        color->setResizeNonPowerOfTwoHint(false);
+                        auto make_color = [&]() {
+                            auto* t = new osg::Texture2D;
+                            t->setTextureSize(win_w, win_h);
+                            t->setInternalFormat(GL_RGBA8);
+                            t->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
+                            t->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
+                            t->setResizeNonPowerOfTwoHint(false);
+                            return t;
+                        };
+                        auto* color = make_color();
                         auto* depth = new osg::Texture2D;
                         depth->setTextureSize(win_w, win_h);
                         depth->setInternalFormat(GL_DEPTH_COMPONENT);
@@ -2856,16 +3062,30 @@ class OsgRenderer final : public Renderer {
                         cam->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
                         cam->attach(osg::Camera::COLOR_BUFFER, color);
                         cam->attach(osg::Camera::DEPTH_BUFFER, depth);
-                        osg::ref_ptr<osg::Camera> fxaa = make_fxaa_cam(color, win_w, win_h);
-                        fxaa->setGraphicsContext(cam->getGraphicsContext());
-                        if (view->addSlave(fxaa.get(), false)) {
-                            const unsigned idx = view->findSlaveIndexForCamera(fxaa.get());
+                        osg::ref_ptr<osg::Camera> post;
+                        if (cfg.render.taa) {
+                            taa_a_ = color;
+                            taa_b_ = make_color();
+                            taa_scene_cam_ = cam;
+                            osg::Uniform* tu = nullptr;
+                            osg::StateSet* tss = nullptr;
+                            post = make_taa_cam(color, taa_b_.get(), win_w, win_h, tu, tss);
+                            taa_u_ = tu;
+                            taa_ss_ = tss;
+                            S376_LOG_INFO("render", "taa  window %dx%d (history clamp)", win_w,
+                                          win_h);
+                        } else {
+                            post = make_fxaa_cam(color, win_w, win_h);
+                            S376_LOG_INFO("render", "fxaa  window %dx%d", win_w, win_h);
+                        }
+                        post->setGraphicsContext(cam->getGraphicsContext());
+                        if (view->addSlave(post.get(), false)) {
+                            const unsigned idx = view->findSlaveIndexForCamera(post.get());
                             auto& sl = view->getSlave(idx);
                             if (sl._camera) {
                                 sl._camera->setGraphicsContext(cam->getGraphicsContext());
                                 sl._camera->setViewport(0, 0, win_w, win_h);
                             }
-                            S376_LOG_INFO("render", "fxaa  window %dx%d", win_w, win_h);
                         }
                     }
                 }
@@ -2958,6 +3178,8 @@ class OsgRenderer final : public Renderer {
             rebuild_skyline();
         refresh_hud();
         page_tiles(false);
+        fade_tiles();
+        flip_taa();
         for (std::size_t i = 0; i < views_.size() && i < channels_.size(); ++i)
             apply_view_camera(views_[i]->getCamera(), channels_[i], host);
         apply_env(host);
@@ -3005,6 +3227,10 @@ class OsgRenderer final : public Renderer {
         cfg_.render.bloom = r.bloom;
         cfg_.render.filmic = r.filmic;
         cfg_.render.shadows = r.shadows;
+        cfg_.render.fxaa = r.fxaa;
+        cfg_.render.taa = r.taa;
+        cfg_.render.clustered = r.clustered;
+        cfg_.render.lod_fade = r.lod_fade;
         cfg_.render.auto_drop = r.auto_drop;
         cfg_.render.gpu_budget_ms = r.gpu_budget_ms;
         apply_runtime_toggles();
@@ -3284,6 +3510,11 @@ class OsgRenderer final : public Renderer {
             r.south = t.south;
             r.east = t.east;
             r.north = t.north;
+            r.fade = (!cfg_.render.lod_fade || last_host_.script_dt >= 0.f || t.lod != 0) ? 1.f
+                                                                                         : 0.f;
+            r.lod_fade_u = new osg::Uniform("uLodFade", r.fade);
+            if (auto* ss = node->getOrCreateStateSet())
+                ss->addUniform(r.lod_fade_u);
             resident_cpu_ += r.cpu;
             resident_vram_ += r.vram;
             resident_.push_back(std::move(r));
@@ -3682,6 +3913,10 @@ class OsgRenderer final : public Renderer {
             env_u_.atmosphere->set(cfg_.render.atmosphere ? 1.f : 0.f);
         if (env_u_.shadows)
             env_u_.shadows->set(cfg_.render.shadows && shadow_cam_ ? 1.f : 0.f);
+        if (env_u_.clustered)
+            env_u_.clustered->set(cfg_.render.clustered ? 1.f : 0.f);
+        if (env_u_.lod_fade)
+            env_u_.lod_fade->set(1.f);
         if (env_u_.origin && host.have_eyepoint) {
             const geo::Ecef o =
                 geo::lla_to_ecef(host.eye.lat_deg, host.eye.lon_deg, host.eye.alt_ft * geo::kFtToM);
@@ -3695,20 +3930,67 @@ class OsgRenderer final : public Renderer {
             osg::Vec3d sd(s.x, s.y, s.z);
             if (sd.length2() > 1e-12) {
                 sd.normalize();
-                osg::Vec3d from = center + sd * 3500.0;
                 geo::Ecef ee2, nn2, uu2;
                 geo::ecef_to_enu_axes(host.eye.lat_deg, host.eye.lon_deg, ee2, nn2, uu2);
                 osg::Vec3d upv(uu2.x, uu2.y, uu2.z);
-                shadow_cam_->setViewMatrixAsLookAt(from, center, upv);
-                shadow_cam_->setProjectionMatrixAsOrtho(-1800.0, 1800.0, -1800.0, 1800.0, 200.0,
-                                                        8000.0);
                 osg::Matrixf bias(0.5f, 0.f, 0.f, 0.f, 0.f, 0.5f, 0.f, 0.f, 0.f, 0.f, 0.5f, 0.f,
                                   0.5f, 0.5f, 0.5f, 1.f);
-                if (env_u_.shadow_matrix)
-                    env_u_.shadow_matrix->set(osg::Matrixf(shadow_cam_->getViewMatrix()) *
-                                              osg::Matrixf(shadow_cam_->getProjectionMatrix()) *
-                                              bias);
+                auto place = [&](osg::Camera* cam, osg::Uniform* M, double half) {
+                    if (!cam)
+                        return;
+                    osg::Vec3d from = center + sd * (half * 2.2);
+                    cam->setViewMatrixAsLookAt(from, center, upv);
+                    cam->setProjectionMatrixAsOrtho(-half, half, -half, half, 40.0, half * 8.0);
+                    if (M)
+                        M->set(osg::Matrixf(cam->getViewMatrix()) *
+                               osg::Matrixf(cam->getProjectionMatrix()) * bias);
+                };
+                place(shadow_cam_.get(), env_u_.shadow_matrix, 400.0);
+                place(shadow_cam_far_.get(), env_u_.shadow_matrix_far, 2200.0);
             }
+        }
+        if (env_u_.light_count && host.have_eyepoint && !lights_gpu_.lat.empty()) {
+            const geo::Ecef eye =
+                geo::lla_to_ecef(host.eye.lat_deg, host.eye.lon_deg, host.eye.alt_ft * geo::kFtToM);
+            struct Cand {
+                float d2 = 0;
+                std::size_t i = 0;
+            };
+            std::vector<Cand> cand;
+            cand.reserve(lights_gpu_.lat.size());
+            for (std::size_t i = 0; i < lights_gpu_.lat.size(); ++i) {
+                const geo::Ecef p =
+                    geo::lla_to_ecef(lights_gpu_.lat[i], lights_gpu_.lon[i], lights_gpu_.alt_m[i]);
+                const float dx = static_cast<float>(p.x - eye.x);
+                const float dy = static_cast<float>(p.y - eye.y);
+                const float dz = static_cast<float>(p.z - eye.z);
+                cand.push_back({dx * dx + dy * dy + dz * dz, i});
+            }
+            const std::size_t keep = std::min<std::size_t>(32, cand.size());
+            if (cand.size() > keep) {
+                std::nth_element(cand.begin(), cand.begin() + static_cast<std::ptrdiff_t>(keep),
+                                 cand.end(),
+                                 [](const Cand& a, const Cand& b) { return a.d2 < b.d2; });
+            }
+            int n = 0;
+            const float night_boost = 0.35f + 0.65f * nightf;
+            for (std::size_t k = 0; k < keep; ++k) {
+                const auto i = cand[k].i;
+                const geo::Ecef p =
+                    geo::lla_to_ecef(lights_gpu_.lat[i], lights_gpu_.lon[i], lights_gpu_.alt_m[i]);
+                const float r = cluster_radius_m(lights_gpu_.kinds[i]);
+                const osg::Vec4 base = i < lights_gpu_.base.size() ? lights_gpu_.base[i]
+                                                                   : osg::Vec4(1.f, 0.85f, 0.5f, 1.f);
+                env_u_.light_pos->setElement(n, osg::Vec4(static_cast<float>(p.x),
+                                                          static_cast<float>(p.y),
+                                                          static_cast<float>(p.z), r));
+                env_u_.light_col->setElement(
+                    n, osg::Vec3(base.x(), base.y(), base.z()) * night_boost * 1.8f);
+                ++n;
+            }
+            env_u_.light_count->set(n);
+        } else if (env_u_.light_count) {
+            env_u_.light_count->set(0);
         }
         const float dk = 0.15f + 0.85f * dayf + flash;
         if (env_u_.diffuse)
@@ -3836,8 +4118,45 @@ class OsgRenderer final : public Renderer {
             env_u_.filmic->set(cfg_.render.filmic ? 1.f : 0.f);
         if (env_u_.shadows)
             env_u_.shadows->set(cfg_.render.shadows && shadow_cam_ ? 1.f : 0.f);
+        if (env_u_.clustered)
+            env_u_.clustered->set(cfg_.render.clustered ? 1.f : 0.f);
+        if (taa_u_)
+            taa_u_->set(cfg_.render.taa ? 1.f : 0.f);
         if (env_u_.haze && !cfg_.render.atmosphere)
             env_u_.haze->set(0.f);
+        if (!cfg_.render.lod_fade) {
+            for (auto& r : resident_) {
+                r.fade = 1.f;
+                if (r.lod_fade_u)
+                    r.lod_fade_u->set(1.f);
+            }
+        }
+    }
+
+    void fade_tiles() {
+        const bool snap = !cfg_.render.lod_fade || last_host_.script_dt >= 0.f;
+        for (auto& r : resident_) {
+            if (snap)
+                r.fade = 1.f;
+            else if (r.fade < 1.f)
+                r.fade = std::min(1.f, r.fade + 0.20f);
+            if (r.lod_fade_u)
+                r.lod_fade_u->set(r.fade);
+        }
+    }
+
+    void flip_taa() {
+        if (!cfg_.render.taa || !taa_a_ || !taa_b_ || !taa_scene_cam_ || !taa_ss_)
+            return;
+        taa_parity_ ^= 1;
+        osg::Texture2D* curr = taa_parity_ ? taa_b_.get() : taa_a_.get();
+        osg::Texture2D* hist = taa_parity_ ? taa_a_.get() : taa_b_.get();
+        taa_scene_cam_->detach(osg::Camera::COLOR_BUFFER);
+        taa_scene_cam_->attach(osg::Camera::COLOR_BUFFER, curr);
+        taa_ss_->setTextureAttributeAndModes(0, curr, osg::StateAttribute::ON);
+        taa_ss_->setTextureAttributeAndModes(1, hist, osg::StateAttribute::ON);
+        if (taa_u_)
+            taa_u_->set(1.f);
     }
 
     AppConfig cfg_;
@@ -3872,6 +4191,8 @@ class OsgRenderer final : public Renderer {
         std::uint64_t vram = 0;
         int lod = 0;
         double west = 0, south = 0, east = 0, north = 0;
+        float fade = 1.f;
+        osg::ref_ptr<osg::Uniform> lod_fade_u;
     };
     std::vector<CacheTileRef> tile_index_;
     std::vector<ResidentTile> resident_;
@@ -3879,6 +4200,14 @@ class OsgRenderer final : public Renderer {
     osg::ref_ptr<osg::Group> casters_;
     osg::ref_ptr<osg::Camera> shadow_cam_;
     osg::ref_ptr<osg::Texture2D> shadow_tex_;
+    osg::ref_ptr<osg::Camera> shadow_cam_far_;
+    osg::ref_ptr<osg::Texture2D> shadow_tex_far_;
+    osg::ref_ptr<osg::Texture2D> taa_a_;
+    osg::ref_ptr<osg::Texture2D> taa_b_;
+    osg::ref_ptr<osg::Camera> taa_scene_cam_;
+    osg::ref_ptr<osg::StateSet> taa_ss_;
+    osg::ref_ptr<osg::Uniform> taa_u_;
+    int taa_parity_ = 0;
     std::uint64_t ram_budget_ = 2ull << 30;
     std::uint64_t vram_budget_ = 5ull << 30;
     std::uint64_t resident_cpu_ = 0;

@@ -693,6 +693,40 @@ void test_airport() {
         CHECK(s376::try_load_osm(jf, jfk) == 3);
     }
     {
+        // /tmp/kjfk-real: folder is not a 4-letter ICAO. coverage.toml
+        // owns KJFK — never merge that osm.bin into KSEA / KEWR.
+        const auto real = tmp + "/kjfk-real";
+        std::filesystem::create_directories(real);
+        std::filesystem::copy_file(tmp + "/osm.bin", real + "/osm.bin",
+                                   std::filesystem::copy_options::overwrite_existing);
+        {
+            std::ofstream out(real + "/coverage.toml");
+            out << "icao = \"KJFK\"\ncovers_faa = true\n";
+        }
+        s376::Airport sea;
+        sea.icao = "KSEA";
+        CHECK(s376::try_load_osm(sea, real) == 0);
+        s376::Airport ewr;
+        ewr.icao = "KEWR";
+        CHECK(s376::try_load_osm(ewr, real) == 0);
+        s376::Airport jf;
+        jf.icao = "KJFK";
+        CHECK(s376::try_load_osm(jf, real) == 3);
+    }
+    {
+        // cache/KJFK-near: folder is not 4 letters; unique ICAO substring.
+        const auto near = tmp + "/KJFK-near";
+        std::filesystem::create_directories(near);
+        std::filesystem::copy_file(tmp + "/osm.bin", near + "/osm.bin",
+                                   std::filesystem::copy_options::overwrite_existing);
+        s376::Airport sea;
+        sea.icao = "KSEA";
+        CHECK(s376::try_load_osm(sea, near) == 0);
+        s376::Airport jf;
+        jf.icao = "KJFK";
+        CHECK(s376::try_load_osm(jf, near) == 3);
+    }
+    {
         const auto huge = tmp + "/huge";
         std::filesystem::create_directories(huge);
         {

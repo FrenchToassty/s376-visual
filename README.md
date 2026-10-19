@@ -117,7 +117,8 @@ contact `10.1.95.0/24` or `192.168.173.0/24`.
 | `--reply-master NAME` | only this `--channel` sends the type-200 HAT reply (default `mid_left`) |
 | `--cache-dir PATH` | packed DEM/imagery from `s376-cache` |
 | `--headless` | decoder + socket, no GL |
-| `--demo` | in-process synth to loopback |
+| `--demo` | in-process synth to loopback (CI) |
+| `--demo kjfk` | live 60 Hz KJFK 04R approach + landing (`gtx980ti`, `mid_left`, `--tod 12`) |
 | `--demo-weather` | demo plus 124/125/126/127/128 weather and a type-105 storm |
 | `-v` / `--debug` | verbose / per-packet hex |
 | `--gl-debug` | OSG per-attribute GL error checks (off in Release) |
@@ -162,7 +163,8 @@ scripts/hangar-review.sh
 
 # Unattended hours-long queue (resumable; start the moment Mint is back):
 scripts/hangar-queue.sh
-# usage: scripts/hangar-queue.sh [--from NN] [--only NN] [--list] [--dry-run] [--root DIR] [--out DIR] [--kjfk DIR]
+# usage: scripts/hangar-queue.sh [--from NN] [--only NN] [--list] [--dry-run] [--root DIR] [--out DIR] [--kjfk DIR] [--all-airports]
+# Default is KJFK-only (demo flight). KEWR / other US fields: --all-airports.
 ```
 
 `s376-doctor` never sends a packet off the machine. It reports on-disk
@@ -303,6 +305,8 @@ Overpass `aeroway=*` and `building=*`. Quality presets: `gtx980ti`
 Not yet: NLIM, landing-light beams, remaining airports. The plan is in
 [docs/AIRPORTS.md](docs/AIRPORTS.md) and [docs/DESIGN.md](docs/DESIGN.md).
 Protocol field layouts: [docs/PROTOCOL.md](docs/PROTOCOL.md).
+Loopback host merge contract (ports, `HostState`, HAT/collision):
+[docs/HOST_INTERFACE.md](docs/HOST_INTERFACE.md).
 Parity vs Raster XT4: [docs/PARITY.md](docs/PARITY.md). Four-monitor desk:
 `config/desk-4monitor.toml`.
 

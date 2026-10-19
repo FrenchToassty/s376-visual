@@ -28,7 +28,7 @@ void usage() {
            "                       [--near-m M] [--near-dem-m M] [--mid-m M] [--mid-dem-m M]\n"
            "                       [--far-m M] [--far-dem-m M]\n"
            "                       [--near-km N] [--mid-km N] [--approach-nm N] [--max-export N]\n"
-           "                       [--season summer|winter]\n"
+           "                       [--jobs N] [--season summer|winter]\n"
            "  s376-cache synth-ksea [--out DIR] [--size N] [--lods]\n"
            "  s376-cache synth-kjfk-farfield [--out DIR]\n"
            "  s376-cache from-geotiff DEM.tif [--imagery FILE] [--out DIR] [--lods]\n"
@@ -116,6 +116,7 @@ int main(int argc, char** argv) {
     double mid_km = 40.0;
     double approach_nm = 12.0;
     int max_export = 2048;
+    int jobs = 1;
     bool lods = false;
     bool dry = false;
     bool plan_only = false;
@@ -157,6 +158,8 @@ int main(int argc, char** argv) {
             approach_nm = std::stod(need("--approach-nm"));
         else if (a == "--max-export")
             max_export = std::stoi(need("--max-export"));
+        else if (a == "--jobs" || a == "-j")
+            jobs = std::stoi(need(a.c_str()));
         else if (a == "--dem")
             dem_kind = need("--dem");
         else if (a == "--imagery")
@@ -220,6 +223,7 @@ int main(int argc, char** argv) {
             req.mid_radius_km = mid_km;
             req.approach_nm = approach_nm;
             req.max_export = max_export;
+            req.jobs = jobs;
             s376::FetchPlan plan;
             const auto bytes = s376::fetch_and_pack(req, &plan);
             const auto apt = s376::lookup_airport_ref(icao);

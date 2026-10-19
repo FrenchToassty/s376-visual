@@ -25,12 +25,12 @@ resident set is not. The hangar RTX 5060 Ti is the `rtx` preset.
 | `render.ram_mb` | **2048** | 3072 |
 | `render.vram_mb` | **5120** (leave ~1 GB for the desktop / HUD) | 10240 |
 | `render.mesh_n` | 96 samples / tile | 128 |
-| MSAA | 4 | 4+ |
+| MSAA | 0 (TAA) | 4+ |
 | Aniso | 16 | 16 |
 | HDR / ACES | on | on |
 | Atmosphere / water / markings / detail / buildings / SSAO | on | on |
-| Bloom / FXAA / filmic | on | on |
-| Shadows | off | on (one-cascade sun CSM, 1024) |
+| Bloom / FXAA / TAA / clustered / lod_fade / filmic | on | on |
+| Shadows | on (2-cascade 512+512, ±400 / ±2200 m) | on (2-cascade 1024+1024) |
 | Texture format | BC1 (DXT1) far, BC7 near | same |
 | CPU decode to RGBA | **never** | never |
 
@@ -54,18 +54,21 @@ Joey's Mint PC is back.
 | base (tiles + mesh + lights) | — | **6.00** | paged lod + official lights |
 | atmosphere | `render.atmosphere` | **0.45** | Rayleigh/Mie sky, aerial haze from host visibility |
 | water | `render.water` | **0.80** | Jamaica Bay / ocean from cover mask + chroma, Fresnel, glint, foam |
-| detail | `render.detail_textures` | **0.55** | land-cover atlas under ortho (near field) |
-| buildings | `render.buildings` | **1.10** | Official + OSM campus (800) + Queens/Brooklyn ring (2500) |
-| runway PBR | `render.markings` | **0.30** | asphalt/concrete + rubber + wet + night HIRL sheen (+0.05 ALU, absorbed) |
-| bloom | `render.bloom` | **0.70** | Raster fog-halo on lights + city glow |
+| detail | `render.detail_textures` | **0.45** | land-cover atlas under ortho (near field) |
+| buildings | `render.buildings` | **1.00** | Official + OSM campus (800) + Queens/Brooklyn ring (2500) |
+| runway PBR | `render.markings` | **0.35** | asphalt/concrete + rubber + wet + night HIRL sheen |
+| bloom | `render.bloom` | **0.55** | Raster fog-halo on lights + city glow |
 | filmic | `render.filmic` | **0.15** | lift/gamma/gain after ACES |
-| FXAA | `render.fxaa` | **0.35** | window only (screenshot FBO stays MSAA-off) |
-| MSAA 4x | `render.msaa` | **1.80** | window only |
-| shadows | `render.shadows` | **1.80** | one cascade, sun; **off** on `gtx980ti` |
+| TAA | `render.taa` | **0.40** | live-path temporal AA (stills stay TAA-off) |
+| FXAA | `render.fxaa` | **0.20** | fallback if TAA drops |
+| clustered | `render.clustered` | **0.60** | 32 closest FAA/OSM lights on the ground |
+| shadows | `render.shadows` | **0.85** | 2-cascade sun CSM (512+512 on 980 Ti) |
+| SSAO | `render.ssao` | **0.25** | cheap baked AO |
+| lod fade | `render.lod_fade` | **0.15** | page-in fade, no pop |
 
-`quality_gpu_budget_total_ms(false)` = **12.20 ms** (default hangar).
-`quality_gpu_budget_total_ms(true)` = **14.00 ms** (`rtx`). Both fit
-under 16.67 ms. Official runway/taxi coordinates are not changed.
+`quality_gpu_budget_total_ms(true)` = **12.20 ms** (default hangar, shadows on).
+`quality_gpu_budget_total_ms(false)` = **11.35 ms** (after autodrop shadows).
+Both fit under 16.67 ms. Official runway/taxi coordinates are not changed.
 
 `--bench` flies KJFK:04R (or `--approach`) and prints per-sample GPU ms
 from `GL_TIME_ELAPSED` plus a budgeted pass table, then one pasteable
@@ -73,11 +76,15 @@ line:
 
 `SUMMARY  s376 --bench quality=gtx980ti budget=12.20ms max=…ms@…nm avg=…ms dropped=none result=UNDER 60Hz=YES`
 
-`gtx980ti` sets `render.auto_drop` so extras (SSAO, bloom, FXAA, detail,
-filmic, shadows) turn off if a measured frame exceeds `gpu_budget_ms`.
-Water, markings, buildings, and atmosphere stay on. `--offscreen` prefers
-a pbuffer so hangar projectors stay dark (`scripts/hangar-review.sh`,
-`scripts/hangar-queue.sh`).
+`gtx980ti` sets `render.auto_drop` so extras drop in this order if a
+measured frame exceeds `gpu_budget_ms`: SSAO, shadows, bloom, FXAA,
+TAA, lod_fade, detail, filmic, clustered. Water, markings, buildings,
+and atmosphere stay on. `--offscreen` prefers a pbuffer so hangar
+projectors stay dark (`scripts/hangar-review.sh`, `scripts/hangar-queue.sh`).
+
+`--demo kjfk` flies the live 60 Hz KJFK 04R approach (NASR lights and
+runways, day `--tod 12` / night `--tod 3`). Bare `--demo` stays the
+in-process synth path for CI.
 
 Night-light GPU impact on the 980 Ti (same point-sprite path):
 

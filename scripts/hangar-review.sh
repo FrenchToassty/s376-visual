@@ -149,6 +149,13 @@ if [[ "$SHOTS" -eq 1 ]]; then
         --screenshot "$OUT/kjfk_12k_hdg036_tod12_wrap.ppm"
     run "${IG[@]}" --at KJFK:04R:0.15 --tod 12 --rwy-cond 2 --channel mid_left \
         --screenshot "$OUT/kjfk_04r_0.15nm_tod12_wet_front.ppm"
+    # Manhattan skyline (NW of JFK) + short-final terminals, day and night.
+    run "${IG[@]}" --at KJFK --alt 2500 --hdg 310 --tod 12 --channel mid_left \
+        --screenshot "$OUT/kjfk_manhattan_hdg310_tod12_front.ppm"
+    run "${IG[@]}" --at KJFK --alt 2500 --hdg 310 --tod 3 --channel mid_left \
+        --screenshot "$OUT/kjfk_manhattan_hdg310_tod3_front.ppm"
+    run "${IG[@]}" --at KJFK --alt 2500 --hdg 310 --tod 12 --channel all \
+        --screenshot "$OUT/kjfk_manhattan_hdg310_tod12_wrap.ppm"
 fi
 
 if [[ "$BENCH" -eq 1 ]]; then

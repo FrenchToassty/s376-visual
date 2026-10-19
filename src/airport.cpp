@@ -1619,12 +1619,50 @@ int try_load_osm(Airport& a, const std::string& cache_dir) {
         }
         return true;
     };
+    auto pack_owner = [&](const std::string& dir) -> std::string {
+        for (const char* fn : {"coverage.toml", "region.toml"}) {
+            std::ifstream in(dir + "/" + fn);
+            std::string line;
+            while (in && std::getline(in, line)) {
+                const auto pos = line.find("icao");
+                if (pos == std::string::npos)
+                    continue;
+                const auto q1 = line.find('"', pos);
+                if (q1 == std::string::npos)
+                    continue;
+                const auto q2 = line.find('"', q1 + 1);
+                if (q2 == std::string::npos || q2 <= q1 + 1)
+                    continue;
+                std::string v = line.substr(q1 + 1, q2 - q1 - 1);
+                for (char& c : v)
+                    c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+                if (icao_like(v))
+                    return v;
+            }
+        }
+        const auto folder = folder_name(dir + "/osm.bin");
+        if (icao_like(folder))
+            return folder;
+        std::string up = dir;
+        for (char& c : up)
+            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        std::string found;
+        for (const auto& apt : all_public_airports()) {
+            if (up.find(apt.icao) == std::string::npos)
+                continue;
+            if (!found.empty() && found != apt.icao)
+                return std::string();
+            found = apt.icao;
+        }
+        return found;
+    };
     std::vector<std::string> paths;
     if (!cache_dir.empty()) {
         const auto p = cache_dir + "/osm.bin";
-        const auto folder = folder_name(p);
-        // cache/KJFK/osm.bin is KJFK only — never merge it into KSEA/KSFO/…
-        if (!icao_like(folder) || folder == id)
+        // cache/KJFK and /tmp/kjfk-real are KJFK only — never merge into KSEA.
+        // Anonymous bake dirs (no ICAO in the path) still load for unit tests.
+        const auto owner = pack_owner(cache_dir);
+        if (owner.empty() || owner == id)
             paths.push_back(p);
     } else {
         paths.push_back("cache/" + id + "/osm.bin");

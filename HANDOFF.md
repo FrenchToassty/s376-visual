@@ -26,43 +26,110 @@ from tests/CI. `scripts/check-no-rsi.sh` fails the build if
 
 ---
 
-## Current state (2026-10-18, this increment)
+## Current state (2026-10-19, this increment)
 
-Mint hangar is offline (building internet) until later tonight.
-Work stayed on **PR #1** (`cursor/s376-visual-v1-6852`). Accuracy-first.
+Work stays on **PR #1** (`cursor/s376-visual-v1-6852`). Accuracy-first.
 **980 Ti is the target.** No RSI / imagery / Raster files in git.
 Do not add `.deb`, systemd units, or an `rtx-x99` profile.
+**Do not build `s376-fakehost`.** BingBongBot owns the simulated host
+and will hand a patch to merge onto the existing interface.
 
-1. **Real KJFK pack on this VM (not committed).**
-   `s376-cache fetch KJFK --out /tmp/kjfk-real` — lod0 1 m NYS + 3DEP
-   within ~6 km of 04R + approach, lod1/lod2 to 40 nm / 74 km,
-   OSM 12 km. Resume-safe. Never commit imagery.
-2. **`--bench` paste line.** Last stdout line is
+**Joey priority: Oct 25 KJFK demo.** Hard deadline Sunday 2026-10-25
+for a 2-minute 04R approach + landing (day and night), believable
+lighting and haze, Manhattan skyline, water, terminals, runway and
+approach lights, locked 60 fps, no black slabs / holes / sky bands /
+pop-in. KEWR / other airports stay behind `--all-airports`.
+
+### Host interface (BingBongBot merge contract)
+
+Documented in [docs/HOST_INTERFACE.md](docs/HOST_INTERFACE.md). The
+types and ports already existed; this increment only writes the
+stable loopback contract. Gear/flaps are **not** on the v0.1 wire —
+do not invent new xT4 types.
+
+| Direction | Default | Config | Code |
+|---|---|---|---|
+| Host → IG | UDP **`127.0.0.1:2300`** (listen `0.0.0.0:2300`) | `host.bind` | `HostConfig` in `include/s376/config.hpp` |
+| IG → host HAT | UDP **`2301`** to the query sender | `host.reply_port` | `HostSocket::send_hat` |
+| Operator console | UDP **`127.0.0.1:2376`** | `[control].bind` | **not** xT4 |
+
+Input snapshot: `s376::HostState` (`include/s376/state.hpp`) —
+`eye` (type **100**), `env` (**124**), `fog` (**128**), clouds
+(**125–127**), storms (**105**), `lights` (**109**),
+`light_steps` (**112**), `display` (**131**), `script_dt`
+(in-process). Wire structs + builders: `include/s376/xt4.hpp`.
+Receiver: `HostReceiver` / `HostSocket` (`include/s376/host.hpp`,
+`src/host.cpp`). Safety: `include/s376/safety.hpp` refuses
+`10.1.95.0/24`, `192.168.173.0/24`, UDP **3340 / 3341** unless
+`allow_sim_lan`.
+
+HAT + collision: host type **113** query whose first i32 is **200**;
+IG replies type **200** (`xt4::build_hat_response`). Same packet is
+the collision reply (`HAT ≤ 0`). Sample: `HatSample`
+(`include/s376/terrain.hpp`); solids:
+`sample_hat_solids` / `sample_session_hat`
+(`include/s376/landmarks.hpp`). `--demo kjfk` is in-process
+`HostState` (no socket). Bare `--demo` is CI synth to
+`127.0.0.1:2300`. A later host patch may drive the same `HostState`
+via loopback UDP.
+
+### Oct 25 backwards plan (daily demoable build)
+
+| Day | Ship |
+|---|---|
+| **Mon 19** (today) | PR #1: host-interface contract, live 980 Ti path, `--demo kjfk`, KJFK-only hangar-queue redline (`-j16`, 12G). |
+| **Tue 20** | Mint online: `hangar-queue.sh` 01–08 (build, review, bench, day/night video, far/near fetch). |
+| **Wed 21** | Real-pack critique vs JFK 04R photos: water, runway, terminals, horizon. Fix defects. |
+| **Thu 22** | Night lighting + Manhattan skyline + Jamaica Bay + terminals. |
+| **Fri 23** | Lock 60 fps on 5060 Ti (autodrop if over 12.20). Record the 2-minute approach. |
+| **Sat 24** | Dress rehearsal day + night. Bug squash only. |
+| **Sun 25** | Boss demo: KJFK 04R, ~2 minutes, day then night. |
+
+### Also in this increment
+
+1. **`--demo kjfk`.** Live 60 Hz KJFK:04R glidepath (`--tod 12` day,
+   `--tod 3` night). Sane defaults: `--quality gtx980ti`, `--channel
+   mid_left`, `--start-agl 2000 --gs 3 --kts 140`, auto `cache/KJFK`.
+   Bare `--demo` stays the in-process synth path for CI. After
+   touchdown the eye holds on the numbers.
+2. **Live 980 Ti path.** TAA (MSAA 0), 2-cascade sun CSM 512+512
+   (±400 / ±2200 m), 32-light clustered ground lighting, HDR ACES +
+   bloom + SSAO + atmosphere, page-in lod fade (lod1/lod2 start at 1;
+   stills snap). Autodrop order: SSAO → shadows → bloom → FXAA → TAA
+   → lod_fade → detail → filmic → clustered. Never drops water /
+   markings / buildings / atmosphere. Budgeted total **12.20 ms**
+   with shadows (11.35 without).
+3. **`scripts/hangar-queue.sh` redline.** Default steps **01–12 are
+   KJFK only**. Every step `MemoryMax=12G`. Default **`-j 16`** for
+   `cmake --build` and `s376-cache fetch --jobs`. usage:
+   `scripts/hangar-queue.sh [--from NN] [--only NN] [--list]
+   [--dry-run] [--root DIR] [--out DIR] [--kjfk DIR]
+   [--all-airports] [-j N]`. KEWR / US-next are **13/14 behind
+   `--all-airports`**.
+4. **OSM pack isolation.** `try_load_osm` only loads `osm.bin` when
+   `coverage.toml` / `region.toml` / folder / unique path ICAO
+   matches the airport. `/tmp/kjfk-real` and `cache/KJFK-near` no
+   longer dump 66 k lights into KSEA.
+5. **Real KJFK pack on this VM (not committed).**
+   `s376-cache fetch KJFK --out /tmp/kjfk-real` — lod0 1 m NYS + 3DEP,
+   lod1/lod2 to 40 nm / 74 km, OSM. Resume-safe. Never commit imagery.
+6. **`--bench` paste line.**
    `SUMMARY  s376 --bench quality=… budget=… max=…ms@…nm avg=… dropped=… result=UNDER|OVER|NO_GL 60Hz=YES|NO|SKIP`.
-3. **`--offscreen`.** Pbuffer first; parked fallback window at
-   −32000,−32000. Never `setUpViewOnSingleScreen` when offscreen.
-4. **`scripts/hangar-review.sh`.** Full 04R shot list (8/4/2.99/1/0.6/0.15/0
-   × tod 12/19/3 × front/wrap + 12k hdg 036 + wet 0.15) and `--bench`
-   into `~/Downloads/s376-review-<date>/`.
-5. **`scripts/hangar-queue.sh`.** Resumable unattended Mint queue.
-   usage: `scripts/hangar-queue.sh [--from NN] [--only NN] [--list] [--dry-run] [--root DIR] [--out DIR] [--kjfk DIR]`
-   Steps 01–10 write `~/Downloads/s376-queue/<NN>-<name>/` + `done`,
-   `STATUS.txt`, `SUMMARY.md`. Memory-capped via
-   `systemd-run --user --scope`. Waits 5 min if a game is up (never
-   kills). Stops US-next when free disk < 300 GB. No sudo; PNG frames
-   if ffmpeg is missing. CI: `tests/test_hangar_scripts.sh` + shellcheck.
-6. **Looks (real ortho).** Water shader no longer flood-fills from the
-   GSHHS `vWaterMask` knife — imagery chroma wins so marsh/bay stay
-   photographic. Building palettes spread `building=yes` roofs/facades.
+7. **`--offscreen`.** Pbuffer first; parked fallback window at
+   −32000,−32000.
+8. **`scripts/hangar-review.sh`.** 04R shot list + Manhattan hdg 310
+   day/night + `--bench` into `~/Downloads/s376-review-<date>/`.
 
 **Joey, when Mint is back:**
 ```
 cd ~/s376-visual && git pull && scripts/hangar-queue.sh
+# KJFK demo only. Other airports: scripts/hangar-queue.sh --all-airports
+# Override workers: scripts/hangar-queue.sh -j 8
 ```
 
-**980 Ti GPU:** haze / water / city-glow ALU absorbed. Total stays
-**12.20 ms** shadows-off. Joey runs `--bench` on the 5060 Ti, later
-the 980 Ti.
+**980 Ti GPU:** live path is TAA + cheap CSM + clustered. Total stays
+**12.20 ms** shadows-on. Joey runs `--bench` and `--demo kjfk` on the
+5060 Ti, later the 980 Ti.
 
 **Previous increment (still on PR #1):** Hangar far-field / Windows
 zip / `--bench` table / region plans. Synth review frames were

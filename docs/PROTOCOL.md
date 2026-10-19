@@ -1,5 +1,8 @@
 # Host visual protocol (clean-room)
 
+Loopback merge contract for a simulated host (ports, `HostState`, HAT
+reply, no new types): [HOST_INTERFACE.md](HOST_INTERFACE.md).
+
 This is a field-layout description written from independently observed
 sizes, the host-side fill order used by the S376 visual module, and the
 s376bridge decoder tests. It is **not** a copy of any RSI header or ICD

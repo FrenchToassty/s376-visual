@@ -74,8 +74,9 @@ void test_config() {
     CHECK(d.render.quality == "gtx980ti");
     CHECK(d.render.hdr && d.render.atmosphere && d.render.water && d.render.markings);
     CHECK(d.render.detail_textures && d.render.buildings);
-    CHECK(d.render.ssao && !d.render.shadows);
+    CHECK(d.render.ssao && d.render.shadows);
     CHECK(d.render.bloom && d.render.fxaa && d.render.filmic);
+    CHECK(d.render.taa && d.render.clustered && d.render.lod_fade);
     CHECK(!d.render.solar_astronomy);
     CHECK(d.render.sync_to_host);
     CHECK(d.render.ram_mb == 2048);
@@ -93,9 +94,11 @@ void test_config() {
         CHECK(rtx.mesh_n >= 128);
         auto gtx = d.render;
         s376::apply_quality_preset(gtx, "gtx980ti");
-        CHECK(gtx.ssao && !gtx.shadows);
+        CHECK(gtx.ssao && gtx.shadows);
         CHECK(gtx.hdr && gtx.atmosphere);
         CHECK(gtx.bloom && gtx.fxaa && gtx.filmic);
+        CHECK(gtx.taa && gtx.clustered && gtx.lod_fade);
+        CHECK(gtx.msaa == 0);
         CHECK(gtx.ram_mb == 2048);
         CHECK(gtx.vram_mb == 5120);
         CHECK(gtx.mesh_n == 96);
@@ -119,13 +122,16 @@ void test_config() {
         CHECK(dumped.find("render.solar_astronomy=false") != std::string::npos);
         CHECK(dumped.find("render.auto_drop=true") != std::string::npos);
         CHECK(dumped.find("render.offscreen=false") != std::string::npos);
+        CHECK(dumped.find("render.taa=true") != std::string::npos);
+        CHECK(dumped.find("render.clustered=true") != std::string::npos);
+        CHECK(dumped.find("render.lod_fade=true") != std::string::npos);
         CHECK(!d.render.offscreen);
         int nb = 0;
         const auto* budgets = s376::quality_gpu_budgets(nb);
         CHECK(nb >= 8 && budgets != nullptr);
         CHECK(std::string(budgets[0].name) == "atmosphere");
-        CHECK_NEAR(s376::quality_gpu_budget_total_ms(false), 12.20, 0.05);
-        CHECK_NEAR(s376::quality_gpu_budget_total_ms(true), 14.00, 0.05);
+        CHECK_NEAR(s376::quality_gpu_budget_total_ms(false), 11.35, 0.05);
+        CHECK_NEAR(s376::quality_gpu_budget_total_ms(true), 12.20, 0.05);
         CHECK(s376::quality_gpu_budget_total_ms(false) < 16.67f);
         CHECK(s376::quality_gpu_budget_total_ms(true) < 16.67f);
     }
@@ -159,7 +165,7 @@ void test_config() {
     CHECK(c.render.engine == "osg");
     CHECK_NEAR(c.render.frame_rate, 30.0, 1e-9);
     CHECK(c.render.gl_debug);
-    CHECK(d.render.msaa == 4);
+    CHECK(d.render.msaa == 0);
     CHECK(d.render.aniso == 16);
     CHECK(c.channels.size() == 2);
     CHECK(c.channels[0].width == 800);
