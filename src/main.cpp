@@ -5,6 +5,7 @@
 #include "s376/fakehost.hpp"
 #include "s376/host.hpp"
 #include "s376/landmarks.hpp"
+#include "s376/lights.hpp"
 #include "s376/missiles.hpp"
 #include "s376/image.hpp"
 #include "s376/log.hpp"
@@ -123,6 +124,7 @@ s376::HostState host_from_shot(const s376::ShotPose& p) {
     h.env.day = 21;
     h.env.year = 2024;
     h.light_steps.fill(3);
+    h.light_steps[static_cast<std::size_t>(s376::lights::kSwRllsLeadIn)] = 0;
     const s376::Airport apt = s376::airport_by_icao(p.icao);
     const float elev_ft = static_cast<float>(apt.elev_m * s376::geo::kMToFt);
     h.terrain_elev_ft = elev_ft;

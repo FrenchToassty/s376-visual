@@ -191,56 +191,14 @@ void paint_mark_rect(Pix& im, const GeoBox& box, double lat, double lon, double 
 }
 
 void paint_official_markings(Pix& im, const GeoBox& box, const Runway& rw) {
-    const double half = rw.width_m * 0.5;
-    constexpr std::uint8_t wr = 247, wg = 247, wb = 242;
-    constexpr std::uint8_t yr = 235, yg = 199, yb = 31;
-    paint_mark_rect(im, box, rw.le_lat, rw.le_lon, rw.heading_deg, 0, rw.length_m, half - 1.1,
-                    half - 0.15, wr, wg, wb);
-    paint_mark_rect(im, box, rw.le_lat, rw.le_lon, rw.heading_deg, 0, rw.length_m, -(half - 0.15),
-                    -(half - 1.1), wr, wg, wb);
-    for (double d = 12; d < rw.length_m - 20; d += 60.0)
-        paint_mark_rect(im, box, rw.le_lat, rw.le_lon, rw.heading_deg, d,
-                        std::min(d + 36.0, rw.length_m - 8), -0.22, 0.22, wr, wg, wb);
-
-    auto one_end = [&](double lat, double lon, double hdg, double disp_ft) {
-        const double disp_m = disp_ft * geo::kFtToM;
-        if (disp_m > 8.0) {
-            // Yellow chevrons / arrows in the displaced area (official THR).
-            for (double d = 12.0; d < disp_m - 8.0; d += 24.0) {
-                paint_mark_rect(im, box, lat, lon, hdg, d, d + 10.0, 4.0, 14.0, yr, yg, yb);
-                paint_mark_rect(im, box, lat, lon, hdg, d, d + 10.0, -14.0, -4.0, yr, yg, yb);
-                paint_mark_rect(im, box, lat, lon, hdg, d + 2.0, d + 12.0, -1.2, 1.2, yr, yg, yb);
-            }
-            offset_m(lat, lon, hdg, disp_m, lat, lon);
-        }
-        const int nb = rw.width_m >= 55.0 ? 12 : 8;
-        const double bar_w = 1.8;
-        const double span = half - 2.0;
-        for (int i = 0; i < nb; ++i) {
-            const double t = (i + 0.5) / nb;
-            const double x = -span + t * 2.0 * span;
-            if (std::fabs(x) < 3.0)
-                continue;
-            paint_mark_rect(im, box, lat, lon, hdg, 3.0, 48.0, x - bar_w * 0.5, x + bar_w * 0.5, wr,
-                            wg, wb);
-        }
-        const double aim = rw.length_m >= 2400.0 ? 400.0 : 300.0;
-        if (rw.length_m > aim + 80.0) {
-            paint_mark_rect(im, box, lat, lon, hdg, aim, aim + 45.0, 6.0, 15.0, wr, wg, wb);
-            paint_mark_rect(im, box, lat, lon, hdg, aim, aim + 45.0, -15.0, -6.0, wr, wg, wb);
-        }
-        for (int k = 1; k <= 5; ++k) {
-            const double d = 150.0 * k;
-            if (d + 20.0 >= rw.length_m * 0.45)
-                break;
-            paint_mark_rect(im, box, lat, lon, hdg, d, d + 22.0, 8.0, 14.0, wr, wg, wb);
-            paint_mark_rect(im, box, lat, lon, hdg, d, d + 22.0, -14.0, -8.0, wr, wg, wb);
-        }
-    };
-    one_end(rw.le_lat, rw.le_lon, rw.heading_deg, rw.le_displaced_ft);
-    one_end(rw.he_lat, rw.he_lon, wrap360(rw.heading_he_deg != 0.0 ? rw.heading_he_deg
-                                                                  : rw.heading_deg + 180.0),
-            rw.he_displaced_ft);
+    paint_faa_runway_markings(rw, [&](double lat, double lon, double hdg, double a0, double a1,
+                                      double left, double right, float r, float g, float b) {
+        auto byte = [](float c) {
+            const int v = static_cast<int>(std::lround(c * 255.0));
+            return static_cast<std::uint8_t>(std::max(0, std::min(255, v)));
+        };
+        paint_mark_rect(im, box, lat, lon, hdg, a0, a1, left, right, byte(r), byte(g), byte(b));
+    });
 }
 
 int blend_stale_pavement(Pix& im, const GeoBox& box, const Airport& a) {

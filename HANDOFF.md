@@ -243,21 +243,27 @@ and budgeted for one 980 Ti channel at 1920×1200 / 60 Hz. Official
 geometry and lights are unchanged. Hangar Mint PC is offline — real
 980 Ti `GL_TIME_ELAPSED` waits. This box is llvmpipe.
 
-| Feature | Toggle | 980 Ti ms |
+These are **budgets** from `quality_gpu_budgets()` in `src/config.cpp`, not
+`GL_TIME_ELAPSED` measurements. This environment has no GTX 980 Ti.
+
+| Feature | Toggle | Budget ms |
 |---|---|---|
 | base | — | 6.00 |
 | Rayleigh/Mie sky + aerial | `render.atmosphere` | 0.45 |
 | Water (Fresnel/glint/waves/foam) | `render.water` | 0.80 |
-| Land-cover detail under ortho | `render.detail_textures` | 0.55 |
-| OSM facades + night windows | `render.buildings` | 1.10 |
-| Runway PBR + wet (type 124) | `render.markings` | 0.30 |
-| Light halo + city glow | `render.bloom` | 0.70 |
+| Land-cover detail under ortho | `render.detail_textures` | 0.45 |
+| OSM facades + night windows | `render.buildings` | 1.00 |
+| Runway PBR + wet (type 124) | `render.markings` | 0.35 |
+| Light halo + city glow | `render.bloom` | 0.55 |
 | Filmic after ACES | `render.filmic` | 0.15 |
-| FXAA (window) | `render.fxaa` | 0.35 |
-| MSAA 4x (window) | `render.msaa` | 1.80 |
-| One-cascade sun CSM | `render.shadows` | 1.80 (off on gtx980ti) |
+| Temporal AA | `render.taa` | 0.40 |
+| FXAA (fallback) | `render.fxaa` | 0.20 |
+| Clustered night lights | `render.clustered` | 0.60 |
+| 2-cascade CSM | `render.shadows` | 0.85 (on for gtx980ti until autodrop) |
+| SSAO | `render.ssao` | 0.25 |
+| LOD fade | `render.lod_fade` | 0.15 |
 
-Total **12.20 ms** shadows-off / **14.00 ms** shadows-on (under 16.67).
+Budgeted total **12.20 ms** with shadows, **11.35 ms** with shadows off.
 `--tod HOURS` and `--rwy-cond N` pose the host env for shots.
 See `docs/QUALITY.md`.
 

@@ -2,11 +2,14 @@
 #include "s376/faa.hpp"
 #include "s376/geo.hpp"
 #include "s376/lights.hpp"
+#include "s376/state.hpp"
 
 #include <cmath>
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <utility>
+#include <vector>
 
 extern int g_fails;
 extern int g_passes;
@@ -146,27 +149,17 @@ void test_faa_audit() {
     check_papi(*rw04r, true, 69.0);
     check_papi(*rw13l, true, 74.0);
 
-    // 13L unusable left of CL; on CL is still in coverage.
+    // Positive azimuth is right of the centreline looking along the landing heading.
     {
-        double plat = 0, plon = 0;
-        for (const auto& L : jfk.lights) {
-            if (L.kind == s376::LightKind::Vasi && L.papi_rwy_hdg_deg > 100.f &&
-                L.papi_usable_left_deg < 1.f) {
-                plat = L.lat;
-                plon = L.lon;
-                CHECK(s376::lights::papi_in_coverage(plat, plon, plat, plon, L.papi_rwy_hdg_deg,
-                                                     L.papi_rotate_deg, L.papi_usable_left_deg,
-                                                     L.papi_usable_right_deg));
-                double left_lat, left_lon;
-                s376::offset_m(plat, plon, L.papi_rwy_hdg_deg + 180.0 - 90.0, 80.0, left_lat,
-                               left_lon);
-                CHECK(!s376::lights::papi_in_coverage(left_lat, left_lon, plat, plon,
-                                                      L.papi_rwy_hdg_deg, L.papi_rotate_deg,
-                                                      L.papi_usable_left_deg, L.papi_usable_right_deg));
-                break;
-            }
-        }
-        CHECK(plat != 0.0);
+        const double hdg = 120.0;
+        double olat = 0, olon = 0;
+        s376::offset_m(40.65, -73.78, hdg + 180.0, 3000.0, olat, olon);
+        CHECK_NEAR(s376::lights::papi_azimuth_deg(olat, olon, 40.65, -73.78, hdg), 0.0, 0.15);
+        double rlat = 0, rlon = 0, llat = 0, llon = 0;
+        s376::offset_m(olat, olon, hdg + 90.0, 400.0, rlat, rlon);
+        s376::offset_m(olat, olon, hdg - 90.0, 400.0, llat, llon);
+        CHECK(s376::lights::papi_azimuth_deg(rlat, rlon, 40.65, -73.78, hdg) > 3.0);
+        CHECK(s376::lights::papi_azimuth_deg(llat, llon, 40.65, -73.78, hdg) < -3.0);
     }
 
     // 2. ALSF-2 geometry on 04R.
@@ -326,10 +319,22 @@ void test_faa_audit() {
                     ++n_rail_sfl;
             }
         }
-        CHECK(n_xb >= 20);
+        CHECK(n_xb == 15);
         CHECK_NEAR(max_xb, 33.0 * s376::geo::kFtToM, 2.0);
         CHECK(n_rail_bar == 0);
         CHECK(n_rail_sfl == 5);
+        int seq_near = -1, seq_far = -1;
+        for (const auto& L : jfk.lights) {
+            if (L.runway_k != 3 || L.kind != s376::LightKind::Flasher || L.seq < 0)
+                continue;
+            const double al = along_m(tlat, tlon, back, L.lat, L.lon);
+            if (std::fabs(al - 1600.0 * s376::geo::kFtToM) < 8.0)
+                seq_near = L.seq;
+            if (std::fabs(al - 2400.0 * s376::geo::kFtToM) < 8.0)
+                seq_far = L.seq;
+        }
+        CHECK(seq_near == 4);
+        CHECK(seq_far == 0);
     }
 
     // 13R published lead-in: no invented 500 ft bars out to 6000 ft.
@@ -348,7 +353,7 @@ void test_faa_audit() {
                 ++n_sfl;
         }
         CHECK(n_invented == 0);
-        CHECK(n_sfl >= 10); // 5 on CL + 5 at 1 NM
+        CHECK(n_sfl == 0); // chart supplement publishes no 13R geometry
     }
 
     // 13L RLLS add-on: flashers ~1 NM off the 35° south radial.
@@ -360,9 +365,294 @@ void test_faa_audit() {
             if (L.runway_k != 3 || L.kind != s376::LightKind::Flasher)
                 continue;
             const double d = s376::geo::ground_distance_m(tlat, tlon, L.lat, L.lon);
-            if (d > 1500.0 && d < 2200.0)
+            if (d > 1500.0 && d < 2200.0) {
                 ++n_nm;
+                CHECK(L.switch_num == s376::lights::kSwRllsLeadIn);
+                CHECK(L.seq >= 0);
+            }
         }
         CHECK(n_nm >= 5);
+        s376::HostState demo;
+        CHECK(demo.light_steps[static_cast<std::size_t>(s376::lights::kSwRllsLeadIn)] == 0);
+    }
+
+    // Displaced-area edge lights are red toward the approach (13L, 907 ft).
+    {
+        int n_red = 0;
+        const double disp = rw13l->le_displaced_ft * s376::geo::kFtToM;
+        for (const auto& L : jfk.lights) {
+            if (L.runway_k != 3 || L.kind != s376::LightKind::Edge)
+                continue;
+            const double al = along_m(rw13l->le_lat, rw13l->le_lon, rw13l->heading_deg, L.lat, L.lon);
+            if (al < 20.0 || al > disp - 20.0)
+                continue;
+            CHECK(L.g < 0.25f);
+            CHECK(L.g2 > 0.7f);
+            CHECK(L.facing == s376::LightFacing::Bidir);
+            ++n_red;
+        }
+        CHECK(n_red >= 4);
+    }
+
+    // Lamp-count regression: the same decision the renderer uses.
+    auto count_papi = [&](int k, float hdg_lo, float hdg_hi, double lat, double lon, double alt_m) {
+        int n = 0, vis = 0;
+        for (const auto& L : jfk.lights) {
+            if (L.runway_k != k || L.kind != s376::LightKind::Vasi || L.papi_box < 0)
+                continue;
+            if (L.papi_rwy_hdg_deg < hdg_lo || L.papi_rwy_hdg_deg > hdg_hi)
+                continue;
+            ++n;
+            if (s376::lights::lamp_draw(L, lat, lon, alt_m).visible)
+                ++vis;
+        }
+        return std::pair<int, int>(n, vis);
+    };
+    {
+        s376::ShotPose pose;
+        CHECK(s376::runway_shot_pose(jfk, "13L", 3.0, pose));
+        const double alt = pose.alt_ft * s376::geo::kFtToM;
+        const auto on = count_papi(3, 90.f, 160.f, pose.lat, pose.lon, alt);
+        CHECK(on.first == 4);
+        CHECK(on.second == 4);
+        double llat, llon, rlat, rlon;
+        s376::offset_m(pose.lat, pose.lon, pose.hdg_true_deg - 90.0, 300.0, llat, llon);
+        s376::offset_m(pose.lat, pose.lon, pose.hdg_true_deg + 90.0, 300.0, rlat, rlon);
+        CHECK(count_papi(3, 90.f, 160.f, llat, llon, alt).second == 0);
+        CHECK(count_papi(3, 90.f, 160.f, rlat, rlon, alt).second == 4);
+    }
+    {
+        s376::ShotPose pose;
+        CHECK(s376::runway_shot_pose(jfk, "04R", 2.0, pose));
+        const auto on = count_papi(2, 0.f, 90.f, pose.lat, pose.lon, pose.alt_ft * s376::geo::kFtToM);
+        CHECK(on.first == 4);
+        CHECK(on.second == 4);
+    }
+    {
+        // 13R aim is 22° left. Straight-in is outside the beam; the offset is in it.
+        s376::ShotPose pose;
+        CHECK(s376::runway_shot_pose(jfk, "13R", 2.0, pose));
+        const double alt = pose.alt_ft * s376::geo::kFtToM;
+        CHECK(count_papi(4, 90.f, 160.f, pose.lat, pose.lon, alt).second == 0);
+        const double lateral = 2.0 * 1852.0 * std::tan(s376::geo::deg2rad(22.0));
+        double llat, llon;
+        s376::offset_m(pose.lat, pose.lon, pose.hdg_true_deg - 90.0, lateral, llat, llon);
+        CHECK(count_papi(4, 90.f, 160.f, llat, llon, alt).second == 4);
+        CHECK_NEAR(e13r->papi_usable_left_deg, 32.0, 0.1);
+    }
+
+    // JO 6850.2C §506.d: the beam is within ±1 ft of runway elevation. The
+    // fixture itself sits higher so the sprite clears the pavement. At 0.18 NM
+    // on a true 3° path that extra height flips box 2 red.
+    {
+        const s376::LightPoint* box2 = nullptr;
+        for (const auto& L : jfk.lights) {
+            if (L.runway_k == 2 && L.kind == s376::LightKind::Vasi && L.papi_box == 2 &&
+                L.papi_rwy_hdg_deg < 90.f) {
+                box2 = &L;
+                break;
+            }
+        }
+        CHECK(box2 != nullptr);
+        if (box2) {
+            CHECK(box2->papi_have_ref);
+            CHECK(box2->alt_m - box2->papi_ref_alt_m > 1.2);
+            CHECK(std::fabs(box2->papi_ref_alt_m - rw04r->le_elev_m) < 0.35);
+            const double dist = 0.18 * 1852.0;
+            double elat, elon;
+            s376::offset_m(box2->lat, box2->lon, box2->papi_rwy_hdg_deg + 180.0, dist, elat, elon);
+            const double eye_on = box2->papi_ref_alt_m + dist * std::tan(s376::geo::deg2rad(3.0));
+            const float ang_ref = s376::lights::papi_eye_angle_deg(elat, elon, eye_on, box2->lat,
+                                                                   box2->lon, box2->papi_ref_alt_m);
+            const float ang_fix = s376::lights::papi_eye_angle_deg(elat, elon, eye_on, box2->lat,
+                                                                   box2->lon, box2->alt_m);
+            CHECK(s376::lights::papi_box_white(ang_ref, 2, 3.f));
+            CHECK(!s376::lights::papi_box_white(ang_fix, 2, 3.f));
+            CHECK(!s376::lights::papi_box_white(ang_ref, 0, 3.f));
+            // Eye on the lamp's approach axis. Usable cuts are measured at the
+            // lamp here so the ±15° threshold window does not hide the colour check.
+            s376::LightPoint on_axis = *box2;
+            on_axis.papi_limit_lat = 0;
+            on_axis.papi_limit_lon = 0;
+            on_axis.papi_rotate_deg = 0;
+            const auto ok = s376::lights::lamp_draw(on_axis, elat, elon, eye_on);
+            CHECK(ok.visible);
+            CHECK(ok.g > 0.9f);
+            on_axis.papi_have_ref = false;
+            const auto bug = s376::lights::lamp_draw(on_axis, elat, elon, eye_on);
+            CHECK(bug.visible);
+            CHECK(bug.g < 0.3f);
+        }
+    }
+
+    // Threshold green is visible on the approach; the near-end red row is not.
+    // The far-end green row is hidden from an 04R final.
+    {
+        s376::ShotPose pose;
+        CHECK(s376::runway_shot_pose(jfk, "13L", 1.0, pose));
+        const double alt = pose.alt_ft * s376::geo::kFtToM;
+        int green_vis = 0, red_vis = 0, red_n = 0;
+        const double disp = rw13l->le_displaced_ft * s376::geo::kFtToM;
+        for (const auto& L : jfk.lights) {
+            if (L.runway_k != 3 || L.kind != s376::LightKind::End)
+                continue;
+            const double al = along_m(rw13l->le_lat, rw13l->le_lon, rw13l->heading_deg, L.lat, L.lon);
+            const auto d = s376::lights::lamp_draw(L, pose.lat, pose.lon, alt);
+            if (L.g > 0.7f && std::fabs(al - disp) < 30.0 && d.visible)
+                ++green_vis;
+            if (L.r > 0.7f && L.g < 0.3f && al < 30.0) {
+                ++red_n;
+                if (d.visible)
+                    ++red_vis;
+            }
+        }
+        CHECK(green_vis >= 8);
+        CHECK(red_n >= 8);
+        CHECK(red_vis == 0);
+        CHECK(s376::runway_shot_pose(jfk, "04R", 1.0, pose));
+        int far_green = 0;
+        for (const auto& L : jfk.lights) {
+            if (L.runway_k != 2 || L.kind != s376::LightKind::End || L.g < 0.7f)
+                continue;
+            const double al =
+                along_m(rw04r->le_lat, rw04r->le_lon, rw04r->heading_deg, L.lat, L.lon);
+            if (al < rw04r->length_m - 80.0)
+                continue;
+            if (s376::lights::lamp_draw(L, pose.lat, pose.lon, pose.alt_ft * s376::geo::kFtToM).visible)
+                ++far_green;
+        }
+        CHECK(far_green == 0);
+    }
+
+    // AC 150/5340-1M paint: white arrows, 16 stripes, aiming point, TDZ, centreline.
+    {
+        struct Mk {
+            double a0, a1, left, right, r, g, b;
+            bool le;
+        };
+        std::vector<Mk> marks;
+        s376::paint_faa_runway_markings(*rw13l, [&](double lat, double lon, double hdg, double a0,
+                                                   double a1, double left, double right, float r,
+                                                   float g, float b) {
+            (void)lat;
+            (void)lon;
+            const bool le = std::fabs(s376::geo::wrap180(hdg - rw13l->heading_deg)) < 5.0;
+            marks.push_back(Mk{a0, a1, left, right, r, g, b, le});
+        });
+        const double disp = rw13l->le_displaced_ft * s376::geo::kFtToM;
+        const double ft = s376::geo::kFtToM;
+        int yellow_disp = 0, white_disp = 0, stripes = 0, tdz500 = 0;
+        bool bar = false, aim = false, cl = false;
+        double ident_lo = 1e9, ident_hi = -1e9;
+        for (const auto& m : marks) {
+            if (!m.le)
+                continue;
+            const bool yellow = m.r > 0.8 && m.g > 0.5 && m.g < 0.9 && m.b < 0.3;
+            const bool white = m.r > 0.9 && m.g > 0.9 && m.b > 0.9;
+            if (yellow && m.a0 > -1.0 && m.a1 < disp + 1.0)
+                ++yellow_disp;
+            if (white && m.a1 < disp - 1.0 && m.a0 > 1.0 && (m.a1 - m.a0) < 20.0)
+                ++white_disp;
+            if (white && std::fabs(m.a0 - disp) < 0.2 && std::fabs((m.a1 - m.a0) - 10.0 * ft) < 0.05 &&
+                (m.right - m.left) > rw13l->width_m * 0.8)
+                bar = true;
+            if (white && std::fabs(m.a0 - (disp + 20.0 * ft)) < 0.2 &&
+                std::fabs((m.a1 - m.a0) - 150.0 * ft) < 0.2 && std::fabs((m.right - m.left) - 5.75 * ft) < 0.05)
+                ++stripes;
+            if (white && std::fabs(m.a0 - (disp + 1020.0 * ft)) < 0.3 &&
+                std::fabs((m.a1 - m.a0) - 150.0 * ft) < 0.3 && std::fabs(m.left - 36.0 * ft) < 0.2 &&
+                std::fabs((m.right - m.left) - 30.0 * ft) < 0.2)
+                aim = true;
+            if (white && std::fabs(m.a0 - (disp + 500.0 * ft)) < 0.3 &&
+                std::fabs((m.a1 - m.a0) - 75.0 * ft) < 0.2 && m.left > 0.0)
+                ++tdz500;
+            if (white && std::fabs(m.a0) < 0.2 && std::fabs((m.a1 - m.a0) - 120.0 * ft) < 0.3 &&
+                std::fabs(m.right - m.left - 36.0 * 0.0254) < 0.02)
+                cl = true;
+            if (white && m.a0 > disp + 50.0 && m.a0 < disp + 120.0 && std::fabs(m.left) < 8.0 &&
+                std::fabs(m.right) < 8.0 && (m.a1 - m.a0) < 4.0) {
+                ident_lo = std::min(ident_lo, m.a0);
+                ident_hi = std::max(ident_hi, m.a1);
+            }
+        }
+        CHECK(yellow_disp == 0);
+        CHECK(white_disp > 20);
+        CHECK(bar);
+        CHECK(stripes == 16);
+        CHECK(aim);
+        CHECK(tdz500 == 3);
+        CHECK(cl);
+        CHECK(ident_hi - ident_lo > 30.0);
+    }
+
+    // 22R is unusable beyond 8° right. 22L's 4° left aim stays visible on the centreline.
+    {
+        s376::ShotPose pose;
+        CHECK(s376::runway_shot_pose(jfk, "22R", 2.0, pose));
+        const double alt = pose.alt_ft * s376::geo::kFtToM;
+        CHECK(count_papi(1, 180.f, 250.f, pose.lat, pose.lon, alt).second == 4);
+        double rlat, rlon;
+        s376::offset_m(pose.lat, pose.lon, pose.hdg_true_deg + 90.0, 2.0 * 1852.0 * std::tan(s376::geo::deg2rad(10.0)),
+                       rlat, rlon);
+        CHECK(count_papi(1, 180.f, 250.f, rlat, rlon, alt).second == 0);
+        CHECK(s376::runway_shot_pose(jfk, "22L", 2.0, pose));
+        CHECK(count_papi(2, 180.f, 250.f, pose.lat, pose.lon, pose.alt_ft * s376::geo::kFtToM).second == 4);
+    }
+
+    // Red end row: two groups of 4 on 10 ft centres, outermost on the edge, 6 ft outboard.
+    {
+        const double ft = s376::geo::kFtToM;
+        int n = 0;
+        double max_ac = 0, min_ac = 1e9, along_sum = 0;
+        for (const auto& L : jfk.lights) {
+            if (L.runway_k != 2 || L.kind != s376::LightKind::End || L.g > 0.3f)
+                continue;
+            const double al = along_m(rw04r->le_lat, rw04r->le_lon, rw04r->heading_deg, L.lat, L.lon);
+            if (al > 5.0)
+                continue;
+            ++n;
+            const double ac = std::fabs(across_m(rw04r->le_lat, rw04r->le_lon, rw04r->heading_deg, L.lat, L.lon));
+            max_ac = std::max(max_ac, ac);
+            min_ac = std::min(min_ac, ac);
+            along_sum += al;
+        }
+        CHECK(n == 8);
+        CHECK_NEAR(max_ac, 100.0 * ft, 0.4);
+        CHECK_NEAR(min_ac, 70.0 * ft, 0.4);
+        CHECK_NEAR(along_sum / n, -6.0 * ft, 0.4);
+        CHECK(rw04l != nullptr);
+        int n_out = 0;
+        const double edge = rw04l->width_m * 0.5;
+        const double disp = rw04l->le_displaced_ft * ft;
+        for (const auto& L : jfk.lights) {
+            if (L.runway_k != 1 || L.kind != s376::LightKind::End || L.g < 0.7f)
+                continue;
+            const double al = along_m(rw04l->le_lat, rw04l->le_lon, rw04l->heading_deg, L.lat, L.lon);
+            if (std::fabs(al - (disp - 6.0 * ft)) > 1.0)
+                continue;
+            const double ac = std::fabs(across_m(rw04l->le_lat, rw04l->le_lon, rw04l->heading_deg, L.lat, L.lon));
+            if (ac > edge)
+                ++n_out;
+        }
+        CHECK(n_out == 8);
+    }
+
+    // ALSF-2 stations on 13L's displaced pavement are flush; the 1000 ft station is not.
+    {
+        const double ft = s376::geo::kFtToM;
+        const double disp = rw13l->le_displaced_ft * ft;
+        int n_flush = 0, n_high = 0;
+        for (const auto& L : jfk.lights) {
+            if (L.runway_k != 3 || L.kind != s376::LightKind::Approach || L.g < 0.7f)
+                continue;
+            const double al = along_m(rw13l->le_lat, rw13l->le_lon, rw13l->heading_deg, L.lat, L.lon);
+            const double before = disp - al;
+            if (std::fabs(before - 500.0 * ft) < 3.0 && std::fabs(L.alt_m - (rw13l->le_elev_m + 0.05)) < 0.15)
+                ++n_flush;
+            if (std::fabs(before - 1000.0 * ft) < 3.0 && L.alt_m > rw13l->le_elev_m + 0.5)
+                ++n_high;
+        }
+        CHECK(n_flush >= 5);
+        CHECK(n_high >= 5);
     }
 }

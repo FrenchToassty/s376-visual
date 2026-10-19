@@ -195,20 +195,97 @@ float papi_azimuth_deg(double eye_lat, double eye_lon, double papi_lat, double p
     const double dist = geo::inverse_wgs84(papi_lat, papi_lon, eye_lat, eye_lon, &brg);
     if (!(dist > 1.0) || !std::isfinite(dist))
         return 0.f;
-    // From the PAPI, the approach is back along rwy_hdg + 180.
-    // atan2(across, toward-approach) so + is right of CL on the approach.
-    const double rel = geo::wrap180(brg - (static_cast<double>(rwy_hdg_deg) + 180.0));
+    // Bearing PAPI → eye. The approach course is rwy_hdg+180, so
+    // (approach − bearing) is positive when the eye is right of the
+    // centreline looking along the landing heading.
+    const double rel = geo::wrap180((static_cast<double>(rwy_hdg_deg) + 180.0) - brg);
     return static_cast<float>(rel);
+}
+
+// Right-of-centreline angle at `origin`, folded so the centreline stays ~0
+// on both sides of the origin. The approach-only formula flips to ±180 once
+// the eye crosses the threshold, which would blank a PAPI on short final.
+float papi_cl_side_deg(double eye_lat, double eye_lon, double origin_lat, double origin_lon,
+                       float rwy_hdg_deg) {
+    double brg = 0;
+    const double dist = geo::inverse_wgs84(origin_lat, origin_lon, eye_lat, eye_lon, &brg);
+    if (!(dist > 1.0) || !std::isfinite(dist))
+        return 0.f;
+    const double rel = geo::deg2rad(geo::wrap180(brg - static_cast<double>(rwy_hdg_deg)));
+    const double cross = dist * std::sin(rel); // + right of the landing heading
+    const double along = dist * std::cos(rel);
+    return static_cast<float>(geo::rad2deg(std::atan2(cross, std::fabs(along))));
 }
 
 bool papi_in_coverage(double eye_lat, double eye_lon, double papi_lat, double papi_lon,
                       float rwy_hdg_deg, float rotate_deg, float usable_left_deg,
-                      float usable_right_deg) {
+                      float usable_right_deg, double limit_lat, double limit_lon) {
     const float az = papi_azimuth_deg(eye_lat, eye_lon, papi_lat, papi_lon, rwy_hdg_deg);
-    if (az < -usable_left_deg || az > usable_right_deg)
-        return false;
     const float az_axis = az - rotate_deg;
-    return az_axis >= -10.f && az_axis <= 10.f;
+    if (az_axis < -10.f || az_axis > 10.f)
+        return false;
+    const bool have_limit = std::fabs(limit_lat) > 1e-6 || std::fabs(limit_lon) > 1e-6;
+    const float side = have_limit ? papi_cl_side_deg(eye_lat, eye_lon, limit_lat, limit_lon, rwy_hdg_deg)
+                                  : az;
+    // 0.05° keeps a centreline eye inside a 0° cut when the geodesic is noisy.
+    constexpr float kEps = 0.05f;
+    return side >= -usable_left_deg - kEps && side <= usable_right_deg + kEps;
+}
+
+LampDraw lamp_draw(const LightPoint& L, double eye_lat, double eye_lon, double eye_alt_m) {
+    LampDraw out;
+    out.r = L.r;
+    out.g = L.g;
+    out.b = L.b;
+    out.visible = true;
+    double brg = 0;
+    const double dist = geo::inverse_wgs84(eye_lat, eye_lon, L.lat, L.lon, &brg);
+    if (dist > 1.0 && std::isfinite(dist) && std::isfinite(brg)) {
+        const double rel = std::fabs(geo::wrap180(brg - static_cast<double>(L.color_hdg_deg)));
+        if (L.facing == LightFacing::Uni) {
+            if (rel > 90.0)
+                out.visible = false;
+        } else if (L.r2 >= 0.f && rel > 90.0) {
+            out.r = L.r2;
+            out.g = L.g2;
+            out.b = L.b2;
+        }
+    }
+    if (L.papi_box < 0)
+        return out;
+    if (!papi_in_coverage(eye_lat, eye_lon, L.lat, L.lon, L.papi_rwy_hdg_deg, L.papi_rotate_deg,
+                          L.papi_usable_left_deg, L.papi_usable_right_deg, L.papi_limit_lat,
+                          L.papi_limit_lon)) {
+        out.visible = false;
+        return out;
+    }
+    out.visible = true;
+    const double ref = L.papi_have_ref ? L.papi_ref_alt_m : L.alt_m;
+    const float ang = papi_eye_angle_deg(eye_lat, eye_lon, eye_alt_m, L.lat, L.lon, ref);
+    int box = L.papi_box;
+    if (box < 0)
+        box = 0;
+    if (box > 3)
+        box = 3;
+    float gs = L.papi_gs_deg;
+    if (!std::isfinite(gs) || gs < 0.5f)
+        gs = 3.f;
+    const float setting = gs + kPapiHg4Min[static_cast<std::size_t>(box)] / 60.f;
+    const float delta_min = (ang - setting) * 60.f;
+    if (std::fabs(delta_min) <= 1.5f) {
+        out.r = 1.f;
+        out.g = 0.45f;
+        out.b = 0.40f;
+    } else if (ang > setting) {
+        out.r = 1.f;
+        out.g = 1.f;
+        out.b = 0.92f;
+    } else {
+        out.r = 1.f;
+        out.g = 0.12f;
+        out.b = 0.08f;
+    }
+    return out;
 }
 
 double papi_distance_ft(double vgsi_tch_ft, double gs_deg) {

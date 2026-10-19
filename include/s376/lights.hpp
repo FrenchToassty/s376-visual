@@ -24,6 +24,8 @@ constexpr int kOffStrobeB = 8;
 constexpr int kSwTaxiEdge = 41;
 constexpr int kSwStopBar = 56;
 constexpr int kSwTaxiCenterline = 60;
+// KJFK 13L Chart-Supplement lead-in. Default step 0 (ILS does not show it).
+constexpr int kSwRllsLeadIn = 70;
 
 constexpr int kIntensitySteps = 5;
 
@@ -91,15 +93,30 @@ float range_visibility(LightKind kind, float range_m);
 bool papi_box_white(float eye_angle_deg, int box, float gs_deg);
 float papi_eye_angle_deg(double eye_lat, double eye_lon, double eye_alt_m, double papi_lat,
                          double papi_lon, double papi_alt_m);
-// Signed azimuth of the eye from the extended CL at the PAPI, degrees.
-// Positive = right of CL as seen on the approach (looking along rwy heading).
+// Signed azimuth of the eye from the extended centreline, degrees.
+// Positive = right of the centreline as seen looking along rwy_hdg.
+// Zero on the extended centreline. Bearing is PAPI → eye:
+//   rel = wrap180((rwy_hdg + 180) − bearing).
 float papi_azimuth_deg(double eye_lat, double eye_lon, double papi_lat, double papi_lon,
                        float rwy_hdg_deg);
-// Chart-Supplement coverage: rotate is the optical-axis offset (+ right);
-// usable_left / usable_right are CL-relative limits (13L left = 0).
+// Chart-Supplement coverage. The ±10° beam is measured at the PAPI about
+// (azimuth − rotate), rotate positive to the right. Usable left/right are
+// measured from limit_lat/lon when that origin is set, otherwise at the PAPI.
+// Positive usable_right is right of the centreline looking along rwy_hdg.
 bool papi_in_coverage(double eye_lat, double eye_lon, double papi_lat, double papi_lon,
                       float rwy_hdg_deg, float rotate_deg, float usable_left_deg,
-                      float usable_right_deg);
+                      float usable_right_deg, double limit_lat = 0, double limit_lon = 0);
+
+// What the renderer draws for one lamp from this eye. PAPI coverage, the
+// unidirectional hide, and the bidirectional colour swap live here so a
+// unit test can count the same lamps a frame would show.
+struct LampDraw {
+    float r = 0;
+    float g = 0;
+    float b = 0;
+    bool visible = false;
+};
+LampDraw lamp_draw(const LightPoint& L, double eye_lat, double eye_lon, double eye_alt_m);
 // Flat-runway PAPI distance past the landing THR: TCH / tan(GPA).
 double papi_distance_ft(double vgsi_tch_ft, double gs_deg);
 

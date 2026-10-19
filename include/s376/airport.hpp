@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -66,6 +67,11 @@ constexpr std::size_t kMaxSolidBytes = 256ull * 1024ull * 1024ull;
 
 enum class BuildingKind : std::uint8_t { Osm = 0, Airport = 1, Landmark = 2 };
 
+// Omni: same colour all around. Bidir: r/g/b when looking along color_hdg,
+// r2/g2/b2 from the opposite side. Uni: primary colour only, hidden when the
+// eye is looking more than 90° off color_hdg (bearing eye → lamp).
+enum class LightFacing : std::int8_t { Omni = 0, Bidir = 1, Uni = 2 };
+
 struct LightPoint {
     double lat = 0;
     double lon = 0;
@@ -88,6 +94,14 @@ struct LightPoint {
     float papi_usable_left_deg = 15.f;
     float papi_usable_right_deg = 15.f;
     float papi_rwy_hdg_deg = 0;
+    LightFacing facing = LightFacing::Omni;
+    // Runway centreline elevation at the PAPI, used for the eye angle.
+    // alt_m stays the fixture height so the sprite clears the pavement.
+    double papi_ref_alt_m = 0;
+    bool papi_have_ref = false;
+    // Usable-left/right origin. 0,0 = measure those cuts at the lamp.
+    double papi_limit_lat = 0;
+    double papi_limit_lon = 0;
 };
 
 struct DataSource {
@@ -385,6 +399,13 @@ int read_osm_bin(Airport& a, const std::string& path);
 int bake_osm_bin(const std::string& json_path, const std::string& bin_path);
 // Runtime: osm.bin only. Does not open osm.json.
 int try_load_osm(Airport& a, const std::string& cache_dir);
+
+// FAA AC 150/5340-1M runway paint. `mark` quads are metres from (lat,lon)
+// along hdg: along0..along1, left..right (positive left is hdg+90).
+void paint_faa_runway_markings(
+    const Runway& rw,
+    const std::function<void(double lat, double lon, double hdg, double along0, double along1,
+                             double left, double right, float r, float g, float b)>& mark);
 
 void generate_lights(Airport& a);
 void add_kjfk_public_scenery(Airport& a); // 2022 taxi names, T5, tower, trees…

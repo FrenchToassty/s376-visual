@@ -1,5 +1,6 @@
 #pragma once
 
+#include "s376/lights.hpp"
 #include "s376/xt4.hpp"
 
 #include <array>
@@ -35,7 +36,13 @@ struct HostState {
     xt4::WordOrder word_order = xt4::WordOrder::Le;
     xt4::FloatFmt float_fmt = xt4::FloatFmt::Vax;
 
-    HostState() { light_steps.fill(3); }
+    HostState() {
+        light_steps.fill(3);
+        // Unpublished RLLS lead-in stays off until a host step asks for it.
+        if (lights::kSwRllsLeadIn >= 0 &&
+            lights::kSwRllsLeadIn < static_cast<int>(light_steps.size()))
+            light_steps[static_cast<std::size_t>(lights::kSwRllsLeadIn)] = 0;
+    }
 };
 
 class SharedState {
