@@ -759,6 +759,9 @@ std::string diagnostics_dump(const AppConfig& cfg, const HostState* host,
             o << "fog select=" << host->fog.select << " rvr_ft=" << host->fog.rvr_ft
               << " height_ft=" << host->fog.height_ft << "\n";
         }
+        if (host->have_ownship) {
+            o << "ownship gear=" << host->ownship.gear << " flaps=" << host->ownship.flaps << "\n";
+        }
         if (host->have_cloud) {
             o << "cloud";
             const char* names[3] = {" lower", " upper", " top"};

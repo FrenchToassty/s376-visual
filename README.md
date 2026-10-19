@@ -99,6 +99,15 @@ contact `10.1.95.0/24` or `192.168.173.0/24`.
 
 ### Two-process bench (loopback)
 
+`--demo kjfk` starts `s376-fakehost` in-process on 127.0.0.1:2300/2301
+(six-mile-final, 6 nm). Or run the stand-in yourself (loopback only):
+
+```bash
+./build/s376-visual --bind 127.0.0.1:2300 --reply-port 2301 --channel mid_left
+# other terminal
+./build/s376-fakehost --profile kjfk-04r --six-mile-final --start 6nm --fps 60
+```
+
 ```bash
 ./build/s376-visual --bind 127.0.0.1:2300 --channel mid_left
 # other terminal
@@ -115,10 +124,14 @@ contact `10.1.95.0/24` or `192.168.173.0/24`.
 | `--bind HOST:PORT` | override listen address |
 | `--channel NAME` | `far_left`/`mid_left`/`mid_right`/`far_right`/`all` (aliases `left`/`front`/`right`/`front_fo`). Default: all enabled, or `$S376_CHANNEL`. `--channel all --record`/`--screenshot` = Left\|Front\|Right strip |
 | `--reply-master NAME` | only this `--channel` sends the type-200 HAT reply (default `mid_left`) |
+| `--reply-port PORT` | type-200 HAT reply port (default `host.reply_port` = 2301) |
+| `--mem-budget MB` | CPU resident cap (overrides `render.ram_mb`; 980 Ti = 2048) |
 | `--cache-dir PATH` | packed DEM/imagery from `s376-cache` |
 | `--headless` | decoder + socket, no GL |
 | `--demo` | in-process synth to loopback (CI) |
-| `--demo kjfk` | live 60 Hz KJFK 04R approach + landing (`gtx980ti`, `mid_left`, `--tod 12`) |
+| `--demo kjfk` | fakehost loopback 60 Hz KJFK 04R (`gtx980ti`, `mid_left`, `--tod 12`, six-mile-final, 6 nm) |
+| `--six-mile-final` | `--demo kjfk`: gear down / flaps 30 from frame 1 (default) |
+| `--start DIST` | `--demo kjfk` start: `6nm` (default), `6sm`, `10nm`, `11km` |
 | `--demo-weather` | demo plus 124/125/126/127/128 weather and a type-105 storm |
 | `-v` / `--debug` | verbose / per-packet hex |
 | `--gl-debug` | OSG per-attribute GL error checks (off in Release) |

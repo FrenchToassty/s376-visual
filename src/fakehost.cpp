@@ -8,12 +8,14 @@
 #include "s376/geo.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <map>
 #include <sstream>
+#include <thread>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -784,6 +786,7 @@ std::vector<std::uint8_t> build_frame_datagram(const Frame& f, unsigned count,
     if (hat_query)
         pk.push_back(xt4::build_hat_query());
     pk.push_back(xt4::build_lights(true, f.strobe, f.landing_mask, ff));
+    pk.push_back(xt4::build_ownship(f.gear_down ? 1 : 0, f.flaps));
     if (count == 1 || count % 30 == 0) {
         pk.push_back(xt4::build_env(env.tod_hours, std::min(env.vis_ft, xt4::kMaxVisibilityFt),
                                     env.month, env.day, env.year, ff, -1, env.precip_type,
@@ -807,6 +810,83 @@ std::vector<std::uint8_t> build_frame_datagram(const Frame& f, unsigned count,
             pk.push_back(xt4::build_light_switch(sw, env.light_step));
     }
     return xt4::build_datagram(pk, wo);
+}
+
+void run_approach_sender(const std::string& dest_spec, const std::string& listen_spec,
+                         const ProfileConfig& pc, const Environment& env, double fps,
+                         double duration_s, std::atomic<bool>* stop) {
+    std::string dhost, lhost;
+    std::uint16_t dport = 2300, lport = 2301;
+    parse_guarded(dest_spec, dhost, dport, "demo dest");
+    parse_guarded(listen_spec, lhost, lport, "demo listen");
+#ifdef _WIN32
+    WSADATA wsa{};
+    WSAStartup(MAKEWORD(2, 2), &wsa);
+    SOCKET fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+#else
+    int fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+#endif
+    if (
+#ifdef _WIN32
+        fd == INVALID_SOCKET
+#else
+        fd < 0
+#endif
+    )
+        throw std::runtime_error("fakehost sender: socket");
+    sockaddr_in la{};
+    la.sin_family = AF_INET;
+    la.sin_port = htons(lport);
+    if (inet_pton(AF_INET, lhost.c_str(), &la.sin_addr) != 1)
+        throw std::runtime_error("fakehost sender: listen");
+    guard_sockaddr(&la, sizeof(la), "demo bind");
+    const int one = 1;
+#ifdef _WIN32
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&one), sizeof(one));
+#else
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+#endif
+    if (::bind(fd, reinterpret_cast<sockaddr*>(&la), sizeof(la)) != 0)
+        throw std::runtime_error("fakehost sender: bind " + listen_spec);
+    sockaddr_in dest{};
+    dest.sin_family = AF_INET;
+    dest.sin_port = htons(dport);
+    if (inet_pton(AF_INET, dhost.c_str(), &dest.sin_addr) != 1)
+        throw std::runtime_error("fakehost sender: dest");
+    guard_sockaddr(&dest, sizeof(dest), "demo send");
+
+    ApproachProfile ap(pc);
+    const double dt = 1.0 / std::max(1.0, fps);
+    unsigned count = 0;
+    auto next = std::chrono::steady_clock::now();
+    const auto t0 = next;
+    while (!ap.done() && !(stop && stop->load())) {
+        if (duration_s >= 0) {
+            const double elapsed =
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+            if (elapsed >= duration_s)
+                break;
+        }
+        const Frame f = ap.step(dt);
+        count = count % 32767 + 1;
+        const auto dg = build_frame_datagram(f, count, env, xt4::WordOrder::Le, xt4::FloatFmt::Vax);
+        guard_sockaddr(&dest, sizeof(dest), "demo send");
+#ifdef _WIN32
+        sendto(fd, reinterpret_cast<const char*>(dg.data()), static_cast<int>(dg.size()), 0,
+               reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
+#else
+        ::sendto(fd, dg.data(), dg.size(), 0, reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
+#endif
+        next += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+            std::chrono::duration<double>(dt));
+        std::this_thread::sleep_until(next);
+    }
+#ifdef _WIN32
+    closesocket(fd);
+    WSACleanup();
+#else
+    ::close(fd);
+#endif
 }
 
 // ================================================================= checks

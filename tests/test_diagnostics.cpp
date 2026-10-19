@@ -179,11 +179,16 @@ void test_diagnostics() {
         shot.eyepoints = 1;
         shot.datagrams = 0;
         shot.eye.alt_ft = 12000;
+        shot.have_ownship = true;
+        shot.ownship.gear = 1;
+        shot.ownship.flaps = 30;
         const auto dump = s376::diagnostics_dump(cfg, &shot, {"mid_left"});
         CHECK(dump.find("selected=mid_left") != std::string::npos);
         CHECK(dump.find("channel mid_left") != std::string::npos);
         CHECK(dump.find("channel far_right") == std::string::npos);
         CHECK(dump.find("eyepoints=1") != std::string::npos);
         CHECK(dump.find("alt_ft=12000") != std::string::npos);
+        CHECK(dump.find("ownship gear=1 flaps=30") != std::string::npos);
+        CHECK(dump.find("host.reply_port=2301") != std::string::npos);
     }
 }

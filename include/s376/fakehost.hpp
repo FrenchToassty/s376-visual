@@ -6,6 +6,7 @@
 #include "s376/faa.hpp"
 #include "s376/xt4.hpp"
 
+#include <atomic>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
@@ -212,6 +213,12 @@ struct Environment {
 std::vector<std::uint8_t> build_frame_datagram(const Frame& f, unsigned count,
                                                const Environment& env, xt4::WordOrder wo,
                                                xt4::FloatFmt ff, bool hat_query = true);
+
+// Loopback UDP driver used by `--demo kjfk`. dest/listen must pass guard().
+// Stops when the profile ends, duration_s elapses (<0 = until done), or *stop.
+void run_approach_sender(const std::string& dest, const std::string& listen,
+                         const ProfileConfig& pc, const Environment& env, double fps,
+                         double duration_s, std::atomic<bool>* stop);
 
 // ---------------------------------------------------------------- checks
 struct HatReply {

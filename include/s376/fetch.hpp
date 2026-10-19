@@ -70,6 +70,7 @@ struct FetchRequest {
     int max_export = 2048;     // ImageServer export cap (2048; 4000 500/504s)
     bool plan_only = false;    // --plan: print tile bboxes + coverage, no GET
     int jobs = 1;              // parallel tile GETs (Mint: 16)
+    int mem_budget_mb = 0;     // 0 = kFetchRssBoundBytes; --mem-budget caps jobs + RSS
 };
 
 struct FetchEstimate {

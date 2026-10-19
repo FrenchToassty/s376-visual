@@ -30,16 +30,25 @@ from tests/CI. `scripts/check-no-rsi.sh` fails the build if
 
 Work stays on **PR #1** (`cursor/s376-visual-v1-6852`). Accuracy-first.
 **980 Ti is the target.** No RSI / imagery / Raster files in git.
-Do not add `.deb`, systemd units, or an `rtx-x99` profile.
-**Do not build `s376-fakehost`.** BingBongBot owns the simulated host
-and will hand a patch to merge onto the existing interface
-([docs/HOST_INTERFACE.md](docs/HOST_INTERFACE.md)). Gear/flaps stay
-off the v0.1 wire.
+Do not add `.deb`, system-wide systemd units, or an `rtx-xxxxx`
+profile. `scripts/hangar-queue.sh --install-autostart` writes a
+**user** unit under `~/.config/systemd/user/` (no sudo) so Joey's
+16 GB Mint can resume after a RAM freeze/reboot.
+
+**BingBongBot `s376-fakehost` is merged.** Loopback-only
+(`fakehost::guard()` — env vars cannot relax it). Speaks the existing
+xT4 subset plus type **180** ownship gear/flaps (our design, not
+CAE ICD). `--demo kjfk` now drives `fakehost::run_approach_sender`
+on 127.0.0.1:2300 / 2301 (six-mile-final, 6 nm default; `--start
+6sm`). `--record --demo kjfk` stays in-process. Joey's Mint IOS /
+host emulator maps onto `HostState` / `ControlSource` later — keep
+those adapters flexible.
 
 Windows MSVC CI (980 Ti zip) was red since the zip job: `windows.h`
 `min`/`max` macros, MSVC `__BYTE_ORDER__` both-zero `#error`, and
 `path::native()` (`wstring`) `.find("..")`. Fixed with `NOMINMAX`,
-a portable LE check, and `generic_string()`.
+a portable LE check, and `generic_string()`. `s376-fakehost` exe +
+tests are UNIX-gated so MSVC still builds `s376_core` / `s376-visual`.
 
 **Joey priority: Oct 25 KJFK demo.** Hard deadline Sunday 2026-10-25
 for a 2-minute 04R approach + landing (day and night), believable
@@ -47,44 +56,46 @@ lighting and haze, Manhattan skyline, water, terminals, runway and
 approach lights, locked 60 fps, no black slabs / holes / sky bands /
 pop-in. KEWR / other airports stay behind `--all-airports`.
 
-### Host interface (BingBongBot merge contract)
+### Host interface (merged)
 
-Documented in [docs/HOST_INTERFACE.md](docs/HOST_INTERFACE.md). The
-types and ports already existed; this increment only writes the
-stable loopback contract. Gear/flaps are **not** on the v0.1 wire —
-do not invent new xT4 types.
+Documented in [docs/HOST_INTERFACE.md](docs/HOST_INTERFACE.md) and
+[docs/FAKEHOST.md](docs/FAKEHOST.md). Type **180** is our ownship
+packet (gear 0/1/2, flaps 0/1/2/5/10/15/25/30/40) — not ICD text.
 
 | Direction | Default | Config | Code |
 |---|---|---|---|
 | Host → IG | UDP **`127.0.0.1:2300`** (listen `0.0.0.0:2300`) | `host.bind` | `HostConfig` in `include/s376/config.hpp` |
-| IG → host HAT | UDP **`2301`** to the query sender | `host.reply_port` | `HostSocket::send_hat` |
+| IG → host HAT | UDP **`2301`** to the query sender | `host.reply_port` / **`--reply-port`** | `HostSocket::send_hat` |
 | Operator console | UDP **`127.0.0.1:2376`** | `[control].bind` | **not** xT4 |
 
 Input snapshot: `s376::HostState` (`include/s376/state.hpp`) —
 `eye` (type **100**), `env` (**124**), `fog` (**128**), clouds
 (**125–127**), storms (**105**), `lights` (**109**),
-`light_steps` (**112**), `display` (**131**), `script_dt`
-(in-process). Wire structs + builders: `include/s376/xt4.hpp`.
+`light_steps` (**112**), `ownship` (**180**), `display` (**131**),
+`script_dt` (in-process). Wire structs + builders:
+`include/s376/xt4.hpp` (`build_ownship` / `decode_ownship`).
 Receiver: `HostReceiver` / `HostSocket` (`include/s376/host.hpp`,
 `src/host.cpp`). Safety: `include/s376/safety.hpp` refuses
 `10.1.95.0/24`, `192.168.173.0/24`, UDP **3340 / 3341** unless
-`allow_sim_lan`.
+`allow_sim_lan`. `fakehost::guard()` is stricter (loopback only).
 
 HAT + collision: host type **113** query whose first i32 is **200**;
 IG replies type **200** (`xt4::build_hat_response`). Same packet is
 the collision reply (`HAT ≤ 0`). Sample: `HatSample`
 (`include/s376/terrain.hpp`); solids:
 `sample_hat_solids` / `sample_session_hat`
-(`include/s376/landmarks.hpp`). `--demo kjfk` is in-process
-`HostState` (no socket). Bare `--demo` is CI synth to
-`127.0.0.1:2300`. A later host patch may drive the same `HostState`
-via loopback UDP.
+(`include/s376/landmarks.hpp`). Official KJFK T5 + optional
+`/tmp/kjfk-real/solids.bin` / `cache/KJFK/solids.bin` contact is
+tested. Multi-channel: only `reply_master` sends type 200.
+
+`--demo kjfk` = fakehost loopback (six-mile-final, 6 nm). Bare
+`--demo` is CI synth to `127.0.0.1:2300`.
 
 ### Oct 25 backwards plan (daily demoable build)
 
 | Day | Ship |
 |---|---|
-| **Mon 19** (today) | PR #1: host-interface contract, live 980 Ti path, `--demo kjfk`, KJFK-only hangar-queue redline (`-j16`, 12G). |
+| **Mon 19** (today) | PR #1: fakehost merged, type 180, `--demo kjfk` via loopback, `--reply-port`, reply_master-only HAT, hangar-queue crash resume. |
 | **Tue 20** | Mint online: `hangar-queue.sh` 01–08 (build, review, bench, day/night video, far/near fetch). |
 | **Wed 21** | Real-pack critique vs JFK 04R photos: water, runway, terminals, horizon. Fix defects. |
 | **Thu 22** | Night lighting + Manhattan skyline + Jamaica Bay + terminals. |
@@ -94,11 +105,13 @@ via loopback UDP.
 
 ### Also in this increment
 
-1. **`--demo kjfk`.** Live 60 Hz KJFK:04R glidepath (`--tod 12` day,
-   `--tod 3` night). Sane defaults: `--quality gtx980ti`, `--channel
-   mid_left`, `--start-agl 2000 --gs 3 --kts 140`, auto `cache/KJFK`.
-   Bare `--demo` stays the in-process synth path for CI. After
-   touchdown the eye holds on the numbers.
+1. **`--demo kjfk` via fakehost.** Loopback UDP 2300/2301, six-mile
+   final, 6 nm default (`--start 6sm` / `--six-mile-final`).
+   `--tod 12` day, `--tod 3` night. `--quality gtx980ti`,
+   `--channel mid_left`. `--record` stays in-process
+   `ApproachProfile`. Bare `--demo` stays the CI synth path.
+   `--reply-port PORT` overrides `host.reply_port`. Type **180**
+   carries gear/flaps every frame.
 2. **Live 980 Ti path.** TAA (MSAA 0), 2-cascade sun CSM 512+512
    (±400 / ±2200 m), 32-light clustered ground lighting, HDR ACES +
    bloom + SSAO + atmosphere, page-in lod fade (lod1/lod2 start at 1;
@@ -106,13 +119,16 @@ via loopback UDP.
    → lod_fade → detail → filmic → clustered. Never drops water /
    markings / buildings / atmosphere. Budgeted total **12.20 ms**
    with shadows (11.35 without).
-3. **`scripts/hangar-queue.sh` redline.** Default steps **01–12 are
-   KJFK only**. Every step `MemoryMax=12G`. Default **`-j 16`** for
-   `cmake --build` and `s376-cache fetch --jobs`. usage:
-   `scripts/hangar-queue.sh [--from NN] [--only NN] [--list]
-   [--dry-run] [--root DIR] [--out DIR] [--kjfk DIR]
-   [--all-airports] [-j N]`. KEWR / US-next are **13/14 behind
-   `--all-airports`**.
+3. **`scripts/hangar-queue.sh` redline + crash resilience.** Default
+   steps **01–12 are KJFK only**. Every step `MemoryMax=12G`. Default
+   **`-j 16`**. `--install-autostart` writes a user systemd unit
+   (no sudo) that resumes after reboot. Heartbeat + `boot_id` detect
+   an unclean stop; journal OOM/Xid/thermal; per-step crash counters
+   step down (`-j` 16→8→4, rtx→gtx980ti, serial fetches, heat 83→75)
+   and **BLOCKED** after 3. PSI/MemAvailable watchdog keeps ~4 GB
+   free and stops only this queue's units. `CRASHES.md`.
+   `--mem-budget` (default 2048) is passed to `s376-visual` and
+   `s376-cache`. KEWR / US-next are **13/14 behind `--all-airports`**.
 4. **OSM pack isolation.** `try_load_osm` only loads `osm.bin` when
    `coverage.toml` / `region.toml` / folder / unique path ICAO
    matches the airport. `/tmp/kjfk-real` and `cache/KJFK-near` no

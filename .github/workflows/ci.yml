@@ -49,6 +49,20 @@ jobs:
         run: |
           ./build/s376-visual --headless --demo --duration 2 --bind 127.0.0.1:2300 -c config/s376-visual.toml
           ./build/s376-visual --headless --demo kjfk --duration 0.3 -c config/s376-visual.toml
+          ./build/s376-visual --headless --demo kjfk --six-mile-final --start 6sm --duration 0.3 \
+            --reply-port 2301 -c config/s376-visual.toml
+          ./build/s376-visual --diagnostics --reply-port 23991 --mem-budget 512 \
+            -c config/s376-visual.toml > /tmp/s376-diag-reply.txt
+          grep -q "host.reply_port=23991" /tmp/s376-diag-reply.txt
+          grep -q "render.ram_mb=512" /tmp/s376-diag-reply.txt
+          set +e
+          ./build/s376-visual --headless --demo nope -c config/s376-visual.toml
+          nope_rc=$?
+          set -e
+          if [ "$nope_rc" -ne 2 ]; then
+            echo "--demo nope must exit 2 (got $nope_rc)" >&2
+            exit 1
+          fi
           ./build/s376-visual --headless --demo-weather --duration 2 --bind 127.0.0.1:2300 -c config/s376-visual.toml
           ./build/s376-visual --headless --at KJFK:04R:0 --duration 0.3 --bind 127.0.0.1:2300 -c config/s376-visual.toml
           ./build/s376-visual --headless --at KJFK:04R:8 --alt 3000 --bank 30 --duration 0.3 --bind 127.0.0.1:2300 -c config/s376-visual.toml

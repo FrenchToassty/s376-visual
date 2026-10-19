@@ -240,6 +240,7 @@ static void test_wire() {
     fh::Frame f;
     f.lat = 40.6; f.lon = -73.8; f.alt_ft = 500; f.hdg = 31; f.pitch = 2.5; f.roll = -1;
     f.landing_mask = 0x7F; f.strobe = true;
+    f.gear_down = true; f.flaps = 30;
     fh::Environment env;
     env.tod_hours = 19.25f; env.vis_ft = 3 * 5280.f; env.rvr_ft = 2400; env.ceiling_ft_msl = 800;
     for (auto wo : {s376::xt4::WordOrder::Le, s376::xt4::WordOrder::Be})
@@ -252,7 +253,7 @@ static void test_wire() {
             CHECK(eye.has_value());
             NEAR(eye->lat_deg, 40.6, 1e-7);
             NEAR(eye->true_heading_deg(), 31, 1e-3);
-            bool env_ok = false, q = false, lights = false, fog = false;
+            bool env_ok = false, q = false, lights = false, fog = false, own = false;
             for (const auto& pk : p->packets) {
                 if (pk.type == s376::xt4::kTypeEnv) {
                     auto e = s376::xt4::decode_env(pk, dec.locked_fmt());
@@ -264,8 +265,12 @@ static void test_wire() {
                     lights = s376::xt4::decode_lights(pk).landing_mask == 0x7F;
                 if (pk.type == s376::xt4::kTypeFog)
                     fog = std::fabs(s376::xt4::decode_fog(pk, dec.locked_fmt()).rvr_ft - 2400) < 1;
+                if (pk.type == s376::xt4::kTypeOwnship) {
+                    const auto o = s376::xt4::decode_ownship(pk);
+                    own = o.gear == 1 && o.flaps == 30;
+                }
             }
-            CHECK(env_ok && q && lights && fog);
+            CHECK(env_ok && q && lights && fog && own);
         }
     // HAT reply decode matches the IG builder.
     auto r = s376::xt4::build_hat_response(12.5f, 11.9f, true);
@@ -401,6 +406,9 @@ static void test_inprocess_e2e() {
     // Eyepoint reached the IG state.
     const auto hs = st.load();
     CHECK(hs.have_eyepoint);
+    CHECK(hs.have_ownship);
+    CHECK(hs.ownship.gear == 1);
+    CHECK(hs.ownship.flaps == 30);
     NEAR(hs.eye.lat_deg, ap.config().rwy.thr_lat, 0.05);
     CHECK(chk.replies > 50);
     CHECK(chk.have_td);

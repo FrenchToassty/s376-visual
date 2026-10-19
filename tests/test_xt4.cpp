@@ -1,3 +1,4 @@
+#include "s376/state.hpp"
 #include "s376/xt4.hpp"
 
 #include <cmath>
@@ -77,6 +78,8 @@ void test_xt4() {
     CHECK(build_lights(false, false, 0, FloatFmt::Vax).size() * 2 == 0x48);
     CHECK(build_env(12.f, 1000.f, 1, 1, 2000, FloatFmt::Vax).size() * 2 == 0x4A);
     CHECK(build_display(true).size() * 2 == 0x18);
+    CHECK(build_ownship(1, 30).size() * 2 == 0x18);
+    CHECK(std::string(type_name(kTypeOwnship)) == "OWNSHIP");
     CHECK(build_fog(200.f, 1200.f, FloatFmt::Vax).size() * 2 == 36);
     CHECK(build_cloud(kTypeLowerCloud, 0, 2000.f, 3000.f, FloatFmt::Vax).size() * 2 == 56);
     CHECK(build_top_cloud(2).size() * 2 == 24);
@@ -255,6 +258,36 @@ void test_xt4() {
         p.words = sw;
         auto d = decode_light_switch(p);
         CHECK(d.switch_num == 12 && d.step == 4);
+    }
+
+    // Type 180 — s376 ownship (gear / flaps). Not an ICD type.
+    {
+        auto pk = build_ownship(1, 30);
+        Packet p;
+        p.type = kTypeOwnship;
+        p.words = pk;
+        auto o = decode_ownship(p);
+        CHECK(o.gear == 1 && o.flaps == 30);
+        auto pk2 = build_ownship(2, 40);
+        p.words = pk2;
+        o = decode_ownship(p);
+        CHECK(o.gear == 2 && o.flaps == 40);
+        Packet empty;
+        empty.type = kTypeOwnship;
+        o = decode_ownship(empty);
+        CHECK(o.gear == 0 && o.flaps == 0);
+        auto bytes = build_datagram({build_ownship(1, 25)}, WordOrder::Le);
+        Decoder dec;
+        auto parsed = dec.parse(bytes.data(), bytes.size());
+        CHECK(parsed.has_value());
+        CHECK(!parsed->packets.empty());
+        CHECK(parsed->packets[0].type == kTypeOwnship);
+        s376::SharedState st;
+        s376::HostState snap;
+        st.apply(*parsed, dec, "127.0.0.1:9", 1, snap);
+        CHECK(snap.have_ownship);
+        CHECK(snap.ownship.gear == 1);
+        CHECK(snap.ownship.flaps == 25);
     }
 
     {

@@ -207,6 +207,8 @@ const char* type_name(int type) {
         return "STORM";
     case kTypeDisplay:
         return "DISPLAY";
+    case kTypeOwnship:
+        return "OWNSHIP";
     case kTypeHat:
         return "HAT";
     default:
@@ -480,6 +482,16 @@ Query decode_query(const Packet& p) {
     return q;
 }
 
+OwnshipConfig decode_ownship(const Packet& p) {
+    OwnshipConfig o;
+    const auto* b = p.body();
+    if (!b || p.body_words() < 2)
+        return o;
+    o.gear = s16(b[0]);
+    o.flaps = s16(b[1]);
+    return o;
+}
+
 bool plausible_dcs(const Dcs& d) {
     const double vals[] = {d.heading_deg, d.pitch_deg, d.roll_deg, d.lat_deg, d.lon_deg, d.alt_ft};
     for (double v : vals) {
@@ -685,6 +697,12 @@ std::vector<std::uint16_t> build_light_switch(int switch_num, int step) {
 std::vector<std::uint16_t> build_display(bool on) {
     std::uint16_t body[2] = {0xFFFF, static_cast<std::uint16_t>(on ? 1 : 0)};
     return build_packet(kTypeDisplay, body, 2);
+}
+
+std::vector<std::uint16_t> build_ownship(int gear, int flaps) {
+    std::uint16_t body[2] = {static_cast<std::uint16_t>(gear),
+                             static_cast<std::uint16_t>(flaps)};
+    return build_packet(kTypeOwnship, body, 2);
 }
 
 std::vector<std::uint16_t> build_hat_query() {

@@ -2,6 +2,7 @@
 #include "s376/config.hpp"
 #include "s376/control.hpp"
 #include "s376/diagnostics.hpp"
+#include "s376/fakehost.hpp"
 #include "s376/host.hpp"
 #include "s376/landmarks.hpp"
 #include "s376/missiles.hpp"
@@ -51,7 +52,11 @@ void usage() {
            "  --cache-dir PATH      packed DEM/imagery from s376-cache\n"
            "  --headless            run the host receiver with no GL window\n"
            "  --demo [kjfk]         bare --demo: in-process synth to 127.0.0.1 (CI)\n"
-           "                        --demo kjfk: live 60 Hz KJFK 04R approach + landing\n"
+           "                        --demo kjfk: fakehost loopback, six-mile-final, 6 nm\n"
+           "  --six-mile-final      --demo kjfk: gear down / flaps 30 from frame 1 (default)\n"
+           "  --start DIST          --demo kjfk start: 6nm (default), 6sm, 10nm, 11km\n"
+           "  --reply-port PORT     type-200 HAT reply port (default host.reply_port=2301)\n"
+           "  --mem-budget MB       CPU resident cap (overrides render.ram_mb; 980 Ti=2048)\n"
            "  --demo-weather        demo plus 124/125/126/127/128 weather and a storm cell\n"
            "  --duration SEC        exit after SEC seconds (tests)\n"
            "  -v, --verbose         console DEBUG\n"
@@ -155,7 +160,11 @@ int main(int argc, char** argv) {
     double record_fps = 30.0;
     s376::ShotOverrides shot_over;
     std::string reply_master_override;
+    int reply_port_override = -1;
     bool no_hat = false;
+    bool six_mile = false;
+    bool six_mile_set = false;
+    std::string start_dist;
     std::string era_override;
     std::string control_override;
     bool no_control = false;
@@ -166,6 +175,7 @@ int main(int argc, char** argv) {
     bool have_shot_rwy = false;
     bool do_bench = false;
     bool offscreen = false;
+    int mem_budget_mb = -1;
 
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
@@ -217,6 +227,16 @@ int main(int argc, char** argv) {
             quality_override = need(a.c_str());
         else if (a == "--reply-master")
             reply_master_override = need(a.c_str());
+        else if (a == "--reply-port")
+            reply_port_override = std::stoi(need(a.c_str()));
+        else if (a == "--six-mile-final") {
+            six_mile = true;
+            six_mile_set = true;
+        } else if (a == "--no-six-mile-final") {
+            six_mile = false;
+            six_mile_set = true;
+        } else if (a == "--start")
+            start_dist = need(a.c_str());
         else if (a == "--no-hat")
             no_hat = true;
         else if (a == "--era")
@@ -273,6 +293,8 @@ int main(int argc, char** argv) {
             do_bench = true;
         else if (a == "--offscreen")
             offscreen = true;
+        else if (a == "--mem-budget")
+            mem_budget_mb = std::stoi(need(a.c_str()));
         else {
             std::cerr << "unknown option " << a << "\n";
             usage();
@@ -318,8 +340,12 @@ int main(int argc, char** argv) {
         cfg.render.solar_astronomy = true;
     if (offscreen)
         cfg.render.offscreen = true;
+    if (mem_budget_mb >= 256)
+        cfg.render.ram_mb = mem_budget_mb;
     if (!reply_master_override.empty())
         cfg.host.reply_master = reply_master_override;
+    if (reply_port_override > 0 && reply_port_override < 65536)
+        cfg.host.reply_port = static_cast<std::uint16_t>(reply_port_override);
     if (no_hat)
         cfg.host.hat_responder = false;
     if (!era_override.empty()) {
@@ -366,9 +392,32 @@ int main(int argc, char** argv) {
             shot_tod = 12.f;
         }
         cfg.render.frame_rate = 60.0;
-        cfg.render.sync_to_host = false;
+        cfg.render.sync_to_host = true;
         if (record_fps == 30.0)
             record_fps = 60.0;
+        if (!six_mile_set)
+            six_mile = true;
+        if (start_dist.empty())
+            start_dist = "6nm";
+        if (bind_override.empty())
+            cfg.host.bind = "127.0.0.1:2300";
+        cfg.host.allow_sim_lan = false;
+        cfg.host.allow_lan = false;
+        if (mem_budget_mb >= 256)
+            cfg.render.ram_mb = mem_budget_mb;
+    }
+    double demo_start_nm = 6.0;
+    if (demo_kjfk) {
+        try {
+            demo_start_nm = s376::fakehost::parse_distance_nm(start_dist);
+        } catch (const std::exception& ex) {
+            std::cerr << "--start: " << ex.what() << "\n";
+            return 2;
+        }
+        if (demo_start_nm < 0.2 || demo_start_nm > 30.0) {
+            std::cerr << "--start must be 0.2..30 nm\n";
+            return 2;
+        }
     }
     if (demo && !demo_kjfk) {
         cfg.host.bind = "127.0.0.1:2300";
@@ -592,13 +641,13 @@ int main(int argc, char** argv) {
     S376_LOG_INFO("ig", "HAT DEM %dx%d  %.3f,%.3f .. %.3f,%.3f", dem->w, dem->h, dem->west,
                   dem->south, dem->east, dem->north);
     std::thread synth_th;
-    // --at / --screenshot / --self-test-shot / --demo kjfk pose the eye
-    // themselves. Bare --demo still opens a loopback socket (synth / CI).
+    // Bare --demo and --demo kjfk both open a loopback host socket.
+    // --at / --screenshot / --self-test-shot pose the eye themselves.
     const bool live_host =
-        (demo && !demo_kjfk) ||
+        (demo && record_path.empty()) ||
         (!have_shot && screenshot_path.empty() && self_test_shot.empty() && record_path.empty());
     if (have_shot && !live_host)
-        S376_LOG_INFO("ig", "--at/--demo kjfk: no host socket (datagrams not required)");
+        S376_LOG_INFO("ig", "--at: no host socket (datagrams not required)");
     if (live_host) {
         try {
             rx.start();
@@ -614,13 +663,46 @@ int main(int argc, char** argv) {
     const double demo_duration = duration < 0 ? 3600.0 : duration;
     if (demo_kjfk && have_shot) {
         S376_LOG_INFO("ig",
-                      "demo kjfk: live 60 Hz %s:%s  tod=%.1f  quality=%s  cache=%s",
+                      "demo kjfk: fakehost %s:%s  start=%.2fnm  six-mile=%s  tod=%.1f  "
+                      "quality=%s  dest=%s  hat=%u  cache=%s",
                       approach.icao.empty() ? "KJFK" : approach.icao.c_str(),
-                      approach.rwy.empty() ? "04R" : approach.rwy.c_str(), shot_tod,
-                      cfg.render.quality.c_str(),
+                      approach.rwy.empty() ? "04R" : approach.rwy.c_str(), demo_start_nm,
+                      six_mile ? "on" : "off", shot_tod, cfg.render.quality.c_str(),
+                      cfg.host.bind.c_str(), static_cast<unsigned>(cfg.host.reply_port),
                       cfg.render.cache_dir.empty() ? "(auto/synth)" : cfg.render.cache_dir.c_str());
     }
-    if (demo && live_host) {
+    if (demo_kjfk && live_host) {
+        std::string dest = cfg.host.bind;
+        if (dest.rfind("0.0.0.0:", 0) == 0)
+            dest = "127.0.0.1:" + dest.substr(8);
+        const std::string listen = "127.0.0.1:" + std::to_string(cfg.host.reply_port);
+        const double fps = std::max(1.0, cfg.render.frame_rate);
+        s376::fakehost::ProfileConfig pc;
+        try {
+            pc.rwy = s376::fakehost::runway_from_faa(
+                approach.icao.empty() ? "KJFK" : approach.icao,
+                approach.rwy.empty() ? "04R" : approach.rwy);
+        } catch (const std::exception& ex) {
+            S376_LOG_ERROR("ig", "fakehost runway: %s", ex.what());
+            s376::log::shutdown();
+            return 2;
+        }
+        pc.start_nm = demo_start_nm;
+        pc.gs_deg = gs_deg;
+        pc.landing_config_at_start = six_mile;
+        s376::fakehost::Environment env;
+        env.tod_hours = have_shot_tod ? shot_tod : 12.f;
+        S376_LOG_INFO("ig", "demo kjfk: fakehost -> %s  listen %s  for %.1fs", dest.c_str(),
+                      listen.c_str(), demo_duration);
+        synth_th = std::thread([dest, listen, pc, env, fps, demo_duration] {
+            try {
+                s376::fakehost::run_approach_sender(dest, listen, pc, env, fps, demo_duration,
+                                                    &g_stop);
+            } catch (const std::exception& ex) {
+                S376_LOG_ERROR("fakehost", "%s", ex.what());
+            }
+        });
+    } else if (demo && live_host) {
         S376_LOG_INFO("ig", "demo: in-process synth -> 127.0.0.1:2300 for %.1fs", demo_duration);
         synth_th = std::thread([demo_cfg, demo_duration] {
             try {
@@ -724,26 +806,67 @@ int main(int argc, char** argv) {
                 if (warm >= 7 && (rend->pager_idle() || waited >= screenshot_wait))
                     break;
             }
+            auto write_one = [&](const s376::HostState& h, int i, int total, double alt,
+                                 double nm) -> bool {
+                rend->frame(h);
+                ++frames;
+                if (!rend->capture_rgb(im) || !writer.write(im)) {
+                    S376_LOG_ERROR("ig", "record frame %d failed", i);
+                    return false;
+                }
+                if (i == 0 || i + 1 == total || i % 60 == 0) {
+                    S376_LOG_INFO("ig", "record %d/%d  %.0fft  %.2fnm  rss=%.1f MiB", i + 1, total,
+                                  alt, nm,
+                                  static_cast<double>(s376::current_rss_bytes()) /
+                                      (1024.0 * 1024.0));
+                }
+                return true;
+            };
+            if (demo_kjfk) {
+                s376::fakehost::ProfileConfig pc;
+                pc.rwy = s376::fakehost::runway_from_faa(
+                    approach.icao.empty() ? "KJFK" : approach.icao,
+                    approach.rwy.empty() ? "04R" : approach.rwy);
+                pc.start_nm = demo_start_nm;
+                pc.gs_deg = gs_deg;
+                pc.landing_config_at_start = six_mile;
+                s376::fakehost::ApproachProfile ap(pc);
+                int i = 0;
+                while (!ap.done() && !g_stop && !rend->done()) {
+                    const auto f = ap.step(dt);
+                    s376::ShotPose pose;
+                    pose.icao = pc.rwy.icao;
+                    pose.rwy = pc.rwy.ident;
+                    pose.lat = f.lat;
+                    pose.lon = f.lon;
+                    pose.alt_ft = f.alt_ft;
+                    pose.hdg_true_deg = f.hdg;
+                    pose.pitch_deg = f.pitch;
+                    pose.roll_deg = f.roll;
+                    shot_host = host_from_shot(pose);
+                    apply_shot_env(shot_host);
+                    shot_host.ownship.gear = f.gear_down ? 1 : 0;
+                    shot_host.ownship.flaps = f.flaps;
+                    shot_host.have_ownship = true;
+                    shot_host.script_dt = dt;
+                    if (!write_one(shot_host, i, 0, f.alt_ft, f.wheel_agl_ft / 6076.115)) {
+                        rc = 1;
+                        break;
+                    }
+                    ++i;
+                }
+            } else {
             for (int i = 0; i < n && !g_stop && !rend->done(); ++i) {
                 const double t = static_cast<double>(i) / std::max(1.0, approach.fps);
                 const auto pose = s376::approach_sample(approach, t);
                 shot_host = host_from_shot(pose);
                 apply_shot_env(shot_host);
                 shot_host.script_dt = dt;
-                rend->frame(shot_host);
-                ++frames;
-                if (!rend->capture_rgb(im) || !writer.write(im)) {
-                    S376_LOG_ERROR("ig", "record frame %d failed", i);
+                if (!write_one(shot_host, i, n, pose.alt_ft, pose.dist_nm)) {
                     rc = 1;
                     break;
                 }
-                if (i == 0 || i + 1 == n || i % 60 == 0) {
-                    S376_LOG_INFO("ig",
-                                  "record %d/%d  %.0fft  %.2fnm  rss=%.1f MiB", i + 1, n,
-                                  pose.alt_ft, pose.dist_nm,
-                                  static_cast<double>(s376::current_rss_bytes()) /
-                                      (1024.0 * 1024.0));
-                }
+            }
             }
             if (!writer.close() && writer.used_ffmpeg()) {
                 S376_LOG_ERROR("ig", "ffmpeg mux failed for %s", record_path.c_str());
@@ -774,17 +897,7 @@ int main(int argc, char** argv) {
             }
         }
         s376::HostState host = state.load();
-        if (demo_kjfk && !approach.icao.empty() && record_path.empty()) {
-            const double elapsed =
-                std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-            const double t_end = s376::approach_time_s(approach);
-            const double t = std::min(elapsed, t_end);
-            const auto pose = s376::approach_sample(approach, t);
-            shot_host = host_from_shot(pose);
-            apply_shot_env(shot_host);
-            shot_host.script_dt = static_cast<float>(1.0 / std::max(1.0, cfg.render.frame_rate));
-            host = shot_host;
-        } else if (have_shot)
+        if (!demo_kjfk && have_shot)
             host = shot_host;
         if (host.have_eyepoint && ptt.edge(host, cfg.egg, rend->ptt_key_down())) {
             (void)s376::try_fire_missile(host.eye.lat_deg, host.eye.lon_deg, host.eye.alt_ft,

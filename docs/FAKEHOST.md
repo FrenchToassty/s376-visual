@@ -8,8 +8,9 @@ It speaks **only** the existing clean-room xT4 subset in
 [PROTOCOL.md](PROTOCOL.md), built with the same `xt4::build_*` helpers as
 `s376-synth`: type 100 eyepoint, 113 HAT query, 109 ownship lights,
 124 environment (TOD, visibility, wind, date), 125/127 cloud, 128 fog,
-112 light steps, 131 display on. It reads the type-200 HAT reply on 2301.
-No new packet types; no ICD or manual text.
+112 light steps, 131 display on, and type **180** ownship gear/flaps
+(an s376-visual extension, not a CAE ICD type). It reads the type-200
+HAT reply on 2301. No ICD or manual text.
 
 ## Safety: loopback only
 
@@ -26,9 +27,11 @@ it, and there is no flag that does. Exit code 4 = refused.
 
 ```sh
 # renderer (headless works with no GPU; drop --headless for the window)
-s376-visual --bind 127.0.0.1:2300 --no-control            # [--headless]
+s376-visual --bind 127.0.0.1:2300 --reply-port 2301 --no-control   # [--headless]
 # host: 6 nm final 04R, real-time 60 Hz, HAT checks
 s376-fakehost --profile kjfk-04r --fps 60 --check
+# or one process: --demo kjfk starts fakehost on loopback (six-mile-final, 6 nm)
+s376-visual --demo kjfk --six-mile-final --start 6nm
 ```
 
 The renderer replies HAT to the sender's IP on `host.reply_port` (2301),
@@ -63,8 +66,8 @@ which is the fakehost's default `--listen 127.0.0.1:2301`. Keep
   touchdown ~1700 ft past the threshold, derotate, decelerate to 20 kt taxi,
   hold 5 s. Landing lights (all 7 lobes) on until taxi speed, then turnoff
   lights only; strobes on; beacon on.
-* Gear and flaps have **no packet** in the protocol: they are logged and
-  written to the trajectory file only.
+* Gear and flaps go out as type **180** (`xt4::build_ownship`) every
+  frame, and are also logged / written to the trajectory file.
 
 ### Reposition presets
 

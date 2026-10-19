@@ -14,10 +14,12 @@ struct HostState {
     xt4::Env env;
     xt4::Fog fog;
     xt4::Lights lights;
+    xt4::OwnshipConfig ownship;
     xt4::DisplayControl display;
     std::array<int, xt4::kMaxLightSwitches> light_steps{};
     bool have_env = false;
     bool have_fog = false;
+    bool have_ownship = false;
     bool have_cloud = false;
     std::array<xt4::CloudLayer, xt4::kMaxCloudLayers> clouds{};
     std::array<xt4::StormCell, xt4::kMaxActiveStorms> storms{};

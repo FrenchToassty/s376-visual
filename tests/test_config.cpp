@@ -125,6 +125,8 @@ void test_config() {
         CHECK(dumped.find("render.taa=true") != std::string::npos);
         CHECK(dumped.find("render.clustered=true") != std::string::npos);
         CHECK(dumped.find("render.lod_fade=true") != std::string::npos);
+        CHECK(dumped.find("host.reply_port=2301") != std::string::npos);
+        CHECK(dumped.find("host.reply_master=mid_left") != std::string::npos);
         CHECK(!d.render.offscreen);
         int nb = 0;
         const auto* budgets = s376::quality_gpu_budgets(nb);
@@ -150,7 +152,7 @@ void test_config() {
     {
         std::ofstream o(path);
         o << "[host]\nbind = \"127.0.0.1:2300\"\nword_order = \"be\"\nfloat_format = \"ieee\"\n"
-             "hat_responder = false\n"
+             "hat_responder = false\nreply_port = 23991\n"
              "[render]\nengine = \"osg\"\nframe_rate = 30\ngl_debug = true\n"
              "[[channels]]\nname = \"front\"\nheading_offset_deg = 0\nhfov_deg = 50\n"
              "vfov_deg = 32.5\nresolution = \"800x600\"\n"
@@ -160,6 +162,7 @@ void test_config() {
     CHECK(c.host.bind == "127.0.0.1:2300");
     CHECK(c.host.word_order == s376::xt4::WordOrder::Be);
     CHECK(c.host.float_fmt == s376::xt4::FloatFmt::Ieee);
+    CHECK(c.host.reply_port == 23991);
     CHECK(c.host.reply_master.empty()); // mid_left is not in this file
     CHECK(!c.host.hat_responder);
     CHECK(c.render.engine == "osg");

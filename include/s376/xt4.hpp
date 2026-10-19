@@ -28,6 +28,9 @@ constexpr int kTypeUpperCloud = 126;
 constexpr int kTypeTopCloud = 127;
 constexpr int kTypeFog = 128;
 constexpr int kTypeDisplay = 131;
+// s376-visual extension (Oct 25 demo / future IOS emulator). Not a CAE
+// or RSI ICD type — designed here so gear/flaps can reach the IG.
+constexpr int kTypeOwnship = 180;
 constexpr int kTypeHat = 200;
 
 constexpr int kEyepointCsn = 1;
@@ -163,6 +166,13 @@ struct Query {
     int csn = 0;
 };
 
+// Type 180 — ownship configuration. s376-visual design, not an ICD copy.
+// gear: 0 up, 1 down, 2 in transit. flaps: 737-300 detents 0/1/2/5/10/15/25/30/40.
+struct OwnshipConfig {
+    int gear = 0;
+    int flaps = 0;
+};
+
 struct Stats {
     std::uint64_t datagrams = 0;
     std::uint64_t packets = 0;
@@ -218,6 +228,7 @@ StormSelect decode_storm(const Packet& p);
 LightSwitch decode_light_switch(const Packet& p);
 DisplayControl decode_display(const Packet& p);
 Query decode_query(const Packet& p);
+OwnshipConfig decode_ownship(const Packet& p);
 
 bool plausible_dcs(const Dcs& d);
 
@@ -244,6 +255,7 @@ std::vector<std::uint16_t> build_storm(int select, bool active, int csn, int pre
                                        int precip_intensity, int lightning);
 std::vector<std::uint16_t> build_light_switch(int switch_num, int step);
 std::vector<std::uint16_t> build_display(bool on);
+std::vector<std::uint16_t> build_ownship(int gear, int flaps);
 std::vector<std::uint16_t> build_hat_query();
 std::vector<std::uint8_t> build_datagram(const std::vector<std::vector<std::uint16_t>>& packets,
                                          WordOrder order, int total_words = 300);

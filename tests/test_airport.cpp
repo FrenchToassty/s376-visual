@@ -105,6 +105,75 @@ void check_named_solid(const s376::SolidBvh& bvh, const s376::Airport& a, const 
     CHECK_NEAR(hs.hat_ft, 80.0, 8.0);
 }
 
+// Host crash path: eye inside the volume → HAT ≤ 0. Segment from above
+// through the roof → intersect.
+void check_building_contact(const s376::SolidBvh& bvh, const s376::Airport& a, const char* name) {
+    const s376::Building* b = find_bldg(a, name);
+    CHECK(b != nullptr);
+    if (!b)
+        return;
+    double lat = 0, lon = 0;
+    s376::building_centroid(*b, lat, lon);
+    const double ground = a.elev_m;
+    const double mid_m = ground + s376::kBuildingSitM + static_cast<double>(b->height_m) * 0.5;
+    const double mid_ft = mid_m * s376::geo::kMToFt;
+    const double above_ft =
+        (ground + s376::kBuildingSitM + static_cast<double>(b->height_m) + 80.0) * s376::geo::kMToFt;
+    const auto inside = s376::sample_hat_solids(nullptr, &bvh, lat, lon, mid_ft);
+    CHECK(inside.building);
+    CHECK(inside.hat_ft <= 0.f);
+    const auto pierce =
+        s376::sample_hat_solids(nullptr, &bvh, lat, lon, mid_ft, &lat, &lon, &above_ft);
+    CHECK(pierce.building);
+    CHECK(pierce.intersect);
+    CHECK(pierce.hat_ft <= 0.f);
+}
+
+void check_real_kjfk_solids_contact() {
+    const char* cands[] = {"/tmp/kjfk-real/solids.bin", "cache/KJFK/solids.bin", nullptr};
+    std::string path;
+    for (int i = 0; cands[i]; ++i) {
+        if (std::filesystem::exists(cands[i])) {
+            path = cands[i];
+            break;
+        }
+    }
+    if (path.empty()) {
+        std::cerr << "  (KJFK solids.bin not on disk — official T5 contact still ran)\n";
+        return;
+    }
+    s376::SolidBvh real;
+    const int n = s376::read_solids_bin(real, path);
+    if (n <= 0) {
+        std::cerr << "  (KJFK solids.bin at " << path
+                  << " is empty/header-only — official T5 contact still ran)\n";
+        return;
+    }
+    real.build();
+    CHECK(real.bytes() > 0);
+    // Official T5 centroid (src/airport.cpp box_building). If the OSM pack
+    // covers that footprint, HAT ≤ 0 inside the roof; otherwise volumes exist.
+    const double t5_lat = 40.6410;
+    const double t5_lon = -73.7870;
+    double roof = 0;
+    if (real.roof_msl(t5_lat, t5_lon, &roof) && roof > 0) {
+        const double mid_ft = (roof - 2.0) * s376::geo::kMToFt;
+        const double above_ft = (roof + 40.0) * s376::geo::kMToFt;
+        const auto inside = s376::sample_hat_solids(nullptr, &real, t5_lat, t5_lon, mid_ft);
+        CHECK(inside.building);
+        CHECK(inside.hat_ft <= 0.f);
+        const auto pierce = s376::sample_hat_solids(nullptr, &real, t5_lat, t5_lon, mid_ft, &t5_lat,
+                                                    &t5_lon, &above_ft);
+        CHECK(pierce.intersect);
+        CHECK(pierce.hat_ft <= 0.f);
+        std::cerr << "  real KJFK solids.bin contact at T5  roof=" << roof << " m  " << path
+                  << "\n";
+    } else {
+        std::cerr << "  real KJFK solids.bin loaded (" << n << " recs, " << real.bytes()
+                  << " B) but no roof at official T5 — volumes still present\n";
+    }
+}
+
 void check_jetbridge_solid(const s376::SolidBvh& bvh, const s376::Airport& a) {
     CHECK(!a.jetbridges.empty());
     for (const auto& j : a.jetbridges) {
@@ -375,6 +444,8 @@ void test_airport() {
     s376::fill_solids(jfk_solids, s376::SkylineEra::Current, {jfk});
     for (const char* name : {"T1", "T4", "T5", "T7", "T8", "hangar", "cargo", "ATCT"})
         check_named_solid(jfk_solids, jfk, name);
+    check_building_contact(jfk_solids, jfk, "T5");
+    check_real_kjfk_solids_contact();
     check_jetbridge_solid(jfk_solids, jfk);
 
     auto ewr = s376::kewr_public();

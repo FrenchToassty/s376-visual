@@ -85,6 +85,10 @@ void SharedState::apply(const xt4::Datagram& dg, xt4::Decoder& dec, const std::s
         case xt4::kTypeAcLights:
             s_.lights = xt4::decode_lights(p);
             break;
+        case xt4::kTypeOwnship:
+            s_.ownship = xt4::decode_ownship(p);
+            s_.have_ownship = true;
+            break;
         case xt4::kTypeDisplay:
             s_.display = xt4::decode_display(p);
             break;

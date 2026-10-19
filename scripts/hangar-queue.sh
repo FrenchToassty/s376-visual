@@ -10,6 +10,15 @@
 # pbuffer only — no projector windows. If a game is running, wait and
 # retry every 5 minutes; never kill anything.
 #
+# Crash / reboot resilience (Joey's 16 GB Mint froze once):
+#   user systemd autostart (--install-autostart, no sudo) resumes after reboot;
+#   heartbeat + boot_id detect an unclean stop; journal OOM/Xid/thermal;
+#   per-step crash counters step down (-j 16→8→4, rtx→gtx980ti, serial
+#   fetches, lower heat limit) and BLOCKED after 3; PSI/MemAvailable
+#   watchdog pauses or stops only this queue's units (~4 GB free);
+#   CRASHES.md. Renderer/cache take --mem-budget so one process cannot
+#   eat the box. Layout stays ~/Downloads/s376-queue/<NN>-<name>/.
+#
 # usage: scripts/hangar-queue.sh [--from NN] [--only NN] [--list] [--dry-run] [--root DIR] [--out DIR] [--kjfk DIR] [--all-airports]
 set -euo pipefail
 
@@ -26,6 +35,18 @@ ALL_AIRPORTS=0
 # for the desktop (16 GB box). Override with -j / $S376_JOBS.
 JOBS="${S376_JOBS:-16}"
 WAIT_SEC="${S376_GPU_WAIT_SEC:-300}"
+MEM_BUDGET_MB="${S376_MEM_BUDGET:-2048}"
+KEEP_FREE_MB="${S376_KEEP_FREE_MB:-4096}"
+HEAT_LIMIT="${S376_HEAT_LIMIT:-83}"
+MAX_CRASHES="${S376_MAX_CRASHES:-3}"
+QUALITY_CAP="${S376_QUALITY_CAP:-rtx}"
+SERIAL_FETCH=0
+INSTALL_AUTOSTART=0
+UNINSTALL_AUTOSTART=0
+CRASH_CHECK=0
+CURRENT_NN=""
+CURRENT_NAME=""
+WATCH_PIDS=()
 
 # NN name mem. Default is KJFK-only (Joey demo). KEWR / other US fields
 # stay behind --all-airports so the hangar spends the night on JFK.
@@ -58,6 +79,10 @@ usage: scripts/hangar-queue.sh [--from NN] [--only NN] [--list] [--dry-run] [--r
   --kjfk DIR        existing 1 m KJFK pack (default: $ROOT/cache/KJFK)
   --all-airports    also run 13 fetch-kewr and 14 fetch-us-next (paused by default)
   -j, --jobs N      make / fetch workers (default 16; $S376_JOBS)
+  --mem-budget MB   pass --mem-budget to s376-visual / s376-cache (default 2048)
+  --install-autostart   user systemd unit that resumes after reboot (no sudo)
+  --uninstall-autostart remove that user unit
+  --crash-check     print heartbeat / boot_id / CRASHES.md and exit 0
 
 Default steps (KJFK demo): 01 build, 02 review-now, 03 bench, 04 video-day,
 05 video-night, 06 fetch-kjfk-far, 07 fetch-kjfk-near, 08 review-after-fetch,
@@ -101,6 +126,13 @@ while [[ $# -gt 0 ]]; do
             JOBS="${2:?}"
             shift
             ;;
+        --mem-budget)
+            MEM_BUDGET_MB="${2:?}"
+            shift
+            ;;
+        --install-autostart) INSTALL_AUTOSTART=1 ;;
+        --uninstall-autostart) UNINSTALL_AUTOSTART=1 ;;
+        --crash-check) CRASH_CHECK=1 ;;
         -h|--help)
             usage
             exit 0
@@ -148,8 +180,111 @@ if [[ "$LIST" -eq 1 ]]; then
         d="$(step_dir "$nn" "$name")"
         mark="pending"
         [[ -f "$d/done" ]] && mark="done"
+        [[ -f "$d/BLOCKED" ]] && mark="BLOCKED"
         printf '%s  %-20s  mem=%-4s  %s\n' "$nn" "$name" "$(step_mem "$s")" "$mark"
     done
+    exit 0
+fi
+
+boot_id() {
+    if [[ -r /proc/sys/kernel/random/boot_id ]]; then
+        tr -d '[:space:]' </proc/sys/kernel/random/boot_id
+    else
+        echo unknown
+    fi
+}
+
+mem_available_mb() {
+    awk '/MemAvailable:/ {print int($2/1024); exit}' /proc/meminfo 2>/dev/null || echo 0
+}
+
+psi_some_avg10() {
+    awk '/^some / {for(i=1;i<=NF;i++) if($i ~ /^avg10=/) {split($i,a,"="); print a[2]; exit}}' \
+        /proc/pressure/memory 2>/dev/null || echo 0
+}
+
+gpu_temp_c() {
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits 2>/dev/null | head -n 1 | tr -dc '0-9'
+    fi
+}
+
+write_unit() {
+    local unit_dir="$HOME/.config/systemd/user"
+    local unit="$unit_dir/s376-hangar-queue.service"
+    if [[ "$DRY" -eq 1 ]]; then
+        echo "+ write $unit"
+        echo "+ ExecStart=$ROOT/scripts/hangar-queue.sh --out $OUT --root $ROOT --kjfk $KJFK"
+        echo "+ systemctl --user enable --now s376-hangar-queue.service"
+        return 0
+    fi
+    mkdir -p "$unit_dir"
+    cat >"$unit" <<EOF
+[Unit]
+Description=s376 hangar-queue resume after reboot
+After=default.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=$ROOT
+ExecStart=$ROOT/scripts/hangar-queue.sh --out $OUT --root $ROOT --kjfk $KJFK
+RemainAfterExit=no
+
+[Install]
+WantedBy=default.target
+EOF
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl --user daemon-reload
+        systemctl --user enable s376-hangar-queue.service
+        echo "enabled user unit $unit (no sudo). reboot resumes the queue."
+    else
+        echo "wrote $unit (systemctl not on PATH — enable later)"
+    fi
+}
+
+remove_unit() {
+    local unit="$HOME/.config/systemd/user/s376-hangar-queue.service"
+    if [[ "$DRY" -eq 1 ]]; then
+        echo "+ systemctl --user disable --now s376-hangar-queue.service"
+        echo "+ rm -f $unit"
+        return 0
+    fi
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl --user disable --now s376-hangar-queue.service >/dev/null 2>&1 || true
+    fi
+    rm -f "$unit"
+    echo "removed user hangar-queue autostart"
+}
+
+if [[ "$INSTALL_AUTOSTART" -eq 1 ]]; then
+    write_unit
+    exit 0
+fi
+if [[ "$UNINSTALL_AUTOSTART" -eq 1 ]]; then
+    remove_unit
+    exit 0
+fi
+if [[ "$CRASH_CHECK" -eq 1 ]]; then
+    echo "s376 hangar-queue crash-check"
+    echo "out=$OUT"
+    echo "boot_id=$(boot_id)"
+    echo "mem_available_mb=$(mem_available_mb)"
+    echo "psi_some_avg10=$(psi_some_avg10)"
+    echo "heat_limit=$HEAT_LIMIT"
+    if [[ -f "$OUT/heartbeat" ]]; then
+        echo "heartbeat: $(cat "$OUT/heartbeat")"
+    else
+        echo "heartbeat: none"
+    fi
+    if [[ -f "$OUT/boot_id" ]]; then
+        echo "last_boot: $(cat "$OUT/boot_id")"
+    fi
+    if [[ -f "$OUT/CRASHES.md" ]]; then
+        echo "--- CRASHES.md ---"
+        cat "$OUT/CRASHES.md"
+    else
+        echo "CRASHES.md: none"
+    fi
     exit 0
 fi
 
@@ -237,7 +372,10 @@ write_status() {
             d="$(step_dir "$nn" "$name")"
             state="pending"
             detail=""
-            if [[ -f "$d/done" ]]; then
+            if [[ -f "$d/BLOCKED" ]]; then
+                state="BLOCK"
+                detail="$(tr '\n' ' ' <"$d/BLOCKED" | head -c 160)"
+            elif [[ -f "$d/done" ]]; then
                 state="PASS"
                 detail="$(tr '\n' ' ' <"$d/done" | head -c 160)"
             elif [[ -f "$d/fail" ]]; then
@@ -287,18 +425,170 @@ append_summary() {
 capped() {
     local mem="$1"
     shift
+    wait_pressure
     if [[ "$DRY" -eq 1 ]]; then
-        printf '+ systemd-run --user --scope -p MemoryMax=%s -p MemorySwapMax=0 --' "$mem"
+        printf '+ systemd-run --user --scope --unit=s376-q-%s -p MemoryMax=%s -p MemorySwapMax=0 --' \
+            "${CURRENT_NN:-xx}" "$mem"
         printf ' %q' "$@"
         printf '\n'
         return 0
     fi
     if [[ "$HAVE_SCOPE" -eq 1 ]]; then
-        systemd-run --user --scope --quiet --collect \
+        local unit="s376-q-${CURRENT_NN:-xx}-$$-$RANDOM"
+        echo "$unit" >>"$OUT/our-units"
+        systemd-run --user --scope --unit="$unit" --quiet --collect \
             -p "MemoryMax=$mem" -p MemorySwapMax=0 -- "$@"
     else
         "$@"
     fi
+}
+
+load_limits() {
+    [[ -f "$OUT/limits" ]] || return 0
+    # shellcheck disable=SC1090
+    source "$OUT/limits"
+}
+
+save_limits() {
+    [[ "$DRY" -eq 1 ]] && return 0
+    {
+        echo "JOBS=$JOBS"
+        echo "QUALITY_CAP=$QUALITY_CAP"
+        echo "SERIAL_FETCH=$SERIAL_FETCH"
+        echo "HEAT_LIMIT=$HEAT_LIMIT"
+        echo "MEM_BUDGET_MB=$MEM_BUDGET_MB"
+    } >"$OUT/limits"
+}
+
+note_crash() {
+    local nn="$1" name="$2" why="$3"
+    [[ "$DRY" -eq 1 ]] && return 0
+    mkdir -p "$OUT"
+    {
+        echo "## $(date -u +%Y-%m-%dT%H:%M:%SZ)  $nn $name"
+        echo
+        echo "- $why"
+        echo "- jobs=$JOBS quality_cap=$QUALITY_CAP serial_fetch=$SERIAL_FETCH heat=$HEAT_LIMIT"
+        echo "- mem_available_mb=$(mem_available_mb) psi=$(psi_some_avg10) boot=$(boot_id)"
+        echo
+    } >>"$OUT/CRASHES.md"
+}
+
+step_down() {
+    local n="$1"
+    if [[ "$n" -ge 2 ]]; then
+        JOBS=4
+        QUALITY_CAP=gtx980ti
+        SERIAL_FETCH=1
+        HEAT_LIMIT=75
+    elif [[ "$n" -ge 1 ]]; then
+        if [[ "$JOBS" -gt 8 ]]; then
+            JOBS=8
+        fi
+        HEAT_LIMIT=80
+    fi
+    save_limits
+    log "step-down crashes=$n jobs=$JOBS quality_cap=$QUALITY_CAP serial=$SERIAL_FETCH heat=$HEAT_LIMIT"
+}
+
+stop_our_units() {
+    local u
+    [[ -f "$OUT/our-units" ]] || return 0
+    while read -r u; do
+        [[ -z "$u" ]] && continue
+        systemctl --user stop "$u" >/dev/null 2>&1 || true
+    done <"$OUT/our-units"
+}
+
+wait_pressure() {
+    local avail psi
+    if [[ "$DRY" -eq 1 ]]; then
+        return 0
+    fi
+    while true; do
+        avail="$(mem_available_mb)"
+        psi="$(psi_some_avg10)"
+        avail="${avail:-0}"
+        psi="${psi:-0}"
+        if [[ "$avail" -gt 0 && "$avail" -lt 2048 ]]; then
+            log "mem watchdog: MemAvailable=${avail} MiB — stopping queue units (keep desktop)"
+            stop_our_units
+            echo "pressure MemAvailable=${avail}" >"$OUT/current"
+            write_status
+            sleep 15
+            continue
+        fi
+        if [[ "$avail" -gt 0 && "$avail" -lt "$KEEP_FREE_MB" ]]; then
+            log "mem watchdog: MemAvailable=${avail} MiB < ${KEEP_FREE_MB} — pausing"
+            echo "pressure wait MemAvailable=${avail}" >"$OUT/current"
+            write_status
+            sleep 10
+            continue
+        fi
+        # bash cannot do float compare portably; strip the decimal.
+        local psi_i
+        psi_i="${psi%%.*}"
+        psi_i="${psi_i:-0}"
+        if [[ "$psi_i" -ge 20 ]]; then
+            log "mem watchdog: PSI some avg10=$psi — pausing"
+            sleep 10
+            continue
+        fi
+        break
+    done
+    local t
+    t="$(gpu_temp_c)"
+    if [[ -n "$t" && "$t" -ge "$HEAT_LIMIT" ]]; then
+        log "thermal: GPU ${t}C >= ${HEAT_LIMIT} — waiting"
+        sleep 20
+    fi
+}
+
+journal_scan() {
+    [[ "$DRY" -eq 1 ]] && return 0
+    command -v journalctl >/dev/null 2>&1 || return 0
+    local hits
+    hits="$(journalctl --user -b --no-pager -n 120 2>/dev/null | \
+        grep -iE 'oom|out of memory|killed process|xid|nvrm|thermal' || true)"
+    if [[ -n "$hits" ]]; then
+        note_crash "00" "journal" "boot journal has OOM/Xid/thermal"
+        echo "$hits" >>"$OUT/CRASHES.md"
+    fi
+}
+
+detect_unclean() {
+    [[ "$DRY" -eq 1 ]] && return 0
+    local now last
+    now="$(boot_id)"
+    echo "$now" >"$OUT/boot_id"
+    if [[ -f "$OUT/heartbeat" ]]; then
+        last="$(awk '{print $2}' "$OUT/heartbeat" 2>/dev/null || true)"
+        if [[ -n "$last" && "$last" != "$now" && "$last" != "unknown" ]]; then
+            note_crash "00" "reboot" "unclean stop: heartbeat boot_id=$last now=$now"
+            log "unclean stop detected (reboot/freeze) — resuming leftover steps"
+        fi
+    fi
+}
+
+heartbeat_loop() {
+    while [[ -f "$OUT/queue.lock" ]]; do
+        echo "$(date +%s) $(boot_id) $$ ${CURRENT_NN:-} ${CURRENT_NAME:-}" >"$OUT/heartbeat"
+        sleep 15
+    done
+}
+
+start_watchers() {
+    [[ "$DRY" -eq 1 ]] && return 0
+    heartbeat_loop &
+    WATCH_PIDS+=($!)
+}
+
+stop_watchers() {
+    local p
+    for p in "${WATCH_PIDS[@]:-}"; do
+        kill "$p" >/dev/null 2>&1 || true
+    done
+    WATCH_PIDS=()
 }
 
 # Steam / Proton (`reaper`, steamapps), X-Plane, or a fullscreen GL window
@@ -357,7 +647,8 @@ ig() {
     local mem="$1"
     shift
     wait_gpu
-    capped "$mem" "$VISUAL" --offscreen -c "$CFG" "$@"
+    local extra=(--mem-budget "$MEM_BUDGET_MB")
+    capped "$mem" "$VISUAL" --offscreen -c "$CFG" "${extra[@]}" "$@"
 }
 
 shot() {
@@ -386,8 +677,12 @@ fetch_pack() {
     if [[ "$DRY" -eq 0 ]]; then
         need_disk 20 "$(dirname "$dest")" || return 1
     fi
+    local fj="$JOBS"
+    if [[ "$SERIAL_FETCH" -eq 1 ]]; then
+        fj=1
+    fi
     capped "$mem" "$CACHE_BIN" fetch "$icao" --out "$dest" --dem 3dep \
-        --imagery "$img" --max-export 2048 --jobs "$JOBS" "$@"
+        --imagery "$img" --max-export 2048 --jobs "$fj" --mem-budget "$MEM_BUDGET_MB" "$@"
     capped 4G "$CACHE_BIN" osm "$icao" --out "$dest" --radius-km 12 || true
 }
 
@@ -470,21 +765,29 @@ run_step() {
         log "skip $nn $name (done)"
         return 0
     fi
+    if [[ "$FORCE" -eq 0 && -f "$d/BLOCKED" ]]; then
+        log "skip $nn $name (BLOCKED after ${MAX_CRASHES} crashes)"
+        return 0
+    fi
     if ! should_run "$nn"; then
         return 0
     fi
+    CURRENT_NN="$nn"
+    CURRENT_NAME="$name"
     if [[ "$DRY" -eq 1 ]]; then
         log "DRY $nn $name"
         set +e
         "step_${name//-/_}" "$d" "$mem"
         set -e
+        CURRENT_NN=""
+        CURRENT_NAME=""
         return 0
     fi
     mkdir -p "$d"
     echo "$nn $name starting $(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$OUT/current"
     write_status
     log "START $nn $name"
-    local t0 t1 elapsed rc
+    local t0 t1 elapsed rc crashes
     t0="$(date +%s)"
     rc=0
     set +e
@@ -498,11 +801,29 @@ run_step() {
         rm -f "$d/fail"
         log "PASS $nn $name ${elapsed}s"
         write_status
+        CURRENT_NN=""
+        CURRENT_NAME=""
         return 0
     fi
     echo "FAIL rc=$rc ${elapsed}s $(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$d/fail"
-    log "FAIL $nn $name rc=$rc ${elapsed}s"
+    crashes=0
+    if [[ -f "$d/crashes" ]]; then
+        crashes="$(tr -dc '0-9' <"$d/crashes")"
+        crashes="${crashes:-0}"
+    fi
+    crashes=$((crashes + 1))
+    echo "$crashes" >"$d/crashes"
+    note_crash "$nn" "$name" "step failed rc=$rc after ${elapsed}s (crash $crashes/$MAX_CRASHES)"
+    step_down "$crashes"
+    log "FAIL $nn $name rc=$rc ${elapsed}s crashes=$crashes"
     write_status
+    if [[ "$crashes" -ge "$MAX_CRASHES" ]]; then
+        echo "BLOCKED after $crashes crashes $(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$d/BLOCKED"
+        log "BLOCKED $nn $name"
+        write_status
+    fi
+    CURRENT_NN=""
+    CURRENT_NAME=""
     if [[ "$nn" == "01" ]]; then
         echo "build failed — stopping queue" >&2
         return "$rc"
@@ -566,6 +887,10 @@ step_bench() {
     local d="$1" mem="$2"
     wait_gpu
     for q in gtx980ti rtx; do
+        if [[ "$q" == "rtx" && "$QUALITY_CAP" == "gtx980ti" ]]; then
+            echo "skip rtx (quality cap after crash step-down)" | tee "$d/skip-rtx.txt"
+            continue
+        fi
         if [[ "$DRY" -eq 1 ]]; then
             echo "+ $VISUAL --offscreen --bench --quality $q"
             continue
@@ -586,7 +911,7 @@ record_approach() {
     local fps="${5:-30}"
     local extra=()
     if [[ "${6:-}" == "demo" ]]; then
-        extra+=(--demo kjfk)
+        extra+=(--demo kjfk --six-mile-final --start 6nm)
     fi
     wait_gpu
     local front="$d/${stem}-front.mp4"
@@ -641,6 +966,9 @@ step_bench_repeat() {
     local d="$1" mem="$2"
     wait_gpu
     for q in gtx980ti rtx; do
+        if [[ "$q" == "rtx" && "$QUALITY_CAP" == "gtx980ti" ]]; then
+            continue
+        fi
         for tod in 12 3; do
             if [[ "$DRY" -eq 1 ]]; then
                 echo "+ $VISUAL --offscreen --bench --quality $q --tod $tod --demo kjfk"
@@ -855,8 +1183,14 @@ step_fetch_us_next() {
 
 if [[ "$DRY" -eq 0 ]]; then
     init_summary
+    load_limits
+    detect_unclean
+    journal_scan
+    start_watchers
     write_status
 fi
+
+trap 'stop_watchers' EXIT
 
 for s in "${STEPS[@]}"; do
     run_step "$(step_nn "$s")" "$(step_name "$s")" "$(step_mem "$s")"

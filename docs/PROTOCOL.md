@@ -54,6 +54,7 @@ A 20-byte preamble starts every packet:
 | 127 | Top cloud layer (on/off + catalog) | 24 bytes |
 | 128 | Fog layer (region, height, RVR) | 36 bytes |
 | 131 | Display control (channel on/off/standby) | 24 bytes |
+| **180** | **Ownship config (s376 extension: gear / flaps)** | **24 bytes** |
 | 200 | HAT / IG status reply | 64 bytes as the S376 host reads it |
 
 Other type numbers exist on the wire (traffic, switches, …). The
@@ -217,6 +218,24 @@ separate crash packet. The host must act on this type-200 reply:
 | Valid | 10 | Non-zero = use the sample |
 | HAT ft | 22–23 | Radio altitude / height above solid. **≤ 0 (or below the host's own radio-alt threshold) means the ownship is in or on a building or the ground** |
 | HOT / elev ft | 28–29 | MSL of that solid (DEM or roof) |
+
+## Ownship configuration (type 180) — s376 extension
+
+This packet is **designed in this repository** so a loopback host
+(`s376-fakehost`) and Joey’s future Mint IOS emulator can tell the IG
+the 737-300 landing configuration. It is **not** copied from any CAE
+or RSI ICD. A later approved host can keep this layout or map onto it
+in an adapter; the IG only reads these two fields.
+
+Typical size 24 bytes (10-word preamble + 2 body words):
+
+| Words | Type | Field |
+|---|---|---|
+| 0 | i16 | Gear: **0** up, **1** down, **2** in transit |
+| 1 | i16 | Flaps detent: **0, 1, 2, 5, 10, 15, 25, 30, 40** (737-300) |
+
+Builders: `xt4::build_ownship` / `decode_ownship`. The decoder ignores
+unknown types, so an older IG without this packet still draws.
 
 ## Display control (type 131)
 

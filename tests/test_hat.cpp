@@ -151,4 +151,104 @@ void test_hat() {
     ::close(listen);
     ::close(send);
 #endif
+
+    // Multi-channel: only the reply_master HostReceiver sends type 200.
+    {
+#ifdef _WIN32
+        WSAStartup(MAKEWORD(2, 2), &wsa);
+#endif
+        HostConfig master;
+        master.bind = "127.0.0.1:18880";
+        master.reply_port = 18881;
+        master.hat_responder = true;
+        master.reply_master = "mid_left";
+        master.allow_sim_lan = false;
+        HostConfig slave = master;
+        slave.bind = "127.0.0.1:18882";
+        slave.hat_responder = false;
+        SharedState st_m, st_s;
+        HostReceiver rx_m(st_m, master);
+        HostReceiver rx_s(st_s, slave);
+        rx_m.set_heights(src);
+        rx_s.set_heights(src);
+        rx_m.start();
+        rx_s.start();
+
+#ifdef _WIN32
+        SOCKET listen2 = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        SOCKET send2 = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+#else
+        int listen2 = ::socket(AF_INET, SOCK_DGRAM, 0);
+        int send2 = ::socket(AF_INET, SOCK_DGRAM, 0);
+#endif
+        sockaddr_in l2{};
+        l2.sin_family = AF_INET;
+        l2.sin_port = htons(18881);
+        inet_pton(AF_INET, "127.0.0.1", &l2.sin_addr);
+#ifdef _WIN32
+        setsockopt(listen2, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&on),
+                   sizeof(on));
+#else
+        setsockopt(listen2, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+#endif
+        CHECK(bind(listen2, reinterpret_cast<sockaddr*>(&l2), sizeof(l2)) == 0);
+#ifdef _WIN32
+        DWORD tv2 = 300;
+        setsockopt(listen2, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&tv2),
+                   sizeof(tv2));
+#else
+        timeval tv2{};
+        tv2.tv_sec = 0;
+        tv2.tv_usec = 300000;
+        setsockopt(listen2, SOL_SOCKET, SO_RCVTIMEO, &tv2, sizeof(tv2));
+#endif
+        std::this_thread::sleep_for(std::chrono::milliseconds(40));
+        std::vector<std::vector<std::uint16_t>> pk2;
+        pk2.push_back(xt4::build_dcs(lat, lon, alt, 180.34f, 0, 0, 2, xt4::FloatFmt::Ieee));
+        pk2.push_back(xt4::build_hat_query());
+        auto dg2 = xt4::build_datagram(pk2, xt4::WordOrder::Be);
+        auto send_one = [&](std::uint16_t port) {
+            sockaddr_in dest{};
+            dest.sin_family = AF_INET;
+            dest.sin_port = htons(port);
+            inet_pton(AF_INET, "127.0.0.1", &dest.sin_addr);
+#ifdef _WIN32
+            sendto(send2, reinterpret_cast<const char*>(dg2.data()), static_cast<int>(dg2.size()), 0,
+                   reinterpret_cast<sockaddr*>(&dest), sizeof(dest));
+#else
+            sendto(send2, dg2.data(), dg2.size(), 0, reinterpret_cast<sockaddr*>(&dest),
+                   sizeof(dest));
+#endif
+        };
+        send_one(18880);
+        send_one(18882);
+        int replies = 0;
+        for (int i = 0; i < 4; ++i) {
+#ifdef _WIN32
+            char b2[128];
+            int n2 = recv(listen2, b2, sizeof(b2), 0);
+#else
+            std::uint8_t b2[128];
+            const ssize_t n2 = recv(listen2, b2, sizeof(b2), 0);
+#endif
+            if (n2 == 64) {
+                int v = 0;
+                float rh = 0, re = 0;
+                if (xt4::parse_hat_as_host(reinterpret_cast<const std::uint8_t*>(b2), 64, v, rh, re) &&
+                    v == 1)
+                    ++replies;
+            }
+        }
+        CHECK(replies == 1);
+        rx_m.stop();
+        rx_s.stop();
+#ifdef _WIN32
+        closesocket(listen2);
+        closesocket(send2);
+        WSACleanup();
+#else
+        ::close(listen2);
+        ::close(send2);
+#endif
+    }
 }
