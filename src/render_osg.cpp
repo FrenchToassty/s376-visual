@@ -661,6 +661,8 @@ void main() {
         discard;
     float core = exp(-r2 * mix(9.0, 3.2, uNight));
     float halo = exp(-r2 * 0.40) * mix(0.0, 0.85, uNight) * uBloom;
+    // Near-eye ALS (0.5 nm) must stay a bar, not a ground-filling oval.
+    halo *= smoothstep(80.0, 700.0, vEyeDist);
     float fogH = exp(-uFogDensity * vEyeDist * 0.12);
     float f = exp(-uFogDensity * uFogDensity * vEyeDist * vEyeDist);
     float a = vCol.a * (core + halo * fogH) * clamp(f, 0.0, 1.0);
@@ -2338,6 +2340,8 @@ void apply_light_steps(LightGpu& g, const HostState& host) {
         float sz = lights::point_size_px(tod, hat, range) * lights::type_size_boost(kind);
         sz = lights::day_als_size_px(kind, night, sz);
         k *= lights::day_als_intensity(kind, night);
+        sz = lights::close_als_size_px(kind, range, sz);
+        k *= lights::close_als_intensity(kind, range);
         if (kind == LightKind::Vasi) {
             sz = std::min(8.f, std::max(5.8f, sz));
             k = std::max(k, 1.15f); // 2W2R must bloom a little in daylight
