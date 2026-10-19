@@ -3,6 +3,7 @@
 // end-to-end against the renderer's own HostReceiver, and (if a path is
 // given as argv[1]) the real s376-visual --headless binary on loopback.
 
+#include "s376/display.hpp"
 #include "s376/fakehost.hpp"
 #include "s376/geo.hpp"
 #include "s376/host.hpp"
@@ -413,6 +414,8 @@ static void test_ios() {
     CHECK(fh::parse_ios_query("/cmd?op=wind&arg=040%2F10").arg == "040/10");
     CHECK(fh::parse_ios_query("/cmd?op=rm&arg=x").op.empty());
     CHECK(fh::parse_ios_query("/cmd?op=lights&arg=3").op == "lights");
+    CHECK(fh::parse_ios_query("/cmd?op=rwy-cond&arg=2").op == "rwy-cond");
+    CHECK(fh::parse_ios_query("/cmd?op=rwy-cond&arg=2").arg == "2");
     // Live server on an ephemeral loopback port.
     fh::IosServer s;
     s.start("127.0.0.1:0");
@@ -535,6 +538,7 @@ static void test_ios_json_api() {
     const auto js = fh::ios_status_json(fh::IosStatus{});
     CHECK(js.find("\"ok\":true") != std::string::npos);
     CHECK(js.find("\"lights\"") != std::string::npos);
+    CHECK(js.find("\"rwy_cond\"") != std::string::npos);
 
     // Upper cloud and per-group lights on the wire.
     fh::Frame f;
@@ -741,6 +745,70 @@ static void test_inprocess_e2e() {
     rx.stop();
 }
 
+// Type-124 runway_condition: IOS / JSON → datagram word 7 → visual wetness.
+static void test_rwy_cond() {
+    auto cmd = fh::parse_ios_json("/api/v1/rwy-cond", "{\"condition\":2}");
+    CHECK(cmd.op == "rwy-cond" && cmd.have_rwy_cond && cmd.rwy_cond == 2);
+    cmd = fh::parse_ios_json("/api/v1/rwy-cond", "{\"rwy_cond\":1}");
+    CHECK(cmd.have_rwy_cond && cmd.rwy_cond == 1);
+    cmd = fh::parse_ios_json("/api/v1/runway_condition", "{\"runway_condition\":3}");
+    CHECK(cmd.op == "runway_condition" && cmd.have_rwy_cond && cmd.rwy_cond == 3);
+    cmd = fh::parse_ios_json("/api/v1/weather", "{\"vis_sm\":10,\"rwy_cond\":2}");
+    CHECK(cmd.op == "weather" && cmd.have_rwy_cond && cmd.rwy_cond == 2);
+    cmd = fh::parse_ios_json("/api/v1/rwy-cond", "{\"condition\":-4}");
+    CHECK(cmd.have_rwy_cond && cmd.rwy_cond == 0);
+    auto q = fh::parse_ios_query("/cmd?op=rwy-cond&arg=2");
+    CHECK(q.op == "rwy-cond" && q.arg == "2");
+
+    fh::Environment env;
+    CHECK(env.runway_condition == 0);
+    fh::apply_ios_command(fh::parse_ios_json("/api/v1/rwy-cond", "{\"condition\":2}"), env, nullptr);
+    CHECK(env.runway_condition == 2);
+    fh::apply_ios_command(fh::parse_ios_query("/cmd?op=rwy-cond&arg=5"), env, nullptr);
+    CHECK(env.runway_condition == 5);
+    fh::apply_ios_command(fh::parse_ios_json("/api/v1/weather", "{\"rwy_cond\":-1}"), env, nullptr);
+    CHECK(env.runway_condition == 0);
+    fh::apply_ios_command(fh::parse_ios_json("/api/v1/rwy-cond", "{\"condition\":2}"), env, nullptr);
+
+    fh::Frame f;
+    f.lat = 40.64;
+    f.lon = -73.78;
+    f.alt_ft = 50;
+    f.hdg = 31;
+    auto dg = fh::build_frame_datagram(f, 1, env, s376::xt4::WordOrder::Le, s376::xt4::FloatFmt::Ieee);
+    s376::xt4::Decoder dec;
+    auto parsed = dec.parse(dg.data(), dg.size());
+    CHECK(parsed.has_value());
+    bool saw = false;
+    s376::xt4::Env wire{};
+    for (const auto& pk : parsed->packets) {
+        if (pk.type != s376::xt4::kTypeEnv)
+            continue;
+        CHECK(pk.body() && pk.body_words() > 7);
+        CHECK(s376::xt4::s16(pk.body()[7]) == 2);
+        wire = s376::xt4::decode_env(pk, dec.locked_fmt());
+        saw = true;
+    }
+    CHECK(saw);
+    CHECK(wire.runway_condition == 2);
+
+    s376::SharedState st;
+    s376::HostState snap;
+    st.apply(*parsed, dec, "127.0.0.1:9", 1, snap);
+    CHECK(snap.have_env);
+    CHECK(snap.env.runway_condition == 2);
+    NEAR(s376::runway_wetness(snap.env.runway_condition), 0.75, 1e-6);
+    NEAR(s376::runway_wetness(0), 0.0, 1e-6);
+    NEAR(s376::runway_wetness(1), 0.35, 1e-6);
+    NEAR(s376::runway_wetness(3), 1.0, 1e-6);
+    NEAR(s376::runway_wetness(5), 1.0, 1e-6);
+
+    fh::IosStatus stj;
+    stj.rwy_cond = 2;
+    const auto js = fh::ios_status_json(stj);
+    CHECK(js.find("\"rwy_cond\":2") != std::string::npos);
+}
+
 #ifndef _WIN32
 // Real renderer binary, headless, loopback: s376-visual --headless
 // --no-control --bind 127.0.0.1:2300 and s376-fakehost --check.
@@ -787,6 +855,7 @@ int main(int argc, char** argv) {
     test_input_map();
     test_ios();
     test_ios_json_api();
+    test_rwy_cond();
     test_controls_replay_10s();
     test_inprocess_e2e();
 #ifndef _WIN32

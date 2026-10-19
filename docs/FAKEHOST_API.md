@@ -35,7 +35,8 @@ Status is `GET`. Bodies are flat JSON objects (one nesting:
 | POST | `/api/v1/freeze` | `{"frozen":true}` optional | hold last frame |
 | POST | `/api/v1/unfreeze` | — | resume |
 | POST | `/api/v1/tod` | `{"hours":14.5}` | type-124 time of day |
-| POST | `/api/v1/weather` | vis / wind / ceiling / rvr / precip | type 124/128/125 |
+| POST | `/api/v1/weather` | vis / wind / ceiling / rvr / precip / rwy_cond | type 124/128/125 |
+| POST | `/api/v1/rwy-cond` | `{"condition":2}` (`rwy_cond` / `runway_condition`) | type-124 word 7 |
 | POST | `/api/v1/lights` | step / runway / approach / environment | type-112 0–5 |
 | POST | `/api/v1/cloud` | ceiling / top / upper_* | type 125 + **126** |
 | POST | `/api/v1/state` | lat, lon, alt_ft, hdg, pitch, roll, gs_kt, gear, flaps | live 60 Hz feed |
@@ -65,12 +66,19 @@ layout is still unconfirmed.
 ```json
 {"hours":19.25}
 {"vis_sm":3,"wind_dir":40,"wind_mph":10,"ceiling_ft":800,"cloud_top_ft":2800,
- "rvr_ft":2400,"precip_type":0,"precip_intensity":0}
+ "rvr_ft":2400,"precip_type":0,"precip_intensity":0,"rwy_cond":2}
+{"condition":2}
 {"ceiling_ft":2000,"top_ft":4000,"upper_ceiling_ft":20000,"upper_top_ft":25000}
 ```
 
 Upper cloud is type **126**. Lower cloud is type **125**. `<0` or omitted
 clears a layer only when the field is present as a number ≤ 0.
+
+Type-124 `runway_condition` (word 7) is `0` dry, `1` damp, `2` wet,
+`≥3` flooded. Negative values clamp to 0. The visual maps those codes
+to wetness 0 / 0.35 / 0.75 / 1 (`docs/PARITY.md`, `--rwy-cond` on
+`s376-visual`). Also `GET /cmd?op=rwy-cond&arg=2`. The same field is
+accepted on `POST /api/v1/weather`.
 
 ### Lights (type 112, steps 0–5)
 
@@ -111,7 +119,7 @@ This is loopback HTTP, not a second UDP host port.
  "gear_down":true,"flaps":30,"hat_replies":0,"last_hat_ft":0,"contacts":0,
  "tod_hours":14.5,"vis_sm":10,"wind_dir":0,"wind_mph":0,
  "ceiling_ft":-1,"cloud_top_ft":-1,"upper_ceiling_ft":-1,"upper_top_ft":-1,
- "rvr_ft":-1,"lights":{"step":5,"runway":5,"approach":5,"environment":5}}
+ "rvr_ft":-1,"rwy_cond":0,"lights":{"step":5,"runway":5,"approach":5,"environment":5}}
 ```
 
 ## Windows yoke / throttle / pedals

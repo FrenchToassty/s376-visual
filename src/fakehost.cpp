@@ -998,12 +998,15 @@ namespace {
 bool ios_op_known(const std::string& op) {
     static const char* ok[] = {"reposition", "freeze", "unfreeze", "tod", "vis", "wind",
                                "ceiling",    "rvr",    "weather",  "lights", "cloud",
-                               "state",      "quit",   nullptr};
+                               "state",      "quit",   "rwy-cond", "rwy_cond",
+                               "runway_condition", nullptr};
     for (int i = 0; ok[i]; ++i)
         if (op == ok[i])
             return true;
     return false;
 }
+
+int clamp_rwy_cond(int v) { return v < 0 ? 0 : v; }
 
 int clamp_step(int s) { return s < 0 ? 0 : s > 5 ? 5 : s; }
 
@@ -1163,6 +1166,11 @@ void fill_ios_from_json(IosCommand& c, const std::string& body) {
         c.precip_intensity = static_cast<int>(n);
         c.have_precip = true;
     }
+    if (json_number(body, "rwy_cond", n) || json_number(body, "runway_condition", n) ||
+        json_number(body, "condition", n)) {
+        c.rwy_cond = clamp_rwy_cond(static_cast<int>(n));
+        c.have_rwy_cond = true;
+    }
     if (json_number(body, "step", n) || json_number(body, "light_step", n))
         c.light_step = clamp_step(static_cast<int>(n));
     if (json_number(body, "runway", n) && c.op == "lights")
@@ -1255,13 +1263,14 @@ std::string ios_status_json(const IosStatus& st) {
         "\"hat_replies\":%d,\"last_hat_ft\":%.2f,\"contacts\":%d,\"tod_hours\":%.3f,"
         "\"vis_sm\":%.3f,\"wind_dir\":%.1f,\"wind_mph\":%.1f,\"ceiling_ft\":%.1f,"
         "\"cloud_top_ft\":%.1f,\"upper_ceiling_ft\":%.1f,\"upper_top_ft\":%.1f,\"rvr_ft\":%.1f,"
+        "\"rwy_cond\":%d,"
         "\"lights\":{\"step\":%d,\"runway\":%d,\"approach\":%d,\"environment\":%d}}",
         st.mode.c_str(), st.preset.c_str(), st.phase.c_str(), st.frozen ? "true" : "false", st.t,
         st.lat, st.lon, st.alt, st.hdg, st.pitch, st.roll, st.gs_kt, st.wheel_agl,
         st.gear_down ? "true" : "false", st.flaps, st.hat_replies, st.last_hat, st.contacts,
         st.tod_hours, st.vis_sm, st.wind_dir, st.wind_mph, st.ceiling_ft, st.cloud_top_ft,
-        st.upper_ceiling_ft, st.upper_top_ft, st.rvr_ft, st.light_step, st.rwy_light, st.apch_light,
-        st.env_light);
+        st.upper_ceiling_ft, st.upper_top_ft, st.rvr_ft, st.rwy_cond, st.light_step, st.rwy_light,
+        st.apch_light, st.env_light);
     return buf;
 }
 
@@ -1322,6 +1331,13 @@ IosEffect apply_ios_command(const IosCommand& cmd, Environment& env, LiveStateFe
     if (cmd.have_precip) {
         env.precip_type = cmd.precip_type;
         env.precip_intensity = cmd.precip_intensity;
+    }
+    if (cmd.op == "rwy-cond" || cmd.op == "rwy_cond" || cmd.op == "runway_condition" ||
+        cmd.have_rwy_cond) {
+        if (cmd.have_rwy_cond)
+            env.runway_condition = clamp_rwy_cond(cmd.rwy_cond);
+        else if (!cmd.arg.empty())
+            env.runway_condition = clamp_rwy_cond(std::atoi(cmd.arg.c_str()));
     }
     if (cmd.op == "lights" && !cmd.have_lights && !cmd.arg.empty()) {
         const int step = clamp_step(std::atoi(cmd.arg.c_str()));
@@ -1406,7 +1422,9 @@ Vis sm <input id=vis size=4 value=10><button onclick="c('vis',v('vis'))">set</bu
 Wind dir/mph <input id=wind size=6 value=040/10><button onclick="c('wind',v('wind'))">set</button>
 Ceiling ft MSL <input id=ceil size=5 value=-1><button onclick="c('ceiling',v('ceil'))">set</button>
 RVR ft <input id=rvr size=5 value=-1><button onclick="c('rvr',v('rvr'))">set</button>
-Lights 0-5 <input id=lit size=2 value=5><button onclick="c('lights',v('lit'))">set</button></div>
+Lights 0-5 <input id=lit size=2 value=5><button onclick="c('lights',v('lit'))">set</button>
+Rwy cond 0 dry / 1 damp / 2 wet / 3+ flooded <input id=rwy size=2 value=0>
+<button onclick="c('rwy-cond',v('rwy'))">set</button></div>
 <div id=st></div>
 <script>function v(i){return document.getElementById(i).value}
 function c(op,arg){fetch('/cmd?op='+op+'&arg='+encodeURIComponent(arg)).then(r=>r.text()).then(t=>st.textContent=t)}
@@ -1633,7 +1651,8 @@ std::vector<std::uint8_t> build_frame_datagram(const Frame& f, unsigned count,
     if (count == 1 || count % 30 == 0) {
         pk.push_back(xt4::build_env(env.tod_hours, std::min(env.vis_ft, xt4::kMaxVisibilityFt),
                                     env.month, env.day, env.year, ff, -1, env.precip_type,
-                                    env.precip_intensity, 0, env.wind_mph, env.wind_dir));
+                                    env.precip_intensity, 0, env.wind_mph, env.wind_dir,
+                                    env.runway_condition));
         if (env.rvr_ft > 0)
             pk.push_back(xt4::build_fog(env.fog_top_ft, env.rvr_ft, ff, -1, 0));
         else

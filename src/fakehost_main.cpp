@@ -86,6 +86,8 @@ void usage() {
         "  --listen HOST:PORT  HAT reply port (default 127.0.0.1:2301)\n"
         "  --encoding O/F      le/vax (default) | be/vax | le/ieee | be/ieee\n"
         "  --tod HOURS         time of day (default 14.5)\n"
+        "  --rwy-cond N        type-124 runway condition 0 dry / 1 damp / 2 wet / ≥3 flooded\n"
+        "  --wet               same as --rwy-cond 2\n"
         "  --vis-sm SM         global visibility statute miles (default 10)\n"
         "  --wind DIR/MPH      surface wind (default calm)\n"
         "  --ceiling FT        lower cloud base, ft MSL (default none)\n"
@@ -614,6 +616,12 @@ int main(int argc, char** argv) {
             else if (a == "--listen") listen = need();
             else if (a == "--encoding") encoding = need();
             else if (a == "--tod") env.tod_hours = std::stof(need());
+            else if (a == "--rwy-cond") {
+                env.runway_condition = std::stoi(need());
+                if (env.runway_condition < 0)
+                    env.runway_condition = 0;
+            } else if (a == "--wet")
+                env.runway_condition = 2;
             else if (a == "--vis-sm") env.vis_ft = std::stof(need()) * 5280.f;
             else if (a == "--wind") {
                 const std::string w = need();
@@ -894,6 +902,7 @@ int main(int argc, char** argv) {
             ist.ceiling_ft = env.ceiling_ft_msl; ist.cloud_top_ft = env.cloud_top_ft_msl;
             ist.upper_ceiling_ft = env.upper_ceiling_ft_msl; ist.upper_top_ft = env.upper_top_ft_msl;
             ist.rvr_ft = env.rvr_ft;
+            ist.rwy_cond = env.runway_condition;
             ist.light_step = env.light_step; ist.rwy_light = env.rwy_light_step;
             ist.apch_light = env.apch_light_step; ist.env_light = env.env_light_step;
             for (const auto& cmd : ios.poll(ist)) {

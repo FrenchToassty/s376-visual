@@ -112,13 +112,15 @@ wings-level tendency; ground roll with brakes at idle.
 
 `--ios 127.0.0.1:8376` then open http://127.0.0.1:8376/ (Windows Winsock
 or POSIX). Reposition (preset, runway+distance, or lat/lon/alt/hdg),
-freeze/unfreeze, TOD, weather, lights, upper cloud, and a 60 Hz live
-state feed. Adapter contract: [FAKEHOST_API.md](FAKEHOST_API.md).
+freeze/unfreeze, TOD, weather, runway condition (type-124 word 7:
+0 dry / 1 damp / 2 wet / ≥3 flooded), lights, upper cloud, and a 60 Hz
+live state feed. Adapter contract: [FAKEHOST_API.md](FAKEHOST_API.md).
 
 ```sh
 curl 'http://127.0.0.1:8376/cmd?op=reposition&arg=kjfk-13l-6sm'
 curl -s http://127.0.0.1:8376/api/v1/status
 curl -s -X POST http://127.0.0.1:8376/api/v1/tod -d '{"hours":19.5}'
+curl -s -X POST http://127.0.0.1:8376/api/v1/rwy-cond -d '{"condition":2}'
 curl -s -X POST http://127.0.0.1:8376/api/v1/reposition \
   -d '{"lat":40.64,"lon":-73.78,"alt_ft":1500,"hdg":31}'
 ```

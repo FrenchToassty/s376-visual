@@ -242,7 +242,8 @@ class ManualFlight {
 // loopback only (docs/FAKEHOST_API.md). Guarded the same way as UDP.
 struct IosCommand {
     std::string op; // reposition | freeze | unfreeze | tod | vis | wind |
-                    // ceiling | rvr | weather | lights | cloud | state | quit
+                    // ceiling | rvr | weather | lights | cloud | state |
+                    // rwy-cond | quit
     std::string arg;
     bool have_lla = false;
     double lat = 0, lon = 0, alt_ft = 0, hdg = 0;
@@ -264,6 +265,8 @@ struct IosCommand {
     float rvr_ft = -1;
     bool have_precip = false;
     int precip_type = 0, precip_intensity = 0;
+    bool have_rwy_cond = false;
+    int rwy_cond = 0; // type-124: 0 dry, 1 damp, 2 wet, 3+ flooded
     bool have_lights = false;
     int light_step = -1, rwy_light = -1, apch_light = -1, env_light = -1;
     bool have_state = false;
@@ -286,6 +289,7 @@ struct IosStatus {
     float ceiling_ft = -1, cloud_top_ft = -1, upper_ceiling_ft = -1, upper_top_ft = -1;
     float rvr_ft = -1;
     int light_step = 5, rwy_light = 5, apch_light = 5, env_light = 5;
+    int rwy_cond = 0; // type-124 runway_condition
 };
 
 // Live 60 Hz adapter feed. Stops updating (caller should freeze) when
@@ -359,6 +363,7 @@ struct Environment {
     float ceiling_ft_msl = -1, cloud_top_ft_msl = -1; // <0 = no layer
     float upper_ceiling_ft_msl = -1, upper_top_ft_msl = -1;
     float rvr_ft = -1, fog_top_ft = 0;                // <0 = no fog
+    int runway_condition = 0;                         // type-124: 0 dry / 1 damp / 2 wet / 3+ flooded
     int light_step = 5;                               // default for unspecified groups
     int rwy_light_step = 5;                           // type-112 switches 1, 2, 4
     int apch_light_step = 5;                          // type-112 switch 3
