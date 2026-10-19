@@ -250,3 +250,16 @@ install(TARGETS s376-visual s376-cache s376-doctor s376-synth s376-raster-parity
         RUNTIME DESTINATION bin)
 install(DIRECTORY config DESTINATION share/s376-visual)
 install(DIRECTORY data DESTINATION share/s376-visual)
+
+# ---- s376-fakehost: offline 737-300 host stand-in (loopback only) ----
+add_library(s376_fakehost STATIC src/fakehost.cpp)
+target_link_libraries(s376_fakehost PUBLIC s376_core)
+add_executable(s376-fakehost src/fakehost_main.cpp)
+target_link_libraries(s376-fakehost PRIVATE s376_fakehost)
+add_executable(s376-fakehost-tests tests/test_fakehost.cpp)
+target_link_libraries(s376-fakehost-tests PRIVATE s376_fakehost)
+add_test(NAME fakehost COMMAND s376-fakehost-tests $<TARGET_FILE:s376-visual>)
+set_tests_properties(fakehost PROPERTIES
+    ENVIRONMENT "S376_ALLOW_SIM_LAN=;S376_ALLOW_LAN=;S376_LOG_DIR=${CMAKE_BINARY_DIR}/logs"
+)
+target_compile_definitions(s376-fakehost-tests PRIVATE S376_SRC_DIR="${CMAKE_SOURCE_DIR}")
