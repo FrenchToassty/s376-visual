@@ -1822,6 +1822,7 @@ struct LightGpu {
     std::vector<float> papi_hdg;
     std::vector<osg::Vec4> rev;
     std::vector<float> color_hdg;
+    std::vector<LightPoint> src;
 };
 
 LightGpu make_light_gpu(const Airport& apt) {
@@ -1851,6 +1852,7 @@ LightGpu make_light_gpu(const Airport& apt) {
         g.papi_hdg.push_back(L.papi_rwy_hdg_deg);
         g.rev.push_back(osg::Vec4(L.r2, L.g2, L.b2, L.r2 >= 0.f ? 1.f : -1.f));
         g.color_hdg.push_back(L.color_hdg_deg);
+        g.src.push_back(L);
         g.sizes->push_back(osg::Vec2(lights::kBaseSizePx, 0.f));
     }
     g.geom->setVertexArray(verts);
@@ -2282,7 +2284,7 @@ void update_storms(MeshGpu& g, const HostState& host, float flash) {
     mesh_end(g);
 }
 
-void apply_light_steps(LightGpu& g, const HostState& host) {
+void apply_light_steps(LightGpu& g, const HostState& host, double t_s) {
     if (!g.colors || g.colors->empty())
         return;
     const float tod = host.have_env ? effective_tod_hours(host.env.tod_hours, host.env.tod_select)
@@ -2302,7 +2304,8 @@ void apply_light_steps(LightGpu& g, const HostState& host) {
         if (auto* u = ss->getUniform("uSizeNearM"))
             u->set(lights::kSizeNearM);
     }
-    const double t_s = host.last_rx_ns > 0 ? static_cast<double>(host.last_rx_ns) * 1e-9 : 0.0;
+    if (!std::isfinite(t_s) || t_s < 0.0)
+        t_s = 0.0;
     geo::Ecef eye{};
     const bool have_eye = host.have_eyepoint;
     if (have_eye)
@@ -2350,26 +2353,12 @@ void apply_light_steps(LightGpu& g, const HostState& host) {
         if (kind == LightKind::Flasher && seq >= 0 && !lights::sfl_on(t_s, seq))
             k = 0.f;
         osg::Vec4 b = g.base[i];
-        if (have_eye && i < g.rev.size() && g.rev[i].a() >= 0.f) {
-            double brg = 0;
-            geo::inverse_wgs84(host.eye.lat_deg, host.eye.lon_deg, g.lat[i], g.lon[i], &brg);
-            const double rel = geo::wrap180(brg - g.color_hdg[i]);
-            if (std::fabs(rel) > 90.0)
-                b = osg::Vec4(g.rev[i].r(), g.rev[i].g(), g.rev[i].b(), 1.f);
-        }
-        if (kind == LightKind::Vasi && i < g.papi_box.size() && g.papi_box[i] >= 0 &&
-            host.have_eyepoint) {
-            if (i < g.papi_hdg.size() &&
-                !lights::papi_in_coverage(host.eye.lat_deg, host.eye.lon_deg, g.lat[i], g.lon[i],
-                                          g.papi_hdg[i], g.papi_rot[i], g.papi_ul[i],
-                                          g.papi_ur[i])) {
+        if (have_eye && i < g.src.size()) {
+            const lights::LampDraw draw = lights::lamp_draw(
+                g.src[i], host.eye.lat_deg, host.eye.lon_deg, host.eye.alt_ft * geo::kFtToM);
+            if (!draw.visible)
                 k = 0.f;
-            }
-            const float ang = lights::papi_eye_angle_deg(
-                host.eye.lat_deg, host.eye.lon_deg, host.eye.alt_ft * geo::kFtToM, g.lat[i],
-                g.lon[i], g.alt_m[i]);
-            const bool white = lights::papi_box_white(ang, g.papi_box[i], g.papi_gs[i]);
-            b = white ? osg::Vec4(1.f, 1.f, 0.92f, 1.f) : osg::Vec4(1.f, 0.12f, 0.08f, 1.f);
+            b = osg::Vec4(draw.r, draw.g, draw.b, 1.f);
         }
         (*g.colors)[static_cast<unsigned>(i)] = osg::Vec4(b.r() * k, b.g() * k, b.b() * k, k);
     }
@@ -3220,7 +3209,14 @@ class OsgRenderer final : public Renderer {
         for (std::size_t i = 0; i < views_.size() && i < channels_.size(); ++i)
             apply_view_camera(views_[i]->getCamera(), channels_[i], host);
         apply_env(host);
-        apply_light_steps(lights_gpu_, host);
+        if (!light_clock_init_) {
+            light_clock0_ = std::chrono::steady_clock::now();
+            light_clock_init_ = true;
+        }
+        const double light_t_s = std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                                               light_clock0_)
+                                     .count();
+        apply_light_steps(lights_gpu_, host, light_t_s);
         const float dt = host.script_dt >= 0.f ? host.script_dt : (1.f / 60.f);
         cloud_drift_m_ += 8.f * dt;
         update_precip(precip_gpu_, host, dt);
@@ -4206,6 +4202,8 @@ class OsgRenderer final : public Renderer {
     osg::ref_ptr<osg::Group> root_;
     ShaderEnv env_u_;
     LightGpu lights_gpu_;
+    bool light_clock_init_ = false;
+    std::chrono::steady_clock::time_point light_clock0_{};
     PrecipGpu precip_gpu_;
     PrecipGpu missile_gpu_;
     bool ptt_key_down_ = false;

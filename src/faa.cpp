@@ -122,6 +122,9 @@ const FaaAirportRef& faa_kjfk() {
     a.ends.back().vgsi_tch_ft = 79;
     a.ends.back().rlls_lead_in = true;
     a.ends.back().papi_rotate_deg = -22; // first P4L offset 22° left
+    // The chart supplement gives the aim and no tighter cut. The generic
+    // ±15° window would blank a beam centred 22° left of the centreline.
+    a.ends.back().papi_usable_left_deg = 32;
     a.ends.push_back(end("KJFK", "31L", geo::dms_to_deg(40, 37, 40.7799),
                          geo::dms_to_deg(73, 46, 18.4107, true), 12.6, 300.7674, 14511, 200, 3264,
                          "NONE", "P4L", 3.00, false, false, false, 0, 0));

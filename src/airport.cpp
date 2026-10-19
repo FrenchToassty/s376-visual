@@ -2,6 +2,7 @@
 #include "s376/faa.hpp"
 #include "s376/landmarks.hpp"
 #include "s376/lights.hpp"
+#include "s376/log.hpp"
 #include "s376/traffic.hpp"
 
 #include <algorithm>
@@ -75,127 +76,13 @@ void mark_rect(AirportMesh& mesh, double lat, double lon, double hdg, double ele
     strip_quad(mesh, m0lat, m0lon, m1lat, m1lon, hdg, hw, elev, elev, r, g, b, 1.f);
 }
 
-const char* glyph5x7(char c) {
-    switch (c) {
-    case '0':
-        return "01110100011000110001100011000101110";
-    case '1':
-        return "00100011000010000100001000010001110";
-    case '2':
-        return "01110100010000100110010001000011111";
-    case '3':
-        return "01110100010000100110000011000101110";
-    case '4':
-        return "00010001100101010010111110001000010";
-    case '5':
-        return "11111100001111000001000011000101110";
-    case '6':
-        return "01110100001111010001100011000101110";
-    case '7':
-        return "11111000010001000100010000100001000";
-    case '8':
-        return "01110100011000101110100011000101110";
-    case '9':
-        return "01110100011000101111000010000101110";
-    case 'L':
-        return "10000100001000010000100001000011111";
-    case 'R':
-        return "11110100011000111110101001001010001";
-    case 'C':
-        return "01110100011000010000100001000101110";
-    default:
-        return nullptr;
-    }
-}
-
-void paint_glyph(AirportMesh& mesh, double lat, double lon, double hdg, double elev, double along,
-                 double left, double tall_m, double wide_m, char ch) {
-    const char* g = glyph5x7(ch);
-    if (!g)
-        return;
-    const double pw = wide_m / 5.0;
-    const double ph = tall_m / 7.0;
-    for (int row = 0; row < 7; ++row) {
-        for (int col = 0; col < 5; ++col) {
-            if (g[row * 5 + col] != '1')
-                continue;
-            const double a0 = along + (6 - row) * ph;
-            const double a1 = a0 + ph * 0.92;
-            const double l0 = left + col * pw;
-            mark_rect(mesh, lat, lon, hdg, elev, a0, a1, l0, l0 + pw * 0.88, 0.96f, 0.96f, 0.94f);
-        }
-    }
-}
-
-void paint_ident(AirportMesh& mesh, double lat, double lon, double hdg, double elev, double along,
-                 const std::string& ident) {
-    if (ident.empty())
-        return;
-    const double tall = 18.0;
-    const double wide = 10.0;
-    const double gap = 2.5;
-    const double total = ident.size() * wide + (ident.size() - 1) * gap;
-    double x = -total * 0.5;
-    for (char ch : ident) {
-        paint_glyph(mesh, lat, lon, hdg, elev, along, x, tall, wide, ch);
-        x += wide + gap;
-    }
-}
-
 void add_faa_markings(AirportMesh& mesh, const Runway& rw) {
     const double elev = std::max(rw.le_elev_m, rw.he_elev_m) + 0.48;
     const double half = rw.width_m * 0.5;
-    // Edge + centerline once from the LE end.
-    mark_rect(mesh, rw.le_lat, rw.le_lon, rw.heading_deg, elev, 0, rw.length_m, half - 1.1,
-              half - 0.15, 0.95f, 0.95f, 0.93f);
-    mark_rect(mesh, rw.le_lat, rw.le_lon, rw.heading_deg, elev, 0, rw.length_m, -(half - 0.15),
-              -(half - 1.1), 0.95f, 0.95f, 0.93f);
-    for (double d = 12; d < rw.length_m - 20; d += 60.0)
-        mark_rect(mesh, rw.le_lat, rw.le_lon, rw.heading_deg, elev, d,
-                  std::min(d + 36.0, rw.length_m - 8), -0.22, 0.22, 0.96f, 0.96f, 0.94f);
-
-    auto one_end = [&](double lat, double lon, double hdg, const std::string& ident,
-                       double disp_ft) {
-        const double disp_m = disp_ft * geo::kFtToM;
-        if (disp_m > 8.0) {
-            // Yellow chevrons in the displaced area (official THR, not old paint).
-            for (double d = 12.0; d < disp_m - 8.0; d += 24.0) {
-                mark_rect(mesh, lat, lon, hdg, elev, d, d + 10.0, 4.0, 14.0, 0.92f, 0.78f, 0.12f);
-                mark_rect(mesh, lat, lon, hdg, elev, d, d + 10.0, -14.0, -4.0, 0.92f, 0.78f, 0.12f);
-            }
-            offset_m(lat, lon, hdg, disp_m, lat, lon);
-        }
-        // Threshold bars at the landing THR: 8 (150 ft) or 12 (200 ft).
-        const int nb = rw.width_m >= 55.0 ? 12 : 8;
-        const double bar_w = 1.8;
-        const double span = half - 2.0;
-        for (int i = 0; i < nb; ++i) {
-            const double t = (i + 0.5) / nb;
-            const double x = -span + t * 2.0 * span;
-            if (std::fabs(x) < 3.0)
-                continue; // keep the centerline gap
-            mark_rect(mesh, lat, lon, hdg, elev, 3.0, 48.0, x - bar_w * 0.5, x + bar_w * 0.5, 0.97f,
-                      0.97f, 0.95f);
-        }
-        // Designators just past the bars (photo: big "4R").
-        paint_ident(mesh, lat, lon, hdg, elev, 58.0, ident);
-        // Aiming points ~400 m (or 300 m if short).
-        const double aim = rw.length_m >= 2400.0 ? 400.0 : 300.0;
-        if (rw.length_m > aim + 80.0) {
-            mark_rect(mesh, lat, lon, hdg, elev, aim, aim + 45.0, 6.0, 15.0, 0.96f, 0.96f, 0.94f);
-            mark_rect(mesh, lat, lon, hdg, elev, aim, aim + 45.0, -15.0, -6.0, 0.96f, 0.96f, 0.94f);
-        }
-        // TDZ pairs every 150 m for the first 900 m on instrument runways.
-        for (int k = 1; k <= 5; ++k) {
-            const double d = 150.0 * k;
-            if (d + 20.0 >= rw.length_m * 0.45)
-                break;
-            mark_rect(mesh, lat, lon, hdg, elev, d, d + 22.0, 8.0, 14.0, 0.95f, 0.95f, 0.93f);
-            mark_rect(mesh, lat, lon, hdg, elev, d, d + 22.0, -14.0, -8.0, 0.95f, 0.95f, 0.93f);
-        }
-    };
-    one_end(rw.le_lat, rw.le_lon, rw.heading_deg, rw.ident_le, rw.le_displaced_ft);
-    one_end(rw.he_lat, rw.he_lon, wrap360(rw.heading_deg + 180.0), rw.ident_he, rw.he_displaced_ft);
+    paint_faa_runway_markings(rw, [&](double lat, double lon, double hdg, double a0, double a1,
+                                      double left, double right, float r, float g, float b) {
+        mark_rect(mesh, lat, lon, hdg, elev, a0, a1, left, right, r, g, b);
+    });
     // Rubber in the first 900 m of each end only — a full-length 0.10
     // strip read as a black blob at the departure end from 0.6 nm.
     auto rubber = [&](double lat, double lon, double hdg, double elev) {
@@ -221,7 +108,7 @@ double light_alt_m(double lat, double lon, double runway_elev_m) {
 
 void push_light(Airport& a, double lat, double lon, double alt_m, float r, float g, float b,
                 int sw, LightKind kind, int runway_k = 0, int seq = -1, int papi_box = -1,
-                float papi_gs = 3.f) {
+                float papi_gs = 3.f, LightFacing facing = LightFacing::Omni, float color_hdg = 0.f) {
     LightPoint p;
     p.lat = lat;
     p.lon = lon;
@@ -235,18 +122,22 @@ void push_light(Airport& a, double lat, double lon, double alt_m, float r, float
     p.seq = seq;
     p.papi_box = papi_box;
     p.papi_gs_deg = papi_gs;
+    p.facing = facing;
+    p.color_hdg_deg = color_hdg;
     a.lights.push_back(p);
 }
 
 void bar(Airport& a, double lat, double lon, double hdg, double alt_m, double half_span, int n,
-         float r, float g, float b, int sw, LightKind kind, int runway_k = 0) {
+         float r, float g, float b, int sw, LightKind kind, int runway_k = 0,
+         LightFacing facing = LightFacing::Omni, float color_hdg = 0.f, bool elevate = true) {
     if (n < 1)
         return;
     for (int i = 0; i < n; ++i) {
         const double t = n == 1 ? 0.0 : (i / static_cast<double>(n - 1) - 0.5) * 2.0;
         double plat, plon;
         offset_m(lat, lon, hdg + 90.0, t * half_span, plat, plon);
-        push_light(a, plat, plon, light_alt_m(plat, plon, alt_m), r, g, b, sw, kind, runway_k);
+        const double alt = elevate ? light_alt_m(plat, plon, alt_m) : alt_m;
+        push_light(a, plat, plon, alt, r, g, b, sw, kind, runway_k, -1, -1, 3.f, facing, color_hdg);
     }
 }
 
@@ -269,6 +160,7 @@ void set_bidir(Airport& a, float r, float g, float b, float r2, float g2, float 
     L.g2 = g2;
     L.b2 = b2;
     L.color_hdg_deg = hdg;
+    L.facing = LightFacing::Bidir;
 }
 
 void hirL_pair(double rem_ahead_m, double caution_m, float& r, float& g, float& b) {
@@ -313,12 +205,26 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
     const double step_edge = 60.0; // HIRL ~200 ft
     const double step_cl = 15.0;   // CAT II/III centerline
     const double caution_m = std::min(2000.0 * geo::kFtToM, rw.length_m * 0.5);
+    const double le_disp_m = rw.le_displaced_ft * geo::kFtToM;
+    const double he_disp_m = rw.he_displaced_ft * geo::kFtToM;
     const int n_edge = std::max(2, static_cast<int>(std::floor(rw.length_m / step_edge)));
     for (int i = 0; i <= n_edge; ++i) {
         const double d = rw.length_m * i / n_edge;
         float r_he, g_he, b_he, r_le, g_le, b_le;
         hirL_pair(rw.length_m - d, caution_m, r_he, g_he, b_he); // looking toward HE
         hirL_pair(d, caution_m, r_le, g_le, b_le);               // looking toward LE
+        // AC 150/5340-30J: edge lights in a displaced area are red toward
+        // the approach. The other direction keeps the yellow/white pair.
+        if (d < le_disp_m) {
+            r_he = 1.f;
+            g_he = 0.12f;
+            b_he = 0.10f;
+        }
+        if ((rw.length_m - d) < he_disp_m) {
+            r_le = 1.f;
+            g_le = 0.12f;
+            b_le = 0.10f;
+        }
         double clat, clon;
         along_surveyed(rw, d, clat, clon);
         const double elev = rw.le_elev_m + (rw.he_elev_m - rw.le_elev_m) * (d / rw.length_m);
@@ -357,24 +263,63 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
             offset_m(lat, lon, hdg, disp_m, lat, lon);
     };
 
-    auto end_bar = [&](bool le, int sw) {
+    auto end_bar = [&](bool le) {
         double lat, lon, hdg, elev, disp_m;
         landing(le, lat, lon, hdg, elev, disp_m);
         const std::string sys = le ? rw.approach_le : rw.approach_he;
+        const float hdg_f = static_cast<float>(hdg);
+        const float red_hdg = static_cast<float>(geo::wrap360(hdg + 180.0));
+        const double ft = geo::kFtToM;
+        const double half_ft = (rw.width_m * 0.5) / ft;
+        // AC 150/5340-30J: green outward, 2–10 ft before the threshold line.
+        double glat = lat, glon = lon;
+        offset_m(lat, lon, hdg, -6.0 * ft, glat, glon);
+        auto add_green = [&](double x_ft) {
+            double plat, plon;
+            offset_m(glat, glon, hdg + 90.0, x_ft * ft, plat, plon);
+            push_light(a, plat, plon, light_alt_m(plat, plon, elev), 0.15f, 1.f, 0.25f, sw_edge,
+                       LightKind::End, k, -1, -1, 3.f, LightFacing::Uni, hdg_f);
+        };
         if (sys == "ALSF-2") {
             // JO 6850.2C Fig 2-1: green lamps on 5 ft centres, 45 ft past each edge.
-            const double half = rw.width_m * 0.5 + 45.0 * geo::kFtToM;
-            const int n = std::max(9, static_cast<int>(std::lround((2.0 * half) / (5.0 * geo::kFtToM))) + 1);
-            bar(a, lat, lon, hdg, elev, half, n, 0.15f, 1.f, 0.25f, sw, LightKind::End, k);
+            const double half_span_ft = half_ft + 45.0;
+            const int n =
+                std::max(9, static_cast<int>(std::lround((2.0 * half_span_ft) / 5.0)) + 1);
+            for (int i = 0; i < n; ++i) {
+                const double x = n == 1 ? 0.0 : (-half_span_ft + (2.0 * half_span_ft) * i / (n - 1));
+                add_green(x);
+            }
+        } else if (sys == "MALSR" || sys == "MALSF" || sys == "MALS") {
+            // MALS threshold: 10 ft centres, 10 ft past each edge (23 lamps on 200 ft).
+            const double outer = half_ft + 10.0;
+            for (double x = -outer; x <= outer + 0.01; x += 10.0)
+                add_green(x);
         } else {
-            bar(a, lat, lon, hdg, elev, rw.width_m * 0.5, 8, 0.15f, 1.f, 0.25f, sw, LightKind::End, k);
+            // Two groups of 4 on 10 ft centres. Displaced: outboard of the edge.
+            const bool displaced = disp_m > 0.5;
+            for (int i = 0; i < 4; ++i) {
+                const double x = displaced ? (half_ft + 5.0 + 10.0 * i) : (half_ft - 10.0 * i);
+                add_green(x);
+                add_green(-x);
+            }
         }
-        // Red end lights facing the opposite direction (bidirectional pair).
-        bar(a, le ? rw.le_lat : rw.he_lat, le ? rw.le_lon : rw.he_lon, hdg, elev, rw.width_m * 0.5, 6,
-            1.f, 0.12f, 0.1f, sw, LightKind::End, k);
+        // Red end lights, unidirectional back into the runway, 6 ft outboard
+        // of the physical end. Two groups of 4, outermost on the edge line.
+        double rlat = le ? rw.le_lat : rw.he_lat;
+        double rlon = le ? rw.le_lon : rw.he_lon;
+        offset_m(rlat, rlon, hdg, -6.0 * ft, rlat, rlon);
+        for (int i = 0; i < 4; ++i) {
+            const double x = half_ft - 10.0 * i;
+            for (int side = -1; side <= 1; side += 2) {
+                double plat, plon;
+                offset_m(rlat, rlon, hdg + 90.0, side * x * ft, plat, plon);
+                push_light(a, plat, plon, light_alt_m(plat, plon, elev), 1.f, 0.12f, 0.1f, sw_edge,
+                           LightKind::End, k, -1, -1, 3.f, LightFacing::Uni, red_hdg);
+            }
+        }
     };
-    end_bar(true, sw_tdz);
-    end_bar(false, sw_tdz);
+    end_bar(true);
+    end_bar(false);
 
     auto tdz_bars = [&](bool le, bool want) {
         if (!want)
@@ -393,7 +338,7 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
                 double blat, blon;
                 offset_m(clat, clon, hdg + 90.0 * side, inner + lamp, blat, blon);
                 bar(a, blat, blon, hdg, elev, lamp, 3, 1.f, 1.f, 0.85f, sw_tdz, LightKind::Threshold,
-                    k);
+                    k, LightFacing::Uni, static_cast<float>(hdg));
             }
         }
     };
@@ -417,26 +362,38 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
         const float rot0 = static_cast<float>(le ? rw.papi_rotate_le : rw.papi_rotate_he);
         const float ul = static_cast<float>(le ? rw.papi_usable_left_le : rw.papi_usable_left_he);
         const float ur = static_cast<float>(le ? rw.papi_usable_right_le : rw.papi_usable_right_he);
-        for (int s = 0; s < std::max(1, nsys); ++s) {
-            double plat, plon;
-            offset_m(lat, lon, hdg, along0 + s * 30.0, plat, plon);
-            // 13R first P4L is the 22° left system; the second is the on-CL set.
-            const float rot = (s == 0) ? rot0 : 0.f;
-            for (int i = 0; i < 4; ++i) {
-                double qlat, qlon;
-                const double x = sdir * (rw.width_m * 0.5 + inboard + i * box_sp + s * 8.0);
-                offset_m(plat, plon, hdg + 90.0, x, qlat, qlon);
-                // On-path default: inner red, outer white (overridden by the eye).
-                const float cr = i < 2 ? 1.f : 0.15f;
-                const float cg = i < 2 ? 0.12f : 1.f;
-                push_light(a, qlat, qlon, std::max(light_alt_m(qlat, qlon, elev), elev) + 0.9,
-                           cr, cg, 0.15f, sw_vasi, LightKind::Vasi, k, -1, i, static_cast<float>(gs));
-                auto& L = a.lights.back();
-                L.papi_rotate_deg = rot;
-                L.papi_usable_left_deg = ul;
-                L.papi_usable_right_deg = ur;
-                L.papi_rwy_hdg_deg = static_cast<float>(hdg);
+        if (nsys > 1) {
+            static bool logged = false;
+            if (!logged) {
+                logged = true;
+                S376_LOG_INFO("lights",
+                              "second PAPI position is unpublished; drawing the first system only");
             }
+        }
+        // JO 6850.2C §506.d: beam centres within ±1 ft of runway CL elevation
+        // at the intercept. Sprite height stays elevated; the angle does not.
+        const double along_le = le ? (disp_m + along0) : (rw.length_m - disp_m - along0);
+        const double t_le = rw.length_m > 1.0 ? along_le / rw.length_m : 0.0;
+        const double ref_elev = rw.le_elev_m + (rw.he_elev_m - rw.le_elev_m) * t_le;
+        double plat, plon;
+        offset_m(lat, lon, hdg, along0, plat, plon);
+        for (int i = 0; i < 4; ++i) {
+            double qlat, qlon;
+            const double x = sdir * (rw.width_m * 0.5 + inboard + i * box_sp);
+            offset_m(plat, plon, hdg + 90.0, x, qlat, qlon);
+            const float cr = i < 2 ? 1.f : 0.15f;
+            const float cg = i < 2 ? 0.12f : 1.f;
+            push_light(a, qlat, qlon, std::max(light_alt_m(qlat, qlon, elev), elev) + 0.9, cr, cg,
+                       0.15f, sw_vasi, LightKind::Vasi, k, -1, i, static_cast<float>(gs));
+            auto& L = a.lights.back();
+            L.papi_rotate_deg = rot0;
+            L.papi_usable_left_deg = ul;
+            L.papi_usable_right_deg = ur;
+            L.papi_rwy_hdg_deg = static_cast<float>(hdg);
+            L.papi_ref_alt_m = ref_elev;
+            L.papi_have_ref = true;
+            L.papi_limit_lat = lat;
+            L.papi_limit_lon = lon;
         }
     };
     papi(true);
@@ -450,10 +407,11 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
         double llat, llon, rlat, rlon;
         offset_m(lat, lon, hdg + 90.0, rw.width_m * 0.5 + 8.0, rlat, rlon);
         offset_m(lat, lon, hdg - 90.0, rw.width_m * 0.5 + 8.0, llat, llon);
+        const float hdg_f = static_cast<float>(hdg);
         push_light(a, llat, llon, light_alt_m(llat, llon, elev), 1.f, 1.f, 1.f, sw, LightKind::Reil,
-                   k);
+                   k, -1, -1, 3.f, LightFacing::Uni, hdg_f);
         push_light(a, rlat, rlon, light_alt_m(rlat, rlon, elev), 1.f, 1.f, 1.f, sw, LightKind::Reil,
-                   k);
+                   k, -1, -1, 3.f, LightFacing::Uni, hdg_f);
     };
     reil(true, sw_strobe_a);
     reil(false, sw_strobe_b);
@@ -467,22 +425,34 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
         const double back = wrap360(hdg + 180.0);
         // JO 6850.2C Fig 2-1: 5 lamps at 40½ in → bar 13.5 ft, half-span 6.75 ft.
         const double cl_half = 2.0 * 40.5 * 0.0254;
+        const float hdg_f = static_cast<float>(hdg);
+        const double disp_ft = disp_m / geo::kFtToM;
+        auto add_app = [&](double plat, double plon, double dist_ft) {
+            const bool flush = disp_ft > 1.0 && dist_ft > 0.5 && dist_ft < disp_ft;
+            push_light(a, plat, plon, flush ? elev + 0.05 : light_alt_m(plat, plon, elev), 1.f, 1.f,
+                       0.92f, sw, LightKind::Approach, k, -1, -1, 3.f, LightFacing::Uni, hdg_f);
+        };
         auto bar5 = [&](double dist_ft, LightKind kind, int seq = -1) {
             double plat, plon;
             offset_m(lat, lon, back, dist_ft * geo::kFtToM, plat, plon);
-            bar(a, plat, plon, hdg, light_alt_m(plat, plon, elev), cl_half, 5, 1.f, 1.f, 0.92f, sw,
-                kind, k);
+            const bool flush = disp_ft > 1.0 && dist_ft > 0.5 && dist_ft < disp_ft;
+            bar(a, plat, plon, hdg, flush ? elev + 0.05 : elev, cl_half, 5, 1.f, 1.f, 0.92f, sw, kind,
+                k, LightFacing::Uni, hdg_f, !flush);
             if (seq >= 0) {
                 push_light(a, plat, plon, light_alt_m(plat, plon, elev) + 0.3, 1.f, 1.f, 1.f, sw,
-                           LightKind::Flasher, k, seq);
+                           LightKind::Flasher, k, seq, -1, 3.f, LightFacing::Uni, hdg_f);
             }
         };
-        auto rlls_published = [&]() {
-            // Chart Supplement: 5 SFL 1200–2000 ft (on CL) and a 5-SFL group
-            // about 1 NM out; approach gate 35° south of the centreline.
-            if (sys != "ALSF-2") {
-                for (int i = 0; i < 5; ++i)
-                    bar5(1200.0 + 200.0 * i, LightKind::Flasher, i);
+        auto rlls_lead_in = [&]() {
+            // Chart Supplement: the 13L RLLS is for CRI VOR approaches, not the
+            // ILS. The 1 NM group is interpretive (35° south of the centreline).
+            // 1200–2000 ft stays the ALSF-2 SFL already on the approach switch.
+            static bool logged = false;
+            if (!logged) {
+                logged = true;
+                S376_LOG_INFO("lights",
+                              "RLLS lead-in geometry is interpretive; switch %d defaults off",
+                              lights::kSwRllsLeadIn);
             }
             auto d180 = [](double h) {
                 double x = std::fabs(h - 180.0);
@@ -494,8 +464,9 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
             for (int i = 0; i < 5; ++i) {
                 double plat, plon;
                 offset_m(lat, lon, gate, (6076.0 - 200.0 * i) * geo::kFtToM, plat, plon);
-                push_light(a, plat, plon, light_alt_m(plat, plon, elev) + 0.3, 1.f, 1.f, 1.f, sw,
-                           LightKind::Flasher, k, i);
+                push_light(a, plat, plon, light_alt_m(plat, plon, elev) + 0.3, 1.f, 1.f, 1.f,
+                           lights::kSwRllsLeadIn, LightKind::Flasher, k, i, -1, 3.f, LightFacing::Uni,
+                           hdg_f);
             }
         };
         if (sys == "ALSF-2") {
@@ -512,8 +483,7 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
                     double blat, blon;
                     offset_m(xlat, xlon, hdg + 90.0 * side, (15.0 + 5.0 * j) * geo::kFtToM, blat,
                              blon);
-                    push_light(a, blat, blon, light_alt_m(blat, blon, elev), 1.f, 1.f, 0.92f, sw,
-                               LightKind::Approach, k);
+                    add_app(blat, blon, 1000.0);
                 }
             }
             // 500 ft bar: 4 white each side at 5 ft, between CL bar and side row.
@@ -524,30 +494,30 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
                     double blat, blon;
                     offset_m(mlat, mlon, hdg + 90.0 * side, (15.0 + 5.0 * j) * geo::kFtToM, blat,
                              blon);
-                    push_light(a, blat, blon, light_alt_m(blat, blon, elev), 1.f, 1.f, 0.92f, sw,
-                               LightKind::Approach, k);
+                    add_app(blat, blon, 500.0);
                 }
             }
             // Red side rows: 9 stations 100–900 ft, 3 lamps at 5 ft, inner 36 ft.
             for (int i = 1; i <= 9; ++i) {
                 double slat, slon;
                 offset_m(lat, lon, back, 100.0 * i * geo::kFtToM, slat, slon);
+                const bool flush = disp_ft > 1.0 && (100.0 * i) < disp_ft;
                 for (int side = -1; side <= 1; side += 2) {
                     double blat, blon;
                     offset_m(slat, slon, hdg + 90.0 * side, (36.0 + 5.0) * geo::kFtToM, blat, blon);
-                    bar(a, blat, blon, hdg, light_alt_m(blat, blon, elev), 5.0 * geo::kFtToM, 3, 1.f,
-                        0.15f, 0.1f, sw, LightKind::Approach, k);
+                    bar(a, blat, blon, hdg, flush ? elev + 0.05 : elev, 5.0 * geo::kFtToM, 3, 1.f,
+                        0.15f, 0.1f, sw, LightKind::Approach, k, LightFacing::Uni, hdg_f, !flush);
                 }
             }
             if (le ? rw.rlls_lead_in_le : rw.rlls_lead_in_he)
-                rlls_published();
+                rlls_lead_in();
         } else if (sys == "ALSF-1") {
             for (int i = 1; i <= 24; ++i)
                 bar5(100.0 * i, LightKind::Approach, (i >= 10) ? (24 - i) : -1);
             double xlat, xlon;
             offset_m(lat, lon, back, 1000.0 * geo::kFtToM, xlat, xlon);
             bar(a, xlat, xlon, hdg, elev, 50.0 * geo::kFtToM, 21, 1.f, 1.f, 0.92f, sw,
-                LightKind::Approach, k);
+                LightKind::Approach, k, LightFacing::Uni, hdg_f);
         } else if (sys == "MALSR") {
             // JO 6850.2C Fig 2-3/2-4: 7 MALS bars 200–1400 ft, 2.5 ft
             // spacing; 66 ft crossbar at 1000 ft; RAIL = 5 single flashers.
@@ -557,18 +527,33 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
                     continue; // 1000 ft is the wide crossbar
                 double plat, plon;
                 offset_m(lat, lon, back, 200.0 * i * geo::kFtToM, plat, plon);
-                bar(a, plat, plon, hdg, light_alt_m(plat, plon, elev), mals_half, 5, 1.f, 1.f, 0.92f,
-                    sw, LightKind::Approach, k);
+                const bool flush = disp_ft > 1.0 && (200.0 * i) < disp_ft;
+                bar(a, plat, plon, hdg, flush ? elev + 0.05 : elev, mals_half, 5, 1.f, 1.f, 0.92f, sw,
+                    LightKind::Approach, k, LightFacing::Uni, hdg_f, !flush);
             }
             double xlat, xlon;
             offset_m(lat, lon, back, 1000.0 * geo::kFtToM, xlat, xlon);
-            bar(a, xlat, xlon, hdg, light_alt_m(xlat, xlon, elev), 33.0 * geo::kFtToM, 27, 1.f, 1.f,
-                0.92f, sw, LightKind::Approach, k);
+            // 5-lamp centreline bar (2.5 ft) plus 5 lamps each side from 23 to 33 ft.
+            auto xb = [&](double x_ft) {
+                double blat, blon;
+                offset_m(xlat, xlon, hdg + 90.0, x_ft * geo::kFtToM, blat, blon);
+                const bool flush = disp_ft > 1.0 && 1000.0 < disp_ft;
+                push_light(a, blat, blon, flush ? elev + 0.05 : light_alt_m(blat, blon, elev), 1.f,
+                           1.f, 0.92f, sw, LightKind::Approach, k, -1, -1, 3.f, LightFacing::Uni,
+                           hdg_f);
+            };
+            for (int j = -2; j <= 2; ++j)
+                xb(j * 2.5);
+            for (int side = -1; side <= 1; side += 2) {
+                for (int j = 0; j < 5; ++j)
+                    xb(side * (23.0 + 2.5 * j));
+            }
             for (int i = 0; i < 5; ++i) {
                 double plat, plon;
                 offset_m(lat, lon, back, (1600.0 + 200.0 * i) * geo::kFtToM, plat, plon);
+                // Outermost (2400 ft) fires first, toward the threshold.
                 push_light(a, plat, plon, light_alt_m(plat, plon, elev) + 0.3, 1.f, 1.f, 1.f, sw,
-                           LightKind::Flasher, k, i);
+                           LightKind::Flasher, k, 4 - i, -1, 3.f, LightFacing::Uni, hdg_f);
             }
         } else if (sys == "MALSF") {
             for (int i = 1; i <= 7; ++i)
@@ -577,7 +562,7 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
                 double plat, plon;
                 offset_m(lat, lon, back, (1400.0 + 200.0 * i) * geo::kFtToM, plat, plon);
                 push_light(a, plat, plon, light_alt_m(plat, plon, elev) + 0.3, 1.f, 1.f, 1.f, sw,
-                           LightKind::Flasher, k, i);
+                           LightKind::Flasher, k, 4 - i, -1, 3.f, LightFacing::Uni, hdg_f);
             }
         } else if (sys == "MALS") {
             for (int i = 1; i <= 7; ++i)
@@ -593,9 +578,14 @@ void lights_for_runway(Airport& a, const Runway& rw, int k) {
                 bar5(200.0 * i, LightKind::Approach, (i >= 8) ? (15 - i) : -1);
             double xlat, xlon;
             offset_m(lat, lon, back, 1000.0 * geo::kFtToM, xlat, xlon);
-            bar(a, xlat, xlon, hdg, elev, 18.0, 11, 1.f, 1.f, 0.92f, sw, LightKind::Approach, k);
+            bar(a, xlat, xlon, hdg, elev, 18.0, 11, 1.f, 1.f, 0.92f, sw, LightKind::Approach, k,
+                LightFacing::Uni, hdg_f);
         } else if (sys == "RLLS") {
-            rlls_published();
+            static bool logged = false;
+            if (!logged) {
+                logged = true;
+                S376_LOG_INFO("lights", "RLLS geometry is unpublished; not drawn");
+            }
         } else {
             bar5(1400.0, LightKind::Approach);
         }
@@ -1199,6 +1189,275 @@ bool landing_threshold(const Airport& a, const std::string& ident, double& lat, 
 }
 
 } // namespace
+
+namespace {
+
+const char* runway_glyph5x7(char c) {
+    switch (c) {
+    case '0':
+        return "01110100011000110001100011000101110";
+    case '1':
+        return "00100011000010000100001000010001110";
+    case '2':
+        return "01110100010000100110010001000011111";
+    case '3':
+        return "01110100010000100110000011000101110";
+    case '4':
+        return "00010001100101010010111110001000010";
+    case '5':
+        return "11111100001111000001000011000101110";
+    case '6':
+        return "01110100001111010001100011000101110";
+    case '7':
+        return "11111000010001000100010000100001000";
+    case '8':
+        return "01110100011000101110100011000101110";
+    case '9':
+        return "01110100011000101111000010000101110";
+    case 'L':
+        return "10000100001000010000100001000011111";
+    case 'R':
+        return "11110100011000111110101001001010001";
+    case 'C':
+        return "01110100011000010000100001000101110";
+    default:
+        return nullptr;
+    }
+}
+
+} // namespace
+
+void paint_faa_runway_markings(
+    const Runway& rw,
+    const std::function<void(double lat, double lon, double hdg, double along0, double along1,
+                             double left, double right, float r, float g, float b)>& mark) {
+    if (!mark || rw.length_m < 10.0 || rw.width_m < 5.0)
+        return;
+    const double ft = geo::kFtToM;
+    const double half = rw.width_m * 0.5;
+    const double width_ft = rw.width_m / ft;
+    constexpr float wr = 0.97f, wg = 0.97f, wb = 0.95f;
+    constexpr float yr = 0.92f, yg = 0.78f, yb = 0.12f;
+    constexpr float er = 0.95f, eg = 0.95f, eb = 0.93f;
+
+    mark(rw.le_lat, rw.le_lon, rw.heading_deg, 0, rw.length_m, half - 1.1, half - 0.15, er, eg, eb);
+    mark(rw.le_lat, rw.le_lon, rw.heading_deg, 0, rw.length_m, -(half - 0.15), -(half - 1.1), er, eg,
+         eb);
+
+    double cl_in = 12.0;
+    if (width_ft >= 100.0) {
+        cl_in = 36.0;
+    } else {
+        auto precision = [](const std::string& s) {
+            return s == "ALSF-2" || s == "ALSF-1" || s == "MALSR" || s == "MALSF" || s == "CAT-II" ||
+                   s == "CAT-I";
+        };
+        cl_in = (precision(rw.approach_le) || precision(rw.approach_he)) ? 18.0 : 12.0;
+    }
+    const double cl_half = cl_in * 0.0254 * 0.5;
+    const double stripe = 120.0 * ft;
+    const double cl_gap = 80.0 * ft;
+    for (double d = 0.0; d < rw.length_m - 1.0; d += stripe + cl_gap) {
+        const double d1 = std::min(d + stripe, rw.length_m);
+        mark(rw.le_lat, rw.le_lon, rw.heading_deg, d, d1, -cl_half, cl_half, wr, wg, wb);
+    }
+
+    const double le_disp = rw.le_displaced_ft * ft;
+    const double he_disp = rw.he_displaced_ft * ft;
+    const double between = std::max(0.0, rw.length_m - le_disp - he_disp);
+
+    auto paint_glyph = [&](double lat, double lon, double hdg, double along, double left, double tall,
+                           double wide, char ch) {
+        const char* g = runway_glyph5x7(ch);
+        if (!g)
+            return;
+        const double pw = wide / 5.0;
+        const double ph = tall / 7.0;
+        for (int row = 0; row < 7; ++row) {
+            for (int col = 0; col < 5; ++col) {
+                if (g[row * 5 + col] != '1')
+                    continue;
+                const double a0 = along + (6 - row) * ph;
+                const double a1 = a0 + ph * 0.92;
+                const double l0 = left + col * pw;
+                mark(lat, lon, hdg, a0, a1, l0, l0 + pw * 0.88, wr, wg, wb);
+            }
+        }
+    };
+
+    auto one_end = [&](bool le) {
+        const double lat = le ? rw.le_lat : rw.he_lat;
+        const double lon = le ? rw.le_lon : rw.he_lon;
+        const double hdg =
+            le ? rw.heading_deg
+               : (rw.heading_he_deg != 0.0 ? rw.heading_he_deg : geo::wrap360(rw.heading_deg + 180.0));
+        const double disp = le ? le_disp : he_disp;
+        const double emas_ft = le ? rw.emas_he_len_ft : rw.emas_le_len_ft;
+        const bool emas = (le ? rw.emas_he : rw.emas_le) && emas_ft > 1.0;
+        const std::string& ident = le ? rw.ident_le : rw.ident_he;
+
+        if (disp > 8.0) {
+            int nheads = 2;
+            double spacing_ft = width_ft / 2.0;
+            double edge_ft = width_ft / 4.0;
+            if (width_ft >= 100.0) {
+                nheads = 4;
+                spacing_ft = width_ft / 4.0;
+                edge_ft = width_ft / 8.0;
+            } else if (width_ft >= 60.0) {
+                nheads = 3;
+                spacing_ft = width_ft / 3.0;
+                edge_ft = width_ft / 6.0;
+            }
+            const double outer_ft = width_ft * 0.5 - edge_ft;
+            std::vector<double> centers;
+            centers.reserve(static_cast<std::size_t>(nheads));
+            for (int i = 0; i < nheads; ++i)
+                centers.push_back((-outer_ft + static_cast<double>(i) * spacing_ft) * ft);
+            auto head = [&](double base, double tip, double cx) {
+                constexpr int slices = 8;
+                const double len = tip - base;
+                const double half0 = 7.5 * ft;
+                for (int s = 0; s < slices; ++s) {
+                    const double t0 = s / static_cast<double>(slices);
+                    const double t1 = (s + 1) / static_cast<double>(slices);
+                    const double w = half0 * (1.0 - 0.5 * (t0 + t1));
+                    if (w < 0.04)
+                        continue;
+                    mark(lat, lon, hdg, base + t0 * len, base + t1 * len, cx - w, cx + w, wr, wg, wb);
+                }
+            };
+            auto tail = [&](double a0, double a1, double cx) {
+                const double hw = 0.75 * ft;
+                mark(lat, lon, hdg, a0, a1, cx - hw, cx + hw, wr, wg, wb);
+            };
+            const double head_l = 45.0 * ft;
+            const double tail_l = 80.0 * ft;
+            const double gap_l = 75.0 * ft;
+            const double stop = disp - 1.0;
+            double cursor = 20.0 * ft;
+            if (cursor + head_l <= stop) {
+                for (double cx : centers)
+                    head(cursor, cursor + head_l, cx);
+                cursor += head_l;
+            }
+            while (cursor + gap_l + tail_l + head_l <= stop) {
+                cursor += gap_l;
+                for (double cx : centers) {
+                    tail(cursor, cursor + tail_l, cx);
+                    head(cursor + tail_l, cursor + tail_l + head_l, cx);
+                }
+                cursor += tail_l + head_l;
+            }
+        }
+
+        if (emas) {
+            const double bed = emas_ft * ft;
+            const double bed_half =
+                std::max(half, rw.emas_wid_ft > 1.0 ? rw.emas_wid_ft * ft * 0.5 : half);
+            double pitch_ft = emas_ft < 250.0 ? 50.0 : 100.0;
+            if (emas_ft > 1000.0)
+                pitch_ft *= 2.0;
+            const double step = 1.4;
+            const int narm = static_cast<int>(bed_half / step);
+            for (double apex_ft = pitch_ft * 0.5; apex_ft < emas_ft - 8.0; apex_ft += pitch_ft) {
+                const double apex = -apex_ft * ft;
+                for (int side = -1; side <= 1; side += 2) {
+                    for (int i = 1; i < narm; ++i) {
+                        const double a = apex - static_cast<double>(i) * step;
+                        const double x = side * static_cast<double>(i) * step;
+                        if (a < -bed + 0.5)
+                            break;
+                        if (std::fabs(x) + step > bed_half)
+                            break;
+                        mark(lat, lon, hdg, a - step * 0.5, a + step * 0.5, x - step * 0.5,
+                             x + step * 0.5, yr, yg, yb);
+                    }
+                }
+            }
+        }
+
+        if (disp > 8.0 || emas) {
+            const double inset = 1.1;
+            mark(lat, lon, hdg, disp, disp + 10.0 * ft, -(half - inset), half - inset, wr, wg, wb);
+        }
+
+        int nstripes = 4;
+        if (width_ft >= 200.0)
+            nstripes = 16;
+        else if (width_ft >= 150.0)
+            nstripes = 12;
+        else if (width_ft >= 100.0)
+            nstripes = 8;
+        else if (width_ft >= 75.0)
+            nstripes = 6;
+        const double sw = 5.75 * ft;
+        const double s0 = disp + 20.0 * ft;
+        const double slen = 150.0 * ft;
+        for (int side = -1; side <= 1; side += 2) {
+            for (int i = 0; i < nstripes / 2; ++i) {
+                const double a = sw + static_cast<double>(i) * (sw + sw);
+                const double b = a + sw;
+                const double left = side > 0 ? a : -b;
+                const double right = side > 0 ? b : -a;
+                mark(lat, lon, hdg, s0, s0 + slen, left, right, wr, wg, wb);
+            }
+        }
+
+        if (!ident.empty()) {
+            std::string s = ident;
+            if (s.size() >= 2 && s[0] == '0' && std::isdigit(static_cast<unsigned char>(s[1])))
+                s.erase(s.begin());
+            const double tall = 18.0;
+            const double wide = tall * 5.0 / 7.0;
+            double along = disp + 190.0 * ft;
+            for (int i = static_cast<int>(s.size()) - 1; i >= 0; --i) {
+                paint_glyph(lat, lon, hdg, along, -wide * 0.5, tall, wide, s[static_cast<std::size_t>(i)]);
+                along += tall + 4.0;
+            }
+        }
+
+        const double between_ft = between / ft;
+        const double aim_len = (between_ft >= 4200.0 ? 150.0 : 100.0) * ft;
+        const double aim0 = disp + 1020.0 * ft;
+        const double aim1 = aim0 + aim_len;
+        const double far_limit = disp + between - 5.0;
+        if (aim1 < far_limit) {
+            const double inner_e = (width_ft >= 150.0 ? 36.0 : 18.0) * ft;
+            const double mw = (width_ft >= 150.0 ? 30.0 : 12.0) * ft;
+            mark(lat, lon, hdg, aim0, aim1, inner_e, inner_e + mw, wr, wg, wb);
+            mark(lat, lon, hdg, aim0, aim1, -(inner_e + mw), -inner_e, wr, wg, wb);
+        }
+
+        struct TdzGroup {
+            double station_ft;
+            int nbars;
+        };
+        const TdzGroup groups[] = {{500.0, 3}, {1500.0, 2}, {2000.0, 2}, {2500.0, 1}, {3000.0, 1}};
+        const double bar_len = 75.0 * ft;
+        const double bar_w = 6.0 * ft;
+        const double bar_gap = 5.0 * ft;
+        const double tdz_inner = 36.0 * ft;
+        const double zone = disp + between * 0.5 - 900.0 * ft;
+        for (const auto& g : groups) {
+            const double start = disp + g.station_ft * ft;
+            const double end = start + bar_len;
+            if (end > zone || end > far_limit)
+                continue;
+            for (int side = -1; side <= 1; side += 2) {
+                for (int i = 0; i < g.nbars; ++i) {
+                    const double in_e = tdz_inner + static_cast<double>(i) * (bar_w + bar_gap);
+                    const double out_e = in_e + bar_w;
+                    const double left = side > 0 ? in_e : -out_e;
+                    const double right = side > 0 ? out_e : -in_e;
+                    mark(lat, lon, hdg, start, end, left, right, wr, wg, wb);
+                }
+            }
+        }
+    };
+    one_end(true);
+    one_end(false);
+}
 
 bool runway_shot_pose(const Airport& a, const std::string& ident, double dist_nm, ShotPose& out) {
     double lat0 = 0, lon0 = 0, elev_m = 0, hdg = 0;

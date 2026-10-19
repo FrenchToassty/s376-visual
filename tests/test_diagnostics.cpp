@@ -151,6 +151,11 @@ void test_diagnostics() {
         const auto gta_off = s376::format_gta_stack_lines(false);
         CHECK(gta_off.find("csm_shadows") != std::string::npos);
         CHECK(gta_off.find("0.00") != std::string::npos);
+        const auto unmeasured = s376::format_gpu_pass_table(-1.f, true);
+        CHECK(unmeasured.find("scaled_ms") == std::string::npos);
+        CHECK(unmeasured.find("unmeasured") != std::string::npos);
+        CHECK(unmeasured.find("budget_column_is_not_a_gpu_time") != std::string::npos);
+        CHECK(unmeasured.find("total\t12.20\t12.20") != std::string::npos);
     }
 
     const char* old_dpy = std::getenv("DISPLAY");

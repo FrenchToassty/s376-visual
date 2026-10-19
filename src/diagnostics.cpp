@@ -7,6 +7,7 @@
 #include "s376/terrain.hpp"
 #include "s376/geo.hpp"
 #include "s376/host.hpp"
+#include "s376/lights.hpp"
 #include "s376/render.hpp"
 #include "s376/safety.hpp"
 #include "s376/version.hpp"
@@ -224,17 +225,20 @@ std::string format_gpu_pass_table(float measured_ms, bool shadows_on) {
     int n = 0;
     const auto* b = quality_gpu_budgets(n);
     const float budgeted = quality_gpu_budget_total_ms(shadows_on);
-    const float scale = (measured_ms > 0.f && budgeted > 0.f) ? (measured_ms / budgeted) : 1.f;
+    const bool measured = measured_ms >= 0.f;
+    const float scale = (measured && measured_ms > 0.f && budgeted > 0.f) ? (measured_ms / budgeted) : 1.f;
     std::ostringstream o;
     o << std::fixed << std::setprecision(2);
-    o << "pass\tbudget_ms\tscaled_ms\n";
+    o << "pass\tbudget_ms\t" << (measured ? "scaled_ms" : "budget") << "\n";
+    if (!measured)
+        o << "note\tunmeasured\tbudget_column_is_not_a_gpu_time\n";
     o << "base\t6.00\t" << (6.0f * scale) << "\n";
     for (int i = 0; i < n; ++i) {
         if (std::strcmp(b[i].name, "shadows") == 0 && !shadows_on)
             continue;
         o << b[i].name << "\t" << b[i].gpu_ms << "\t" << (b[i].gpu_ms * scale) << "\n";
     }
-    o << "total\t" << budgeted << "\t" << (measured_ms >= 0.f ? measured_ms : budgeted) << "\n";
+    o << "total\t" << budgeted << "\t" << (measured ? measured_ms : budgeted) << "\n";
     o << format_gta_stack_lines(shadows_on);
     return o.str();
 }
@@ -282,6 +286,7 @@ std::vector<ChannelFrameTime> bench_channel_times(const AppConfig& cfg, bool try
     host.env.tod_hours = 14.5f;
     host.env.visible_range_ft = 60760.f;
     host.light_steps.fill(5);
+    host.light_steps[static_cast<std::size_t>(lights::kSwRllsLeadIn)] = 0;
 
     std::vector<ChannelFrameTime> out;
     constexpr int kIters = 8000;
