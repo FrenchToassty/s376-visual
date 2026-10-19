@@ -112,7 +112,7 @@ void test_lights() {
     CHECK(!is_als_family(s376::LightKind::Vasi));
     CHECK(!is_als_family(s376::LightKind::Edge));
     CHECK_NEAR(day_als_intensity(s376::LightKind::Approach, 1.f), 1.0, 1e-4);
-    CHECK_NEAR(day_als_intensity(s376::LightKind::Approach, 0.f), 0.14, 1e-4);
+    CHECK_NEAR(day_als_intensity(s376::LightKind::Approach, 0.f), 0.18, 1e-4);
     CHECK_NEAR(day_als_intensity(s376::LightKind::Edge, 0.f), 1.0, 1e-4);
     CHECK(day_als_size_px(s376::LightKind::Approach, 0.f, 8.f) <= 2.6f);
     CHECK(day_als_size_px(s376::LightKind::Approach, 0.f, 8.f) >= 2.0f);

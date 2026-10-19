@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 
@@ -358,11 +359,20 @@ int main(int argc, char** argv) {
                     const auto jp = tile_dir + "/" + tiles[i].name + ".json";
                     const auto tu = s376::overpass_aeroway_url(
                         tiles[i].south, tiles[i].west, tiles[i].north, tiles[i].east);
-                    std::cout << "  tile " << tiles[i].name << "\n";
-                    if (!s376::http_post_file("https://overpass-api.de/api/interpreter", q, jp) &&
-                        !s376::http_post_file("https://overpass.openstreetmap.fr/api/interpreter", q,
-                                             jp) &&
-                        !s376::http_get_file(tu, jp)) {
+                    std::cout << "  tile " << tiles[i].name << std::endl;
+                    bool have = false;
+                    if (std::filesystem::exists(jp) && std::filesystem::file_size(jp) > 2048) {
+                        std::ifstream chk(jp, std::ios::binary);
+                        char head[8] = {};
+                        chk.read(head, 8);
+                        have = chk && head[0] == '{' && std::string(head, 8).find('<') == std::string::npos;
+                    }
+                    if (have)
+                        std::cout << "    reuse " << jp << "\n";
+                    else if (!s376::http_post_file("https://overpass-api.de/api/interpreter", q, jp) &&
+                             !s376::http_post_file("https://overpass.openstreetmap.fr/api/interpreter",
+                                                   q, jp) &&
+                             !s376::http_get_file(tu, jp)) {
                         std::cerr << "overpass tile " << tiles[i].name << " failed\n";
                         continue;
                     }
@@ -371,6 +381,7 @@ int main(int argc, char** argv) {
                 s376::rank_osm_buildings(apt.buildings, apt.arp_lat, apt.arp_lon);
                 s376::prefer_osm_airport_massing(apt);
                 s376::apply_kjfk_roof_colours(apt);
+                (void)s376::geo::write_shoreline_bin(apt.water_rings, dest + "/shoreline.bin");
                 if (!s376::write_osm_bin(apt, dest + "/osm.bin")) {
                     std::cerr << "write osm.bin failed\n";
                     s376::log::shutdown();

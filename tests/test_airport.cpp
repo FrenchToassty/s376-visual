@@ -745,6 +745,7 @@ void test_airport() {
             t4.height_m = 25.f;
             s376::classify_osm_building(t4);
             CHECK(t4.name == "T4" && t4.kind == s376::BuildingKind::Airport);
+            CHECK(s376::kMaxOsmBuildingsBake > s376::kMaxOsmBuildings);
         }
         CHECK(op.roads.size() == 1);
         CHECK(op.roads[0].cls == s376::RoadClass::Primary);
@@ -834,6 +835,18 @@ void test_airport() {
     CHECK(from_bin.buildings.size() == 1);
     CHECK_NEAR(from_bin.buildings.back().height_m, 18.0, 0.1);
     {
+        s376::Airport hg;
+        hg.icao = "KSFO";
+        CHECK(s376::merge_osm_json(hg, hangar) == 1);
+        CHECK(hg.buildings.back().type == "hangar");
+        CHECK(s376::write_osm_bin(hg, tmp + "/hangar.bin"));
+        s376::Airport hg2;
+        hg2.icao = "KSFO";
+        CHECK(s376::read_osm_bin(hg2, tmp + "/hangar.bin") >= 1);
+        CHECK(hg2.buildings.back().type == "hangar");
+        CHECK(hg2.buildings.back().kind == s376::BuildingKind::Airport);
+    }
+    {
         s376::SolidBvh solids;
         s376::fill_solids(solids, s376::SkylineEra::Current, {from_bin});
         double roof = 0;
@@ -860,7 +873,8 @@ void test_airport() {
         }
         s376::SolidBvh extra;
         CHECK(s376::merge_osm_file_stream(capped, tmp + "/osm.json", 0, &extra) >= 1);
-        CHECK(capped.buildings.size() == s376::kMaxOsmBuildings);
+        CHECK(capped.buildings.size() > s376::kMaxOsmBuildings);
+        CHECK(capped.buildings.size() <= s376::kMaxOsmBuildingsBake);
         extra.build();
         double roof = 0;
         CHECK(extra.roof_msl(37.61825, -122.3835, &roof));

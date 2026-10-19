@@ -334,6 +334,19 @@ void add_street_lights(Airport& a) {
             ++n;
         }
     }
+    for (const auto& b : a.buildings) {
+        if (n >= kMaxNightLamps)
+            break;
+        if (b.kind != BuildingKind::Airport)
+            continue;
+        double lat = 0, lon = 0;
+        building_centroid(b, lat, lon);
+        if (geo::land_coverage(lat, lon) < kLandMin)
+            continue;
+        const double z = a.elev_m + std::max(8.0, static_cast<double>(b.height_m) + 2.0);
+        push(lat, lon, z, 1.f, 0.94f, 0.80f);
+        ++n;
+    }
     a.night.spacing_m = 35;
     a.night.points = n;
 }

@@ -249,8 +249,8 @@ float day_als_intensity(LightKind kind, float night_w) {
     if (!is_als_family(kind) || night_w >= 0.20f)
         return 1.f;
     const float t = night_w / 0.20f;
-    // FAA ALSF-2 PAR-56 (~20 000 cd) is a point in noon sun, not a wash.
-    return 0.14f + 0.86f * t;
+    // FAA ALSF-2 PAR-56 (~20 000 cd) is a warm bar in noon sun, not a wash.
+    return 0.18f + 0.82f * t;
 }
 
 void day_als_rgb(LightKind kind, float night_w, float& r, float& g, float& b) {

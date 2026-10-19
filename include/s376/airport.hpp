@@ -46,6 +46,9 @@ enum class LightKind {
 constexpr std::size_t kMaxOsmTaxiways = 800;
 constexpr std::size_t kMaxOsmAprons = 200;
 constexpr std::size_t kMaxOsmBuildings = 12000;
+// Bake working set: keep every footprint until rank_osm_buildings, then
+// write_osm_bin caps the mesh. Queens houses must not evict Manhattan.
+constexpr std::size_t kMaxOsmBuildingsBake = 80000;
 constexpr std::size_t kMaxOsmRoads = 400;
 // Airfield campus (≤ ~2.2 km of ARP): full-detail walls.
 constexpr int kMeshBuildingsNear = 800;
@@ -53,7 +56,7 @@ constexpr int kMeshBuildingsNear = 800;
 // Official + landmark buildings are always meshed and do not count here.
 constexpr int kMeshBuildingsFar = 2500;
 // Tall OSM footprints 0.8–28 km (Manhattan / Queens cores). Real heights.
-constexpr int kMeshBuildingsSkyline = 400;
+constexpr int kMeshBuildingsSkyline = 800;
 constexpr float kSkylineHeightM = 40.f;
 constexpr double kSkylineRingKm = 28.0;
 // OSM `height`, else `building:levels` × this, else the default. Metres AGL.
@@ -282,6 +285,8 @@ struct Airport {
     std::vector<SceneRoute> routes;
     std::vector<Marshaller> marshallers;
     std::vector<Road> roads;
+    // OSM natural=water rings (bake → shoreline.bin). Not meshed.
+    std::vector<std::vector<std::pair<double, double>>> water_rings;
     NightLayer night;
     double tower_lat = 0;
     double tower_lon = 0;
