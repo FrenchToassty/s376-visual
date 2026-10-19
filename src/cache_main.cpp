@@ -226,12 +226,8 @@ int main(int argc, char** argv) {
             req.mid_radius_km = mid_km;
             req.approach_nm = approach_nm;
             req.max_export = max_export;
-            req.jobs = jobs;
+            req.jobs = s376::fetch_jobs_for_budget(jobs, mem_budget_mb);
             req.mem_budget_mb = mem_budget_mb;
-            if (mem_budget_mb > 0 && mem_budget_mb < 1024)
-                req.jobs = std::min(req.jobs, 2);
-            else if (mem_budget_mb > 0 && mem_budget_mb < 2048)
-                req.jobs = std::min(req.jobs, 4);
             s376::FetchPlan plan;
             const auto bytes = s376::fetch_and_pack(req, &plan);
             const auto apt = s376::lookup_airport_ref(icao);

@@ -87,6 +87,26 @@ constexpr int kMaxServiceExportPx = 2048;
 constexpr std::uint64_t kFetchRssBoundBytes = 2ull << 30;
 constexpr int kFetchRssLogEvery = 16;
 
+// --mem-budget MB overrides the 2 GiB streaming RSS cap. Jobs are
+// clamped so a 16 GB Mint box cannot launch 16 full tile decodes.
+inline std::uint64_t fetch_rss_bound_bytes(const FetchRequest& r) {
+    if (r.mem_budget_mb <= 0)
+        return kFetchRssBoundBytes;
+    const int mb = r.mem_budget_mb < 256 ? 256 : r.mem_budget_mb;
+    return static_cast<std::uint64_t>(mb) << 20;
+}
+inline int fetch_jobs_for_budget(int jobs, int mem_budget_mb) {
+    if (jobs < 1)
+        jobs = 1;
+    if (jobs > 32)
+        jobs = 32;
+    if (mem_budget_mb > 0 && mem_budget_mb < 1024)
+        return jobs < 2 ? jobs : 2;
+    if (mem_budget_mb > 0 && mem_budget_mb < 2048)
+        return jobs < 4 ? jobs : 4;
+    return jobs;
+}
+
 struct PlannedTile {
     int lod = 0;
     int ix = 0;

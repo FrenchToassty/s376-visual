@@ -139,6 +139,19 @@ void test_fetch() {
         CHECK(lods.back().level == 2);
         CHECK(lods.back().radius_km + 0.01 >= 40.0 * 1.852);
     }
+    {
+        s376::FetchRequest b;
+        CHECK(s376::fetch_rss_bound_bytes(b) == s376::kFetchRssBoundBytes);
+        b.mem_budget_mb = 512;
+        CHECK(s376::fetch_rss_bound_bytes(b) == (512ull << 20));
+        b.mem_budget_mb = 2048;
+        CHECK(s376::fetch_rss_bound_bytes(b) == (2048ull << 20));
+        CHECK(s376::fetch_jobs_for_budget(16, 0) == 16);
+        CHECK(s376::fetch_jobs_for_budget(16, 512) == 2);
+        CHECK(s376::fetch_jobs_for_budget(16, 1536) == 4);
+        CHECK(s376::fetch_jobs_for_budget(16, 2048) == 16);
+        CHECK(s376::fetch_jobs_for_budget(1, 512) == 1);
+    }
     auto plan = s376::plan_fetch(req);
     CHECK(plan.dem_kind == "3dep");
     CHECK(plan.img_kind == "kingco");

@@ -1020,10 +1020,17 @@ std::uint64_t fetch_and_pack(const FetchRequest& in, FetchPlan* plan_out) {
         if (n == 1 || n == plan.tiles.size() ||
             n % static_cast<std::size_t>(kFetchRssLogEvery) == 0)
             log_fetch_rss("tile", n, plan.tiles.size());
+        const auto bound = fetch_rss_bound_bytes(req);
+        if (peak_rss_bytes() > bound)
+            S376_LOG_WARN("cache", "rss peak over --mem-budget (%.0f / %.0f MiB) — streaming one tile",
+                          static_cast<double>(peak_rss_bytes()) / (1024.0 * 1024.0),
+                          static_cast<double>(bound) / (1024.0 * 1024.0));
     };
     if (plan.dem_kind == "3dep" || tiled_img) {
-        const int jobs = std::max(1, std::min(32, req.jobs));
-        S376_LOG_INFO("cache", "fetch workers  %d  tiles=%zu", jobs, plan.tiles.size());
+        const int jobs = fetch_jobs_for_budget(req.jobs, req.mem_budget_mb);
+        const auto rss_bound = fetch_rss_bound_bytes(req);
+        S376_LOG_INFO("cache", "fetch workers  %d  tiles=%zu  mem-budget %.0f MiB", jobs,
+                      plan.tiles.size(), static_cast<double>(rss_bound) / (1024.0 * 1024.0));
         auto one_tile = [&](const PlannedTile& t) {
             const std::string tdir = out + "/lod" + std::to_string(t.lod) + "/t" +
                                      std::to_string(t.iy) + "_" + std::to_string(t.ix);

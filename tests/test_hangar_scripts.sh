@@ -118,6 +118,41 @@ else
     ok "dry-run wrote no STATUS"
 fi
 
+# Unclean reboot: leftover current + foreign boot_id increments the
+# step crash counter, steps down jobs, and BLOCKED at 3.
+crash_out="/tmp/s376-queue-crash"
+rm -rf "$crash_out"
+mkdir -p "$crash_out/07-fetch-kjfk-near"
+echo "07 fetch-kjfk-near starting 1999-01-01T00:00:00Z" >"$crash_out/current"
+echo "1 other-boot-id 1 07 fetch-kjfk-near" >"$crash_out/heartbeat"
+echo 2 >"$crash_out/07-fetch-kjfk-near/crashes"
+scripts/hangar-queue.sh --only 99 --out "$crash_out" --root "$ROOT" >/tmp/s376-queue-crash.log 2>&1 || true
+if [[ -f "$crash_out/CRASHES.md" ]] && grep -q 'unclean stop' "$crash_out/CRASHES.md"; then
+    ok "unclean stop logged CRASHES.md"
+else
+    bad "unclean stop did not write CRASHES.md"
+    cat /tmp/s376-queue-crash.log >&2 || true
+fi
+if [[ -f "$crash_out/07-fetch-kjfk-near/crashes" ]] && [[ "$(tr -dc '0-9' <"$crash_out/07-fetch-kjfk-near/crashes")" == "3" ]]; then
+    ok "unclean stop incremented step crash counter"
+else
+    bad "expected 07 crashes=3, got $(cat "$crash_out/07-fetch-kjfk-near/crashes" 2>/dev/null || echo missing)"
+fi
+if [[ -f "$crash_out/07-fetch-kjfk-near/BLOCKED" ]]; then
+    ok "BLOCKED after 3 crashes"
+else
+    bad "missing 07 BLOCKED after 3 unclean crashes"
+fi
+if [[ -f "$crash_out/limits" ]] && grep -q 'JOBS=4' "$crash_out/limits" && grep -q 'QUALITY_CAP=gtx980ti' "$crash_out/limits"; then
+    ok "step-down wrote JOBS=4 and gtx980ti"
+else
+    bad "step-down limits missing (got $(cat "$crash_out/limits" 2>/dev/null || echo none))"
+fi
+list_b="$(scripts/hangar-queue.sh --list --out "$crash_out" --root "$ROOT")"
+echo "$list_b" | grep -q 'BLOCKED' || bad "list missing BLOCKED mark"
+ok "list shows BLOCKED"
+rm -rf "$crash_out" /tmp/s376-queue-crash.log
+
 if [[ "$fail" -ne 0 ]]; then
     echo "hangar script tests failed" >&2
     exit 1

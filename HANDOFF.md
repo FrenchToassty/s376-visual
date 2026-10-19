@@ -123,7 +123,8 @@ tested. Multi-channel: only `reply_master` sends type 200.
    steps **01–12 are KJFK only**. Every step `MemoryMax=12G`. Default
    **`-j 16`**. `--install-autostart` writes a user systemd unit
    (no sudo) that resumes after reboot. Heartbeat + `boot_id` detect
-   an unclean stop; journal OOM/Xid/thermal; per-step crash counters
+   an unclean stop (leftover `current` or a different `boot_id`) and
+   increment that step’s crash counter; journal OOM/Xid/thermal;
    step down (`-j` 16→8→4, rtx→gtx980ti, serial fetches, heat 83→75)
    and **BLOCKED** after 3. PSI/MemAvailable watchdog keeps ~4 GB
    free and stops only this queue's units. `CRASHES.md`.

@@ -556,17 +556,59 @@ journal_scan() {
     fi
 }
 
+# Heartbeat / leftover `current` → increment that step's crash counter,
+# step down, and BLOCKED after MAX_CRASHES. Used after a freeze/reboot.
+note_unclean_step() {
+    local why="$1" nn="" name="" d crashes
+    if [[ -f "$OUT/current" ]]; then
+        nn="$(awk '{print $1}' "$OUT/current")"
+        name="$(awk '{print $2}' "$OUT/current")"
+    elif [[ -f "$OUT/heartbeat" ]]; then
+        nn="$(awk '{print $4}' "$OUT/heartbeat")"
+        name="$(awk '{print $5}' "$OUT/heartbeat")"
+    fi
+    if [[ -z "$nn" || -z "$name" || "$nn" == "00" ]]; then
+        note_crash "00" "unclean" "$why"
+        return 0
+    fi
+    d="$(step_dir "$nn" "$name")"
+    mkdir -p "$d"
+    crashes=0
+    if [[ -f "$d/crashes" ]]; then
+        crashes="$(tr -dc '0-9' <"$d/crashes")"
+        crashes="${crashes:-0}"
+    fi
+    crashes=$((crashes + 1))
+    echo "$crashes" >"$d/crashes"
+    note_crash "$nn" "$name" "$why (crash $crashes/$MAX_CRASHES)"
+    step_down "$crashes"
+    if [[ "$crashes" -ge "$MAX_CRASHES" ]]; then
+        echo "BLOCKED after $crashes crashes $(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$d/BLOCKED"
+        log "BLOCKED $nn $name after unclean stop"
+    fi
+}
+
 detect_unclean() {
     [[ "$DRY" -eq 1 ]] && return 0
-    local now last
+    local now last unclean=0 why=""
     now="$(boot_id)"
-    echo "$now" >"$OUT/boot_id"
     if [[ -f "$OUT/heartbeat" ]]; then
         last="$(awk '{print $2}' "$OUT/heartbeat" 2>/dev/null || true)"
         if [[ -n "$last" && "$last" != "$now" && "$last" != "unknown" ]]; then
-            note_crash "00" "reboot" "unclean stop: heartbeat boot_id=$last now=$now"
-            log "unclean stop detected (reboot/freeze) — resuming leftover steps"
+            unclean=1
+            why="unclean stop: heartbeat boot_id=$last now=$now"
         fi
+    fi
+    if [[ -f "$OUT/current" ]]; then
+        unclean=1
+        if [[ -z "$why" ]]; then
+            why="unclean stop: leftover current=$(tr '\n' ' ' <"$OUT/current")"
+        fi
+    fi
+    echo "$now" >"$OUT/boot_id"
+    if [[ "$unclean" -eq 1 ]]; then
+        log "$why — resuming leftover steps"
+        note_unclean_step "$why"
     fi
 }
 
