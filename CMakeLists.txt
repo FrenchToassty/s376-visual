@@ -11,6 +11,9 @@ option(S376_WITH_GDAL "Load Copernicus GeoTIFF DEM/imagery through GDAL" ON)
 
 if(MSVC)
     add_compile_options(/W4 /permissive-)
+    # winsock2.h pulls windows.h, which otherwise #defines min/max and
+    # breaks std::min / std::max (C2589).
+    add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN)
 else()
     add_compile_options(-Wall -Wextra -Wpedantic)
 endif()

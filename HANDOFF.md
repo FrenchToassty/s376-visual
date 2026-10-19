@@ -32,7 +32,14 @@ Work stays on **PR #1** (`cursor/s376-visual-v1-6852`). Accuracy-first.
 **980 Ti is the target.** No RSI / imagery / Raster files in git.
 Do not add `.deb`, systemd units, or an `rtx-x99` profile.
 **Do not build `s376-fakehost`.** BingBongBot owns the simulated host
-and will hand a patch to merge onto the existing interface.
+and will hand a patch to merge onto the existing interface
+([docs/HOST_INTERFACE.md](docs/HOST_INTERFACE.md)). Gear/flaps stay
+off the v0.1 wire.
+
+Windows MSVC CI (980 Ti zip) was red since the zip job: `windows.h`
+`min`/`max` macros, MSVC `__BYTE_ORDER__` both-zero `#error`, and
+`path::native()` (`wstring`) `.find("..")`. Fixed with `NOMINMAX`,
+a portable LE check, and `generic_string()`.
 
 **Joey priority: Oct 25 KJFK demo.** Hard deadline Sunday 2026-10-25
 for a 2-minute 04R approach + landing (day and night), believable

@@ -6,6 +6,17 @@
 #include <cstring>
 #include <stdexcept>
 
+// GCC/Clang define __BYTE_ORDER__. MSVC does not — both macros expand to 0,
+// so `#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__` is true and #error fires
+// on every little-endian Windows box.
+#if defined(_WIN32) ||                                                                 \
+    (defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) &&                    \
+     __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+#define S376_LITTLE_ENDIAN 1
+#else
+#define S376_LITTLE_ENDIAN 0
+#endif
+
 namespace s376::xt4 {
 namespace {
 
@@ -68,18 +79,16 @@ float unpack_ieee_f_words(const std::uint16_t* w) {
     std::uint32_t bits = (static_cast<std::uint32_t>(w[0]) << 16) | w[1];
     float x;
     std::memcpy(&x, &bits, 4);
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#if S376_LITTLE_ENDIAN
     // bits was assembled as big-endian IEEE bit pattern in a host uint32.
     // memcpy of that uint32 on LE gives the wrong byte order. Rebuild via bytes.
     std::uint8_t b[4] = {
         static_cast<std::uint8_t>(w[0] >> 8), static_cast<std::uint8_t>(w[0] & 0xFF),
         static_cast<std::uint8_t>(w[1] >> 8), static_cast<std::uint8_t>(w[1] & 0xFF)};
     std::memcpy(&x, b, 4);
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
     // b[] is already IEEE big-endian bytes; memcpy on LE is wrong. Swap.
     std::uint8_t le[4] = {b[3], b[2], b[1], b[0]};
     std::memcpy(&x, le, 4);
-#endif
 #endif
     return x;
 }
@@ -113,7 +122,7 @@ void pack_ieee_d_words(double x, std::uint16_t* out) {
     out[3] = static_cast<std::uint16_t>((le[1] << 8) | le[0]);
 }
 
-#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#if !S376_LITTLE_ENDIAN
 #error "s376-visual IEEE packers assume a little-endian host"
 #endif
 

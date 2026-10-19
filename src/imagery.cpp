@@ -347,7 +347,7 @@ std::uint64_t import_raster(const ImportRequest& req, ImportScan* scan_out) {
     const auto out_abs = std::filesystem::weakly_canonical(out);
     std::error_code ec;
     const auto rel = std::filesystem::relative(out_abs, src_abs, ec);
-    if (!ec && !rel.empty() && rel.native().find("..") == std::string::npos)
+    if (!ec && !rel.empty() && rel.generic_string().find("..") == std::string::npos)
         throw std::runtime_error("refusing to write the cache inside the source airport folder");
 
     std::vector<GeorefRgb> imgs;
