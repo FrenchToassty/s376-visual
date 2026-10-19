@@ -137,10 +137,19 @@ void test_diagnostics() {
 
     const char* old_dpy = std::getenv("DISPLAY");
     std::string saved_dpy = old_dpy ? old_dpy : "";
+#ifdef _WIN32
+    _putenv_s("DISPLAY", "");
+#else
     unsetenv("DISPLAY");
+#endif
     auto report = s376::run_doctor(cfg, "", false, true);
-    if (!saved_dpy.empty())
+    if (!saved_dpy.empty()) {
+#ifdef _WIN32
+        _putenv_s("DISPLAY", saved_dpy.c_str());
+#else
         setenv("DISPLAY", saved_dpy.c_str(), 1);
+#endif
+    }
     const auto text = s376::format_report(report);
     CHECK(text.find("cache-ksea") != std::string::npos);
     CHECK(text.find("cache-ksfo") != std::string::npos);
