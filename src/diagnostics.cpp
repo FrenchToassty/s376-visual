@@ -235,6 +235,34 @@ std::string format_gpu_pass_table(float measured_ms, bool shadows_on) {
         o << b[i].name << "\t" << b[i].gpu_ms << "\t" << (b[i].gpu_ms * scale) << "\n";
     }
     o << "total\t" << budgeted << "\t" << (measured_ms >= 0.f ? measured_ms : budgeted) << "\n";
+    o << format_gta_stack_lines(shadows_on);
+    return o.str();
+}
+
+std::string format_gta_stack_lines(bool shadows_on) {
+    int n = 0;
+    const auto* b = quality_gpu_budgets(n);
+    auto find_ms = [&](const char* name) {
+        for (int i = 0; i < n; ++i) {
+            if (std::strcmp(b[i].name, name) == 0)
+                return b[i].gpu_ms;
+        }
+        return 0.f;
+    };
+    const float csm = shadows_on ? find_ms("shadows") : 0.f;
+    const float bloom = find_ms("bloom") + find_ms("filmic");
+    const float ssao = find_ms("ssao");
+    const float wet = find_ms("water") + find_ms("runway_pbr");
+    const float haze = find_ms("atmosphere");
+    const float aa = find_ms("taa") + find_ms("fxaa");
+    std::ostringstream o;
+    o << std::fixed << std::setprecision(2);
+    o << "gta\tcsm_shadows\t" << csm << "\n";
+    o << "gta\thdr_bloom\t" << bloom << "\n";
+    o << "gta\tssao\t" << ssao << "\n";
+    o << "gta\twet_runway\t" << wet << "\n";
+    o << "gta\thaze\t" << haze << "\n";
+    o << "gta\tstable_aa\t" << aa << "\n";
     return o.str();
 }
 

@@ -65,5 +65,7 @@ std::string format_approach_bench_summary(const std::vector<ApproachBenchSample>
                                           float budget_ms, const std::string& quality,
                                           const std::string& dropped);
 std::string format_gpu_pass_table(float measured_ms, bool shadows_on);
+// Joey-pasteable GTA V stack lines (same 12.20 ms budget, named for the demo).
+std::string format_gta_stack_lines(bool shadows_on);
 
 } // namespace s376

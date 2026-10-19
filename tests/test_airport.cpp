@@ -315,10 +315,14 @@ void test_airport() {
         if (t.name == "CC")
             saw_cc = true;
     }
+    float t5_h = 0;
     for (const auto& b : jfk.buildings)
-        if (b.name == "T5")
+        if (b.name == "T5") {
             saw_t5 = true;
+            t5_h = b.height_m;
+        }
     CHECK(saw_c1 && saw_u1 && !saw_cc && saw_t5);
+    CHECK(t5_h >= 24.f); // readable at 3 nm; schematic T5 is not a shed
     CHECK(jfk.has_beacon && jfk.tower_h_m > 10.f);
     CHECK(jfk.roads.size() >= 4);
     CHECK(jfk.routes.size() >= 12);

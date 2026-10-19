@@ -817,7 +817,7 @@ bool write_kjfk_farfield_subset(const std::string& dir) {
         double r_km;
         int n;
     };
-    const LodBox lods[] = {{0, 4.0, 32}, {1, 28.0, 48}, {2, kFarFieldKm, 64}};
+    const LodBox lods[] = {{0, 8.0, 64}, {1, 28.0, 48}, {2, kFarFieldKm, 64}};
     auto paint = [&](DemGrid& dem, ImageRgb& img) {
         img.w = dem.w;
         img.h = dem.h;
@@ -831,7 +831,12 @@ bool write_kjfk_farfield_subset(const std::string& dir) {
                 std::uint8_t r = 0, g = 0, b = 0;
                 bool water = false;
                 kjfk_subset_land_rgb(lat, lon, r, g, b, water);
-                dem.z_m[static_cast<std::size_t>(y * dem.w + x)] = water ? 0.f : 4.f;
+                const bool jfk_pad =
+                    lat > 40.626 && lat < 40.662 && lon > -73.828 && lon < -73.752;
+                if (jfk_pad && !water)
+                    dem.z_m[static_cast<std::size_t>(y * dem.w + x)] = 4.f;
+                else
+                    dem.z_m[static_cast<std::size_t>(y * dem.w + x)] = water ? 0.f : 4.f;
                 const int o = (y * img.w + x) * 3;
                 img.rgb[static_cast<std::size_t>(o + 0)] = r;
                 img.rgb[static_cast<std::size_t>(o + 1)] = g;

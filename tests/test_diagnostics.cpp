@@ -138,7 +138,19 @@ void test_diagnostics() {
         const auto passes = s376::format_gpu_pass_table(8.4f, false);
         CHECK(passes.find("atmosphere") != std::string::npos);
         CHECK(passes.find("total") != std::string::npos);
-        CHECK(passes.find("shadows") == std::string::npos);
+        CHECK(passes.find("\tshadows\t") == std::string::npos);
+        CHECK(passes.find("gta") != std::string::npos);
+        CHECK(passes.find("csm_shadows") != std::string::npos);
+        CHECK(passes.find("hdr_bloom") != std::string::npos);
+        CHECK(passes.find("wet_runway") != std::string::npos);
+        CHECK(passes.find("haze") != std::string::npos);
+        CHECK(passes.find("stable_aa") != std::string::npos);
+        const auto gta_on = s376::format_gta_stack_lines(true);
+        CHECK(gta_on.find("csm_shadows") != std::string::npos);
+        CHECK(gta_on.find("0.85") != std::string::npos);
+        const auto gta_off = s376::format_gta_stack_lines(false);
+        CHECK(gta_off.find("csm_shadows") != std::string::npos);
+        CHECK(gta_off.find("0.00") != std::string::npos);
     }
 
     const char* old_dpy = std::getenv("DISPLAY");

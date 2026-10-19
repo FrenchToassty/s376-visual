@@ -952,18 +952,24 @@ record_approach() {
     local d="$1" mem="$2" tod="$3" stem="$4"
     local fps="${5:-30}"
     local extra=()
+    local rwy="04R"
     if [[ "${6:-}" == "demo" ]]; then
         extra+=(--demo kjfk --six-mile-final --start 6nm)
+    elif [[ "${6:-}" == "demo13l" ]]; then
+        extra+=(--demo kjfk --rwy 13L --six-mile-final --start 6nm)
+        rwy="13L"
+    elif [[ "${6:-}" == "demowet" ]]; then
+        extra+=(--demo kjfk --six-mile-final --start 6nm --wet)
     fi
     wait_gpu
     local front="$d/${stem}-front.mp4"
     local wrap="$d/${stem}-wrap.mp4"
     if command -v ffmpeg >/dev/null 2>&1; then
         ig "$mem" --cache-dir "$KJFK" --quality gtx980ti --tod "$tod" \
-            --channel mid_left --approach KJFK:04R --start-agl 2000 --gs 3.0 \
+            --channel mid_left --approach "KJFK:$rwy" --start-agl 2000 --gs 3.0 \
             --kts 140 --fps "$fps" "${extra[@]}" --record "$front"
         ig "$mem" --cache-dir "$KJFK" --quality gtx980ti --tod "$tod" \
-            --channel all --approach KJFK:04R --start-agl 2000 --gs 3.0 \
+            --channel all --approach "KJFK:$rwy" --start-agl 2000 --gs 3.0 \
             --kts 140 --fps "$fps" "${extra[@]}" --record "$wrap"
         append_summary "$stem" \
             "result: PASS" \
@@ -972,10 +978,10 @@ record_approach() {
             "ffmpeg: yes"
     else
         ig "$mem" --cache-dir "$KJFK" --quality gtx980ti --tod "$tod" \
-            --channel mid_left --approach KJFK:04R --start-agl 2000 --gs 3.0 \
+            --channel mid_left --approach "KJFK:$rwy" --start-agl 2000 --gs 3.0 \
             --kts 140 --fps "$fps" "${extra[@]}" --record "$d/${stem}-front.png"
         ig "$mem" --cache-dir "$KJFK" --quality gtx980ti --tod "$tod" \
-            --channel all --approach KJFK:04R --start-agl 2000 --gs 3.0 \
+            --channel all --approach "KJFK:$rwy" --start-agl 2000 --gs 3.0 \
             --kts 140 --fps "$fps" "${extra[@]}" --record "$d/${stem}-wrap.png"
         echo "ffmpeg missing — kept PNG frames" | tee "$d/NO-FFMPEG.txt"
         append_summary "$stem" \
@@ -997,6 +1003,8 @@ step_demo_kjfk_day() {
     # Live 60 Hz KJFK 04R demo (day). Repeat so Joey has a second take.
     record_approach "$1" "$2" 12 "demo-kjfk-day" 60 demo
     record_approach "$1" "$2" 12 "demo-kjfk-day-b" 60 demo
+    record_approach "$1" "$2" 12 "demo-kjfk-13l" 60 demo13l
+    record_approach "$1" "$2" 19 "demo-kjfk-dusk-wet" 60 demowet
 }
 
 step_demo_kjfk_night() {
@@ -1054,7 +1062,13 @@ step_skyline_water() {
         shot "$mem" "$d/shots/kjfk_04r_0.15nm_tod${tod}_front.ppm" \
             --cache-dir "$KJFK" --at KJFK:04R:0.15 --tod "$tod" \
             --channel mid_left --quality gtx980ti
+        shot "$mem" "$d/shots/kjfk_13l_6nm_tod${tod}_front.ppm" \
+            --cache-dir "$KJFK" --at KJFK:13L:6 --tod "$tod" \
+            --channel mid_left --quality gtx980ti
     done
+    shot "$mem" "$d/shots/kjfk_13l_6nm_tod19_wet_front.ppm" \
+        --cache-dir "$KJFK" --at KJFK:13L:6 --tod 19 --wet \
+        --channel mid_left --quality gtx980ti
     shot "$mem" "$d/shots/kjfk_12k_hdg036_tod12_front.ppm" \
         --cache-dir "$KJFK" --at KJFK --alt 12000 --hdg 036 --tod 12 \
         --channel mid_left --quality gtx980ti

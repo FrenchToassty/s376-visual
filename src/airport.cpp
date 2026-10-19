@@ -837,12 +837,12 @@ void building_palette(const Building& b, float& wr, float& wg, float& wb, float&
         rb = 0.22f;
     } else if (has("terminal") || has("T1") || has("T4") || has("T5") || has("T7") || has("T8") ||
                has("ITB") || has("TBIT") || has("main-term") || has("train_station")) {
-        wr = 0.64f;
-        wg = 0.62f;
-        wb = 0.58f;
-        rr = 0.26f;
-        rg = 0.28f;
-        rb = 0.30f;
+        wr = 0.78f;
+        wg = 0.74f;
+        wb = 0.66f;
+        rr = 0.22f;
+        rg = 0.24f;
+        rb = 0.26f;
     }
     float h = 0.f;
     for (unsigned char c : key)
@@ -982,11 +982,11 @@ Airport kjfk_public() {
     a.taxiways.push_back(parallel_taxi("B", a.runways[1], -80.0));
     a.taxiways.push_back(parallel_taxi("Z", a.runways[3], 80.0));
     a.aprons.push_back(box_apron("T4", 40.6445, -73.7780, 40.0, 1000, 450, a.elev_m));
-    a.buildings.push_back(box_building("T4", 40.6445, -73.7780, 40.0, 380, 80, 22.f));
-    a.buildings.push_back(box_building("T5", 40.6410, -73.7870, 121.0, 280, 70, 18.f));
-    a.buildings.push_back(box_building("T8", 40.6468, -73.7895, 121.0, 260, 70, 20.f));
-    a.buildings.push_back(box_building("T1", 40.6438, -73.7908, 121.0, 240, 70, 18.f));
-    a.buildings.push_back(box_building("T7", 40.6488, -73.7832, 40.0, 220, 65, 18.f));
+    a.buildings.push_back(box_building("T4", 40.6445, -73.7780, 40.0, 380, 90, 28.f));
+    a.buildings.push_back(box_building("T5", 40.6410, -73.7870, 121.0, 300, 80, 26.f));
+    a.buildings.push_back(box_building("T8", 40.6468, -73.7895, 121.0, 280, 80, 24.f));
+    a.buildings.push_back(box_building("T1", 40.6438, -73.7908, 121.0, 260, 80, 24.f));
+    a.buildings.push_back(box_building("T7", 40.6488, -73.7832, 40.0, 240, 75, 22.f));
     a.buildings.push_back(box_building("hangar", 40.6515, -73.7940, 121.0, 180, 70, 16.f));
     a.buildings.push_back(box_building("cargo", 40.6550, -73.7720, 40.0, 200, 80, 14.f));
     add_kjfk_public_scenery(a);

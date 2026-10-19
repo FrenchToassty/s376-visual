@@ -75,6 +75,12 @@ float point_size_px(float tod_hours, float hat_ft, float range_m = 0.f);
 // without letting horizon ALS grow. Other kinds stay at 1.
 float type_size_boost(LightKind kind);
 float type_range_scale(LightKind kind); // 1 = full kMaxRangeFt
+// ALSF-2 / MALSR / SFL / REIL: daylight additive stack over water.
+bool is_als_family(LightKind kind);
+// Day size cap (px) so 0.6 nm noon ALS is a bar, not a bay flare.
+float day_als_size_px(LightKind kind, float night_w, float size_px);
+// Day intensity scale (1 at night). ALS family is ~0.28 at noon.
+float day_als_intensity(LightKind kind, float night_w);
 float max_range_m();
 // Inverse-square-ish fade; approach/PAPI keep a readable floor at 3 nm.
 float range_visibility(LightKind kind, float range_m);

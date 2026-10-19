@@ -476,8 +476,8 @@ void main() {
     col = mix(uFogColor, col, f);
     // Distant hangar/jetbridge walls become hairline cards. Lift them
     // into aerial haze so they are not floating black slivers.
-    if (mat > 2.5 && mat < 4.5 && vEyeDist > 2800.0) {
-        float k = clamp((vEyeDist - 2800.0) / 7000.0, 0.0, 0.62);
+    if (mat > 2.5 && mat < 4.5 && vEyeDist > 8000.0) {
+        float k = clamp((vEyeDist - 8000.0) / 14000.0, 0.0, 0.28);
         col = mix(col, uFogColor, k);
         col = max(col, uFogColor * 0.28);
     }
@@ -655,8 +655,8 @@ void main() {
     float r2 = dot(pc, pc);
     if (r2 > 1.0)
         discard;
-    float core = exp(-r2 * 3.2);
-    float halo = exp(-r2 * 0.40) * mix(0.05, 0.85, uNight) * uBloom;
+    float core = exp(-r2 * mix(9.0, 3.2, uNight));
+    float halo = exp(-r2 * 0.40) * mix(0.0, 0.85, uNight) * uBloom;
     float fogH = exp(-uFogDensity * vEyeDist * 0.12);
     float f = exp(-uFogDensity * uFogDensity * vEyeDist * vEyeDist);
     float a = vCol.a * (core + halo * fogH) * clamp(f, 0.0, 1.0);
@@ -1532,9 +1532,15 @@ osg::Node* make_dem_patch(const CacheRegion& cache, float aniso = 16.f) {
             lons[static_cast<std::size_t>(i)] = lon;
             double z = dem.z_m[static_cast<std::size_t>(i)];
             const float cover = geo::land_coverage(lat, lon);
-            if (cover < 0.35f && z < 4.0) {
+            const bool jfk_pad =
+                lat > 40.626 && lat < 40.662 && lon > -73.828 && lon < -73.752;
+            if (cover < 0.40f) {
                 z = 0.0; // flatten bay so 96² tiles are not a faceted green grid
                 water[static_cast<std::size_t>(i)] = 1;
+            } else if (jfk_pad && z < 10.0) {
+                // Synth land is 4 m / water 0 m. A mixed cell became the
+                // 2500 ft Manhattan-shot "tile triangle" across the pad.
+                z = 4.0;
             }
             zs[static_cast<std::size_t>(i)] = z;
         }
@@ -2321,6 +2327,8 @@ void apply_light_steps(LightGpu& g, const HostState& host) {
         }
         k *= 1.f + 0.85f * night; // night cores must outshine the navy sky
         float sz = lights::point_size_px(tod, hat, range) * lights::type_size_boost(kind);
+        sz = lights::day_als_size_px(kind, night, sz);
+        k *= lights::day_als_intensity(kind, night);
         if (kind == LightKind::Vasi) {
             sz = std::min(8.f, std::max(5.8f, sz));
             k = std::max(k, 1.15f); // 2W2R must bloom a little in daylight
@@ -3528,6 +3536,9 @@ class OsgRenderer final : public Renderer {
                     ss->setAttributeAndModes(new osg::PolygonOffset(-4.f, -4.f),
                                              osg::StateAttribute::ON);
             }
+            // Coarse tiles must not cast the 2500 ft "tile triangle" shadow.
+            if (t.lod != 0)
+                no_shadow(node.get());
             tiles_root_->addChild(node);
             ResidentTile r;
             r.path = t.path;

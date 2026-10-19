@@ -53,6 +53,8 @@ void usage() {
            "  --headless            run the host receiver with no GL window\n"
            "  --demo [kjfk]         bare --demo: in-process synth to 127.0.0.1 (CI)\n"
            "                        --demo kjfk: fakehost loopback, six-mile-final, 6 nm\n"
+           "  --rwy ID              --demo kjfk runway (04R default, 13L)\n"
+           "  --wet                 --demo / shot: runway condition wet (same as --rwy-cond 2)\n"
            "  --six-mile-final      --demo kjfk: gear down / flaps 30 from frame 1 (default)\n"
            "  --start DIST          --demo kjfk start: 6nm (default), 6sm, 10nm, 11km\n"
            "  --reply-port PORT     type-200 HAT reply port (default host.reply_port=2301)\n"
@@ -173,6 +175,7 @@ int main(int argc, char** argv) {
     bool solar_astronomy = false;
     int shot_rwy_cond = 0;
     bool have_shot_rwy = false;
+    std::string rwy_override;
     bool do_bench = false;
     bool offscreen = false;
     int mem_budget_mb = -1;
@@ -282,6 +285,11 @@ int main(int argc, char** argv) {
             shot_tod = std::stof(need(a.c_str()));
         } else if (a == "--solar-astronomy") {
             solar_astronomy = true;
+        } else if (a == "--rwy") {
+            rwy_override = need(a.c_str());
+        } else if (a == "--wet") {
+            have_shot_rwy = true;
+            shot_rwy_cond = 2;
         } else if (a == "--rwy-cond") {
             have_shot_rwy = true;
             shot_rwy_cond = std::stoi(need(a.c_str()));
@@ -378,6 +386,12 @@ int main(int argc, char** argv) {
     }
     if (demo_kjfk) {
         demo = true;
+        if (!rwy_override.empty() && approach_spec.empty()) {
+            std::string rw = rwy_override;
+            for (char& c : rw)
+                c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            approach_spec = "KJFK:" + rw;
+        }
         if (approach_spec.empty() && at_spec.empty())
             approach_spec = "KJFK:04R";
         if (quality_override.empty()) {

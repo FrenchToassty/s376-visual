@@ -2,6 +2,7 @@
 #include "s376/geo.hpp"
 #include "s376/terrain.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -223,6 +224,27 @@ void test_terrain() {
     {
         const auto far = (tmp / "kjfk-farfield").string();
         CHECK(s376::write_kjfk_farfield_subset(far));
+        {
+            const auto dem = s376::DemGrid::load(far + "/lod0/t0_0/elev.s376dem");
+            CHECK(dem.w >= 64 && dem.h >= 64);
+            bool pad_flat = true;
+            for (int y = 0; y < dem.h && pad_flat; ++y) {
+                const double lat =
+                    dem.north - (dem.north - dem.south) * y / std::max(1, dem.h - 1);
+                for (int x = 0; x < dem.w; ++x) {
+                    const double lon =
+                        dem.west + (dem.east - dem.west) * x / std::max(1, dem.w - 1);
+                    if (lat <= 40.626 || lat >= 40.662 || lon <= -73.828 || lon >= -73.752)
+                        continue;
+                    if (s376::geo::land_coverage(lat, lon) < 0.40f)
+                        continue;
+                    const float z = dem.z_m[static_cast<std::size_t>(y * dem.w + x)];
+                    if (z < 3.5f || z > 4.5f)
+                        pad_flat = false;
+                }
+            }
+            CHECK(pad_flat);
+        }
         CHECK(std::filesystem::exists(far + "/ATTRIBUTION.txt"));
         CHECK(std::filesystem::exists(far + "/coverage.toml"));
         CHECK(std::filesystem::exists(far + "/region.toml"));

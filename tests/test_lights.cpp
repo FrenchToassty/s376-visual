@@ -107,6 +107,17 @@ void test_lights() {
     CHECK_NEAR(type_size_boost(s376::LightKind::Centerline), 1.18, 1e-4);
     CHECK_NEAR(type_size_boost(s376::LightKind::Threshold), 1.18, 1e-4);
     CHECK(tod_visibility(s376::LightKind::Threshold, 14.5f) > 0.35f);
+    CHECK(is_als_family(s376::LightKind::Approach));
+    CHECK(is_als_family(s376::LightKind::Flasher));
+    CHECK(!is_als_family(s376::LightKind::Vasi));
+    CHECK(!is_als_family(s376::LightKind::Edge));
+    CHECK_NEAR(day_als_intensity(s376::LightKind::Approach, 1.f), 1.0, 1e-4);
+    CHECK_NEAR(day_als_intensity(s376::LightKind::Approach, 0.f), 0.28, 1e-4);
+    CHECK_NEAR(day_als_intensity(s376::LightKind::Edge, 0.f), 1.0, 1e-4);
+    CHECK(day_als_size_px(s376::LightKind::Approach, 0.f, 8.f) <= 3.2f);
+    CHECK(day_als_size_px(s376::LightKind::Approach, 0.f, 8.f) >= 2.4f);
+    CHECK_NEAR(day_als_size_px(s376::LightKind::Approach, 1.f, 8.f), 8.0, 1e-4);
+    CHECK_NEAR(day_als_size_px(s376::LightKind::Vasi, 0.f, 6.4f), 6.4, 1e-4);
     // JO 6850.2C: inboard (box 0) is HIGHEST. On path: 2 inner red, 2 outer white.
     CHECK(!papi_box_white(3.0f, 0, 3.0f) && !papi_box_white(3.0f, 1, 3.0f));
     CHECK(papi_box_white(3.0f, 2, 3.0f) && papi_box_white(3.0f, 3, 3.0f));

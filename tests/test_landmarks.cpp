@@ -86,6 +86,10 @@ void test_landmarks() {
     CHECK(s376::find_landmark("onewtc"));
     CHECK(s376::find_landmark("432park"));
     CHECK(s376::find_landmark("hudson-30"));
+    CHECK(s376::find_landmark("empire"));
+    CHECK(s376::find_landmark("chrysler"));
+    CHECK(s376::find_landmark("citigroup"));
+    CHECK(s376::find_landmark("spruce8"));
 
     s376::SolidBvh classic;
     s376::fill_solids(classic, s376::SkylineEra::Classic, {});
@@ -186,6 +190,7 @@ void test_landmarks() {
     expect_tower(current, "wtc1-1973", false);
     expect_tower(current, "wtc2-1973", false);
     expect_tower(current, "onewtc", true);
+    expect_tower(current, "empire", true);
 
     {
         s376::SolidBvh bvh;

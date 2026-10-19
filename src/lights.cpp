@@ -229,6 +229,29 @@ float type_size_boost(LightKind kind) {
     return 1.f;
 }
 
+bool is_als_family(LightKind kind) {
+    return kind == LightKind::Approach || kind == LightKind::Strobe ||
+           kind == LightKind::Flasher || kind == LightKind::Reil;
+}
+
+float day_als_size_px(LightKind kind, float night_w, float size_px) {
+    if (!std::isfinite(size_px) || size_px < 0.f)
+        size_px = 0.f;
+    if (!is_als_family(kind) || night_w >= 0.20f)
+        return size_px;
+    // Noon 0.6 nm ALSF-2 over Jamaica Bay: hundreds of 8 px additive
+    // discs became a lens flare. Keep the bar, kill the bloom.
+    const float cap = 3.2f - 0.6f * (1.f - night_w / 0.20f);
+    return std::min(size_px, std::max(2.4f, cap));
+}
+
+float day_als_intensity(LightKind kind, float night_w) {
+    if (!is_als_family(kind) || night_w >= 0.20f)
+        return 1.f;
+    const float t = night_w / 0.20f;
+    return 0.28f + 0.72f * t;
+}
+
 float type_range_scale(LightKind kind) {
     switch (kind) {
     case LightKind::Approach:
