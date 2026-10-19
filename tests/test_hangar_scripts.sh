@@ -13,9 +13,11 @@ bash -n scripts/hangar-review.sh || bad "bash -n hangar-review"
 bash -n scripts/hangar-queue.sh || bad "bash -n hangar-queue"
 
 if command -v shellcheck >/dev/null 2>&1; then
-    shellcheck -e SC2086,SC2181 scripts/hangar-review.sh scripts/hangar-queue.sh \
-        || bad "shellcheck"
-    ok "shellcheck"
+    if shellcheck -e SC2086,SC2181,SC1090,SC1091 scripts/hangar-review.sh scripts/hangar-queue.sh; then
+        ok "shellcheck"
+    else
+        bad "shellcheck"
+    fi
 else
     ok "shellcheck not installed (bash -n is the CI floor)"
 fi

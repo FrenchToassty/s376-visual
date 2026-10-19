@@ -445,7 +445,7 @@ capped() {
 
 load_limits() {
     [[ -f "$OUT/limits" ]] || return 0
-    # shellcheck disable=SC1090
+    # shellcheck disable=SC1090,SC1091
     source "$OUT/limits"
 }
 

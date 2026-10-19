@@ -312,7 +312,7 @@ Frame ApproachProfile::step(double dt) {
         // Gentle lateral wander (S-turn of 30 ft) with consistent bank,
         // faded out below 1000 ft and gone by 300 ft.
         const double fade = clampd((h_ - 300.0) / 700.0, 0.0, 1.0);
-        const double w = 2 * M_PI / 40.0;
+        const double w = 2 * geo::kPi / 40.0;
         y_ = 30.0 * fade * std::sin(w * t_);
         const double lat_acc = -30.0 * fade * w * w * std::sin(w * t_);
         roll_ = geo::rad2deg(std::atan2(lat_acc, 32.174));
