@@ -447,8 +447,8 @@ void main() {
         float mortar = smoothstep(0.08, 0.18, abs(fract(fu.x * 2.0) - 0.5));
         albedo *= mix(0.82, 1.0, mortar);
         albedo = mix(albedo, albedo * vec3(0.22, 0.28, 0.36), win * 0.70);
-        float glow = win * uNight * (0.28 + 0.72 * hash(floor(fu)));
-        albedo += vec3(1.0, 0.78, 0.42) * glow * 1.65;
+        float glow = win * uNight * (0.40 + 0.60 * hash(floor(fu)));
+        albedo += vec3(1.0, 0.82, 0.48) * glow * 2.35;
         albedo *= 0.75 + 0.25 * ndl;
         albedo *= mix(1.0, 0.85 + 0.15 * uSsao, 1.0);
     } else if (mat > 3.5 && mat < 4.5) {
@@ -1534,13 +1534,20 @@ osg::Node* make_dem_patch(const CacheRegion& cache, float aniso = 16.f) {
             const float cover = geo::land_coverage(lat, lon);
             const bool jfk_pad =
                 lat > 40.626 && lat < 40.662 && lon > -73.828 && lon < -73.752;
-            if (cover < 0.40f) {
-                z = 0.0; // flatten bay so 96² tiles are not a faceted green grid
-                water[static_cast<std::size_t>(i)] = 1;
-            } else if (jfk_pad && z < 10.0) {
+            const bool dem_wet = z < 0.80;
+            const bool dem_dry = z > 1.60;
+            if (jfk_pad && z < 10.0 && !dem_wet) {
                 // Synth land is 4 m / water 0 m. A mixed cell became the
                 // 2500 ft Manhattan-shot "tile triangle" across the pad.
                 z = 4.0;
+            } else if (dem_dry && cover > 0.20f) {
+                // 1 m 3DEP barrier / pad wins over the coarse GSHHS box.
+            } else if (dem_wet && cover < 0.85f) {
+                z = 0.0;
+                water[static_cast<std::size_t>(i)] = 1;
+            } else if (cover < 0.40f) {
+                z = 0.0; // flatten bay so 96² tiles are not a faceted green grid
+                water[static_cast<std::size_t>(i)] = 1;
             }
             zs[static_cast<std::size_t>(i)] = z;
         }
@@ -2350,6 +2357,11 @@ void apply_light_steps(LightGpu& g, const HostState& host) {
         if (kind == LightKind::Flasher && seq >= 0 && !lights::sfl_on(t_s, seq))
             k = 0.f;
         osg::Vec4 b = g.base[i];
+        {
+            float rr = b.r(), gg = b.g(), bb = b.b();
+            lights::day_als_rgb(kind, night, rr, gg, bb);
+            b = osg::Vec4(rr, gg, bb, b.a());
+        }
         if (have_eye && i < g.rev.size() && g.rev[i].a() >= 0.f) {
             double brg = 0;
             geo::inverse_wgs84(host.eye.lat_deg, host.eye.lon_deg, g.lat[i], g.lon[i], &brg);

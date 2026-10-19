@@ -234,6 +234,26 @@ double lerp_coast(double lat, const double* lats, const double* lons, int n) {
     return lons[n - 1];
 }
 
+// Soft corridor around a polyline (degrees). Used for thin barrier islands
+// where a lat/lon box paints a fat rectangle into Jamaica Bay / the Atlantic.
+float corridor(double lat, double lon, const double* lats, const double* lons, int n,
+               float half_deg) {
+    float best = 1e9f;
+    for (int i = 0; i < n - 1; ++i) {
+        const double ax = lons[i], ay = lats[i];
+        const double bx = lons[i + 1], by = lats[i + 1];
+        const double vx = bx - ax, vy = by - ay;
+        const double wx = lon - ax, wy = lat - ay;
+        const double vv = vx * vx + vy * vy;
+        double t = vv > 1e-12 ? (wx * vx + wy * vy) / vv : 0.0;
+        t = std::max(0.0, std::min(1.0, t));
+        const float dx = static_cast<float>(lon - (ax + t * vx));
+        const float dy = static_cast<float>(lat - (ay + t * vy));
+        best = std::min(best, std::sqrt(dx * dx + dy * dy));
+    }
+    return 1.f - smooth01(half_deg * 0.55f, half_deg * 1.45f, best);
+}
+
 } // namespace
 
 float land_coverage(double lat, double lon) {
@@ -263,7 +283,15 @@ float land_coverage(double lat, double lon) {
     land = std::min(land, 1.f - 0.96f * soft_box(lat, lon, 40.598, 40.652, -73.900, -73.778, 0.008));
     // South/east Jamaica Bay — 04L/04R short final sits over water, not the LI box.
     land = std::min(land, 1.f - 0.96f * soft_box(lat, lon, 40.588, 40.625, -73.812, -73.742, 0.005));
-    land = std::max(land, soft_box(lat, lon, 40.545, 40.588, -73.96, -73.73, 0.008)); // Rockaway
+    // Bay north of the thin Rockaway corridor (the LI fade still painted it land).
+    land = std::min(land, 1.f - 0.96f * soft_box(lat, lon, 40.568, 40.598, -73.900, -73.790, 0.004));
+    // Rockaway / Breezy Point is a thin barrier (OSM/NOAA shoreline), not a
+    // 0.04° rectangle. A fat box painted the bay and the Atlantic as land.
+    static const double rlat[] = {40.5475, 40.5540, 40.5605, 40.5668, 40.5728,
+                                  40.5788, 40.5850, 40.5912, 40.5970};
+    static const double rlon[] = {-73.9440, -73.9220, -73.9000, -73.8780, -73.8560,
+                                  -73.8340, -73.8100, -73.7860, -73.7600};
+    land = std::max(land, corridor(lat, lon, rlat, rlon, 9, 0.0032f)); // ~350 m half-width
     land = std::max(land, soft_box(lat, lon, 40.626, 40.662, -73.828, -73.752, 0.006)); // JFK field
     land = std::max(land, soft_box(lat, lon, 41.52, 42.10, -70.62, -69.90, 0.04));     // Cape Cod
     land = std::max(land, soft_box(lat, lon, 42.20, 42.48, -71.20, -70.85, 0.03));     // Boston neck

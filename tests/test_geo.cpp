@@ -76,6 +76,8 @@ void test_geo() {
     CHECK(s376::geo::land_coverage(40.620, -73.774) < 0.40);   // 04R short final over the bay
     CHECK(s376::geo::land_coverage(40.500, -73.800) < 0.25);   // Atlantic south of Rockaway
     CHECK(s376::geo::land_coverage(40.565, -73.850) > 0.45);   // Rockaway barrier
+    CHECK(s376::geo::land_coverage(40.586, -73.860) < 0.35);   // Jamaica Bay (Grassy Bay)
+    CHECK(s376::geo::land_coverage(40.552, -73.850) < 0.30);   // Atlantic south of barrier
     CHECK(s376::geo::land_coverage(42.3656, -71.0096) > 0.55); // KBOS
     CHECK(s376::geo::land_coverage(37.6188, -122.3754) > 0.50); // KSFO pad
     CHECK(s376::geo::land_coverage(47.4502, -122.3088) > 0.50); // KSEA
